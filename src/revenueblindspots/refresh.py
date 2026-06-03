@@ -15,8 +15,7 @@ Caller-spezifische Unterschiede werden über zwei Parameter kontrolliert:
     man später nachvollziehen kann wer den Snapshot geschrieben hat.
 
 Auth-Quellen (in dieser Reihenfolge probiert):
-  1. ``GCP_SERVICE_ACCOUNT_JSON`` env-var enthält JSON inline (GitHub Action,
-     Docker-Secret).
+  1. ``GCP_SERVICE_ACCOUNT_JSON_FILE`` env-var zeigt auf ein Service-Account-File.
   2. ``GOOGLE_APPLICATION_CREDENTIALS`` env-var zeigt auf ein Service-Account-File.
   3. gcloud Application Default Credentials (lokaler Dev nach
      ``gcloud auth application-default login``).
@@ -43,10 +42,9 @@ def get_bigquery_client():
     from google.cloud import bigquery
     from google.oauth2 import service_account
 
-    sa_json = os.environ.get("GCP_SERVICE_ACCOUNT_JSON")
-    if sa_json:
-        creds_info = json.loads(sa_json)
-        creds = service_account.Credentials.from_service_account_info(creds_info)
+    sa_json_file = os.environ.get("GCP_SERVICE_ACCOUNT_JSON_FILE")
+    if sa_json_file and Path(sa_json_file).exists():
+        creds = service_account.Credentials.from_service_account_file(sa_json_file)
         return bigquery.Client(credentials=creds, project=creds.project_id)
 
     sa_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
