@@ -1,0 +1,31 @@
+# Pre-commit hooks for RevenueBlindSpots
+# Install once after `uv sync --extra dev`:   pre-commit install
+# Manual run on whole repo:                   pre-commit run --all-files
+
+repos:
+  # Generic hygiene checks.
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-added-large-files
+        args: ["--maxkb=2000"]   # Catch accidental data file commits.
+      - id: check-merge-conflict
+
+  # Python linting + formatting (single tool, fast).
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # Strip Jupyter notebook outputs to keep git diffs reviewable.
+  # Cell outputs can be regenerated locally via "Run All".
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.7.1
+    hooks:
+      - id: nbstripout
