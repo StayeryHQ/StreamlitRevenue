@@ -1,7 +1,7 @@
 """Snapshot-Refresh - direkter Draht zu BigQuery.
 
 Die Page macht genau zwei Dinge:
-  1. Zeigt den Status des aktuellen lokalen Parquet-Snapshots an (was ist da,
+  1. Zeigt den Status d es aktuellen lokalen Parquet-Snapshots an (was ist da,
      wie alt, wie viele Reservierungen).
   2. Auf Klick auf den Refresh-Button: ruft `run_refresh()` auf, das BigQuery
      anzapft, Feature-Engineering macht, das neue Parquet schreibt, und die
