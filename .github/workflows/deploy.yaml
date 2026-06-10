@@ -97,5 +97,5 @@ jobs:
           registry_host: "ghcr.io"
           registry_user: ${{ github.actor }}
           registry_pass: ${{ secrets.GITHUB_TOKEN }}
-          file: ${{ 'docker-compose.deploy.yaml' }}
+          file: ${{ 'compose.yaml' }}
           env_file: ./deployment.env
