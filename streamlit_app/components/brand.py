@@ -113,6 +113,11 @@ _BRAND_CSS = Template(r"""
    ------------------------------------------------------------------------- */
 #MainMenu, footer, header[data-testid="stHeader"] { visibility: hidden; }
 [data-testid="stToolbar"] { visibility: hidden; }
+[data-testid="stSidebarCollapsedControl"],
+[data-testid="collapsedControl"],
+[data-testid="stExpandSidebarButton"] {
+    visibility: visible !important;
+}
 
 .block-container {
     padding-top: 1.4rem !important;
