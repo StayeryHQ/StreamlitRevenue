@@ -40,7 +40,6 @@ COPY src ./src
 COPY configs ./configs
 COPY .streamlit ./.streamlit
 COPY pyproject.toml ./
-COPY service-account.json ./service-account.json
 
 # Set environment variables
 ENV PATH="/opt/venv/bin:$PATH" \
