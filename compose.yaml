@@ -1,5 +1,6 @@
 services:
   app:
+    hostname: streamlit-revenue
     image: ghcr.io/stayeryhq/streamlit_revenue:${APP_IMAGE_TAG}
     networks:
       - streamlit
