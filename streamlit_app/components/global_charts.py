@@ -45,7 +45,7 @@ def visual_scorecard(
 
     fig, ax = plt.subplots(figsize=(11, max(3.2, 0.42 * len(score) + 1.4)))
     y = np.arange(len(score))
-    GREY = "#B0B0B0"
+    GREY = "#666666"  # Brand-Neutral Grey
     bar_colors = [
         GREY
         if pd.isna(d)
@@ -78,7 +78,7 @@ def visual_scorecard(
             )
         ly = score["ist_old"].iloc[i]
         if ly > 0:
-            ax.plot([ly, ly], [i - 0.30, i + 0.30], color="#888", linewidth=1.6, linestyle="--")
+            ax.plot([ly, ly], [i - 0.30, i + 0.30], color="#666666", linewidth=1.6, linestyle="--")
         d = score["d_plan_pct"].iloc[i]
         if pd.notna(d):
             ax.text(
@@ -101,7 +101,7 @@ def visual_scorecard(
         Patch(facecolor=color("red"), label=f"IST ≤ PLAN {red_pct:+g} %"),
         Patch(facecolor=GREY, label="kein PLAN hinterlegt"),
         Line2D([0], [0], color=color("black"), linewidth=2.2, label="PLAN"),
-        Line2D([0], [0], color="#888", linewidth=1.6, linestyle="--", label=f"IST {year_old}"),
+        Line2D([0], [0], color="#666666", linewidth=1.6, linestyle="--", label=f"IST {year_old}"),
     ]
     ax.legend(handles=handles, frameon=False, fontsize=9, loc="lower right")
     ax.set_xlim(0, max(score["ist_new"].max(), score["plan_new"].max()) * 1.15)
@@ -142,7 +142,7 @@ def channel_mix_donuts(raw_channel: pd.DataFrame, year_old: int, year_new: int):
         )
         top = pd.concat([top, other], ignore_index=True)
 
-    pal = _pal() + ["#7a7a7a", "#cccccc"]
+    pal = _pal() + ["#666666", "#CCCCCC"]  # Overflow: Neutral Grey + Tint
     fig, axes = plt.subplots(1, 2, figsize=(13, 5.0))
     for ax, vals, lbl in [
         (axes[0], top["rev_old"].values, year_old),
@@ -269,7 +269,7 @@ def location_revenue_heatmap(
         figsize=(max(10, 1 + 1.0 * piv.shape[1]), max(3.5, 0.45 * piv.shape[0] + 1.5))
     )
     cmap = mcolors.LinearSegmentedColormap.from_list(
-        "yel", ["#FFFFFF", color("yellow"), color("orange")]
+        "yel", [color("white"), color("yellow"), color("orange")]
     )
     im = ax.imshow(piv.values, cmap=cmap, aspect="auto")
     ax.set_xticks(range(len(piv.columns)))
@@ -332,7 +332,7 @@ def channel_x_location_heatmap(
         figsize=(max(10, 1.0 + 1.0 * piv_pct.shape[1]), max(3.5, 0.45 * piv_pct.shape[0] + 1.5))
     )
     cmap = mcolors.LinearSegmentedColormap.from_list(
-        "yelgrn", ["#FFFFFF", color("yellow"), color("green")]
+        "yelgrn", [color("white"), color("yellow"), color("green")]
     )
     im = ax.imshow(piv_pct.values, cmap=cmap, aspect="auto", vmin=0, vmax=80)
     ax.set_xticks(range(len(piv_pct.columns)))
@@ -408,7 +408,7 @@ def channel_los_heatmap_granular(
 
     rel = ((b / a.replace(0, np.nan)) - 1) * 100
     cmap = mcolors.LinearSegmentedColormap.from_list(
-        "rdg", [color("red"), "#FFFFFF", color("green")]
+        "rdg", [color("red"), color("white"), color("green")]
     )
 
     fig, axes = plt.subplots(

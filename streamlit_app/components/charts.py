@@ -78,7 +78,7 @@ def pace_by_month_chart(pace_df: pd.DataFrame, label: str, year_old: int, year_n
         x,
         vals_old,
         w,
-        color="#999999",
+        color="#666666",  # Brand-Neutral Grey
         edgecolor=color("black"),
         linewidth=0.4,
         label=f"{year_old}/Today",
@@ -122,7 +122,7 @@ def landscape_kpis_chart(kpi_o, kpi_n, monthly_o, monthly_n, year_old, year_new,
     for ax, (title, key, fmt) in zip(axes, panels):
         vo, vn = kpi_o[key], kpi_n[key]
         delta = (vn / vo - 1) * 100 if vo else float("nan")
-        dcol = "#888" if np.isnan(delta) else (color("green") if delta >= 0 else color("red"))
+        dcol = "#666666" if np.isnan(delta) else (color("green") if delta >= 0 else color("red"))
         ax.set_title(title, fontsize=12, weight="bold")
         ax.text(
             0.02,
@@ -148,7 +148,7 @@ def landscape_kpis_chart(kpi_o, kpi_n, monthly_o, monthly_n, year_old, year_new,
             fmt.format(vo).replace(",", ".") + f" ({year_old})",
             transform=ax.transAxes,
             fontsize=10,
-            color="#666",
+            color="#666666",
         )
         s_o = monthly_o.set_index("stay_year_month")[key].reindex(months_o)
         s_n = monthly_n.set_index("stay_year_month")[key].reindex(months_n)
@@ -200,7 +200,7 @@ def channel_los_heatmap(nig_a, nig_b, year_old, year_new, label):
     a, b = agg(nig_a), agg(nig_b)
     rel = ((b / a.replace(0, np.nan)) - 1) * 100
     cmap = mcolors.LinearSegmentedColormap.from_list(
-        "rdg", [color("red"), "#FFFFFF", color("green")]
+        "rdg", [color("red"), color("white"), color("green")]
     )
     fig, axes = plt.subplots(1, 2, figsize=(15, 4.6), gridspec_kw={"width_ratios": [1, 1.05]})
 
@@ -301,7 +301,7 @@ def channel_purpose_los_heatmap(nig_a, nig_b, year_old, year_new, label):
             if va > 0:
                 pct[i, j] = (vb / va - 1) * 100
     cmap = mcolors.LinearSegmentedColormap.from_list(
-        "rdg", [color("red"), "#FFFFFF", color("green")]
+        "rdg", [color("red"), color("white"), color("green")]
     )
     fig, axes = plt.subplots(1, 2, figsize=(15, 5.4), gridspec_kw={"width_ratios": [1, 0.85]})
 

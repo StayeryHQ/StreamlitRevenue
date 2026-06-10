@@ -34,10 +34,10 @@ from revenueblindspots.theming import load_brand_config
 # UI-Neutrals
 # =============================================================================
 _UI = {
-    "ink": "#111111",  # primary text
-    "ink_soft": "#444444",
-    "caption": "#888888",
-    "muted": "#b8b6a8",
+    "ink": "#000000",  # primary text (Brand-Neutral Black)
+    "ink_soft": "#666666",  # secondary text (Brand-Neutral Grey)
+    "caption": "#666666",
+    "muted": "#666666",
     "bg": "#FAFAF5",  # soft off-white (sidebar, hover bg)
     "bg_warm": "#FFFCF0",  # notepad / textarea (very subtle warm)
     "border": "#ECEAE0",  # subtle dividers / card borders
@@ -101,7 +101,7 @@ _BRAND_CSS = Template(r"""
     src: url("./app/static/fonts/NeueHaasGroteskDisplay-BoldItalic.otf") format("opentype");
     font-weight: 700; font-style: italic; font-display: swap;
 }
-/* Topol - Display-Font für occasional emphasis */
+/* Topol - Headlines/Statements/Zahlen, immer ALL CAPS, nie Body Text */
 @font-face {
     font-family: "Topol";
     src: url("./app/static/fonts/Topol-Bold.otf") format("opentype");
@@ -130,17 +130,22 @@ html, body, [class*="css"], .stMarkdown, .stText, .stMetric, button, input, sele
 /* -------------------------------------------------------------------------
    2 - Headings - bold, mit dezenter Yellow-Akzent-Linie unten
    ------------------------------------------------------------------------- */
+/* H1 / Headlines / Statements → Topol Bold, ALL CAPS (Brand-Standard).
+   Kein manuelles letter-spacing (Tracking-Regel). */
 h1 {
     color: ${ink};
+    font-family: "Topol", "Neue Haas Grotesk Display Pro",
+                 "Helvetica Neue", Helvetica, Arial, sans-serif !important;
     font-weight: 700;
-    letter-spacing: -0.02em;
+    text-transform: uppercase;
     font-size: 2.4rem !important;
     margin-bottom: 0.6rem !important;
 }
+/* Sub-Headlines (kurz, scannbar) → Neue Haas, ALL CAPS */
 h2 {
     color: ${ink};
     font-weight: 600;
-    letter-spacing: -0.01em;
+    text-transform: uppercase;
     font-size: 1.55rem !important;
     margin-top: 1.4rem !important;
     margin-bottom: 0.5rem !important;
@@ -158,8 +163,8 @@ h2::after {
     background: ${yellow};
     border-radius: 1px;
 }
-h3 { color: #2a2a2a; font-weight: 600; margin-top: 1.0rem; margin-bottom: 0.4rem; }
-h4 { color: #2a2a2a; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.3rem; }
+h3 { color: ${ink}; font-weight: 600; margin-top: 1.0rem; margin-bottom: 0.4rem; }
+h4 { color: ${ink}; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.3rem; }
 
 /* -------------------------------------------------------------------------
    3 - Buttons 
@@ -174,7 +179,7 @@ h4 { color: #2a2a2a; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.3rem
     border-radius: 12px !important;
     font-weight: 500 !important;
     font-size: 0.875rem !important;
-    letter-spacing: 0.01em !important;
+    text-transform: uppercase !important;  /* CTAs → Neue Haas, ALL CAPS */
     padding: 0.55rem 1.2rem !important;
     box-shadow: 0 1px 0 rgba(0,0,0,0.04);
     transition: transform .22s cubic-bezier(.22,1,.36,1),
@@ -233,7 +238,7 @@ h4 { color: #2a2a2a; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.3rem
    4 - Sidebar
    ------------------------------------------------------------------------- */
 [data-testid="stSidebar"] {
-    background: ${bg};
+    background: ${white};
     border-right: 1px solid ${border};
 }
 [data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h2 {
@@ -275,17 +280,19 @@ h4 { color: #2a2a2a; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.3rem
     box-shadow: 0 8px 20px rgba(0,0,0,0.06), 0 2px 4px rgba(0,0,0,0.04);
 }
 [data-testid="stMetricLabel"] {
-    color: #6a6a6a;
+    color: ${caption};
     font-weight: 500;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     font-size: 0.72rem !important;
 }
+/* Zahlen → Topol Bold (Brand-Standard "Numbers / Signage") */
 [data-testid="stMetricValue"] {
     color: ${ink} !important;
+    font-family: "Topol", "Neue Haas Grotesk Display Pro",
+                 "Helvetica Neue", Helvetica, Arial, sans-serif !important;
     font-weight: 700 !important;
     font-size: 1.85rem !important;
-    letter-spacing: -0.01em;
     line-height: 1.15;
 }
 [data-testid="stMetricDelta"] {
@@ -316,7 +323,7 @@ h4 { color: #2a2a2a; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.3rem
     background: ${bg_warm};
     border-radius: 12px;
     font-family: "Neue Haas Grotesk Display Pro", "Helvetica Neue", Helvetica, Arial, sans-serif !important;
-    color: #222;
+    color: ${ink};
     transition: border-color .15s ease, box-shadow .2s ease;
 }
 .stTextArea textarea:focus {
@@ -411,7 +418,7 @@ hr {
     font-size: 0.75rem;
 }
 .stayery-totop a {
-    color: #b0b0b0;
+    color: ${caption};
     text-decoration: none;
     transition: color .12s ease;
     cursor: pointer;
@@ -440,7 +447,6 @@ hr {
     font-size: 1.0rem;
     font-weight: 700;
     color: ${ink};
-    letter-spacing: -0.01em;
     margin: 1.4rem 0 0.4rem 0;
     padding-top: 0.8rem;
     border-top: 2px solid ${yellow};

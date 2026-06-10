@@ -9,13 +9,38 @@ Vier Stile:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import streamlit as st
 
+_SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
+if str(_SRC_ROOT) not in sys.path:
+    sys.path.insert(0, str(_SRC_ROOT))
+
+from revenueblindspots.theming import color
+
+
+def _tint(hex_color: str, white_share: float = 0.88) -> str:
+    """Mischt eine Brand-Farbe Richtung Weiß (Tint für Alert-Hintergründe).
+
+    Farben kommen ausschließlich per ``color()`` aus der Brand-YAML —
+    hier wird nichts hardcodiert, nur aufgehellt.
+    """
+    h = hex_color.lstrip("#")
+    r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
+    mix = lambda c: round(c + (255 - c) * white_share)  # noqa: E731
+    return f"#{mix(r):02X}{mix(g):02X}{mix(b):02X}"
+
+
+# (Hintergrund-Tint, Border = Brand-Farbe, Icon) — abgeleitet aus der Palette:
+# alert → Red #E62828, warning → Yellow #FFE650, info → Blue #1E4BA1,
+# success → Green #08A064.
 _STYLES = {
-    "alert": ("#fde7e3", "#9a2316", "⚠"),
-    "warning": ("#fff5d6", "#9a6f00", "▲"),
-    "info": ("#e3eaf5", "#1f3d7a", "ℹ"),
-    "success": ("#e3f5ea", "#137a3a", "✓"),
+    "alert": (_tint(color("red")), color("red"), "⚠"),
+    "warning": (_tint(color("yellow"), 0.70), color("yellow"), "▲"),
+    "info": (_tint(color("blue")), color("blue"), "ℹ"),
+    "success": (_tint(color("green")), color("green"), "✓"),
 }
 
 
@@ -36,7 +61,7 @@ def alert_card(message: str, kind: str = "info", *, title: str | None = None) ->
     body = message.replace("\n", "<br>")
     st.markdown(
         f'<div style="background:{bg};border-left:4px solid {fg};'
-        f"color:#1a1a1a;padding:10px 14px;border-radius:4px;margin:6px 0;"
+        f"color:#000000;padding:10px 14px;border-radius:4px;margin:6px 0;"
         f'font-size:0.92em;line-height:1.45;">'
         f"{title_html}{body}</div>",
         unsafe_allow_html=True,
