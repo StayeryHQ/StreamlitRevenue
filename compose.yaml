@@ -1,0 +1,17 @@
+services:
+  app:
+    image: ghcr.io/stayeryhq/streamlit_revenue:${APP_IMAGE_TAG}
+    networks:
+      - streamlit
+    secrets:
+      - bigquery_secret
+    environment:
+      - GCP_SERVICE_ACCOUNT_JSON_FILE=/run/secrets/bigquery_secret
+
+networks:
+  streamlit:
+    external: true
+
+secrets:
+  bigquery_secret:
+    external: true

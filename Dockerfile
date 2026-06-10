@@ -1,18 +1,51 @@
-# app/Dockerfile
-
-FROM python:3.12-slim
+# Ultra-optimized Alpine-based build (smallest size)
+# Warning: May have compatibility issues with some packages
+FROM python:3.12-alpine AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y \
-	build-essential \
-	curl \
-	git \
-	&& rm -rf /var/lib/apt/lists/*
+# Install build dependencies for Alpine
+RUN apk add --no-cache \
+    gcc \
+    g++ \
+    musl-dev \
+    linux-headers \
+    libffi-dev \
+    openssl-dev \
+    git
 
-COPY . .
+# Copy only requirements first
+COPY requirements.txt .
 
-RUN pip3 install -r requirements.txt
+# Install dependencies
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Stage 2: Runtime
+FROM python:3.12-alpine
+
+WORKDIR /app
+
+# Install only curl for healthcheck
+RUN apk add --no-cache curl libstdc++
+
+# Copy virtual environment from builder
+COPY --from=builder /opt/venv /opt/venv
+
+# Copy application code
+COPY streamlit_app ./streamlit_app
+COPY src ./src
+COPY configs ./configs
+COPY .streamlit ./.streamlit
+COPY pyproject.toml ./
+COPY service-account.json ./service-account.json
+
+# Set environment variables
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 
 EXPOSE 8501
 
