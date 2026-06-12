@@ -4,6 +4,7 @@ services:
     image: ghcr.io/stayeryhq/streamlit_revenue:${APP_IMAGE_TAG}
     networks:
       - streamlit
+      - traefik-public
     secrets:
       - bigquery_secret
     environment:
@@ -35,6 +36,8 @@ services:
 
 networks:
   streamlit:
+    external: true
+  traefik-public:
     external: true
 
 secrets:
