@@ -292,6 +292,10 @@ _PERSIST_KEY_PREFIXES: tuple[str, ...] = (
     "b2b_",
     # Code Deep-Dive Sidebar
     "cd_",
+    # Notepad (pro Page) - ohne Re-Touch verwirft Streamlit den State des
+    # nicht-gerenderten Notepad-Widgets beim Page-Wechsel, die Notiz ginge
+    # verloren. Gleicher Schutz wie für die Filter-Widgets.
+    "notepad::",
 )
 
 _WRITE_PROTECTED_PATTERNS: tuple[str, ...] = (
