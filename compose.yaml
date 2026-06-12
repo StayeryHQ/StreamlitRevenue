@@ -23,7 +23,7 @@ services:
       - traefik.http.routers.streamlit-revenue-https.tls.certresolver=le
 
       # ForwardAuth middleware to check authentication
-      - traefik.http.middlewares.streamlit-auth.forwardauth.address=http://stayomat_web:6000/api/forward-auth/streamlit
+      - traefik.http.middlewares.streamlit-auth.forwardauth.address=http://stayomat_dev_web:6000/api/forward-auth/streamlit
       - traefik.http.middlewares.streamlit-auth.forwardauth.authResponseHeaders=X-User-Id
       - traefik.http.middlewares.streamlit-auth.forwardauth.trustForwardHeader=true
 
