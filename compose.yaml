@@ -18,7 +18,7 @@ services:
       - traefik.http.services.streamlit-revenue.loadbalancer.server.port=8501
 
       # Router for /ruby-reports path
-      - traefik.http.routers.streamlit-revenue-https.rule=Host(`dev.stayomat.de`) && PathPrefix(`/ruby-reports`)
+      - traefik.http.routers.streamlit-revenue-https.rule=Host(`dev.stayomat.de`) && PathPrefix(`/_streamlit`)
       - traefik.http.routers.streamlit-revenue-https.entrypoints=https
       - traefik.http.routers.streamlit-revenue-https.tls=true
       - traefik.http.routers.streamlit-revenue-https.tls.certresolver=le
@@ -29,7 +29,7 @@ services:
       - traefik.http.middlewares.streamlit-auth.forwardauth.trustForwardHeader=true
 
       # Strip /ruby-reports prefix before forwarding to Streamlit
-      - traefik.http.middlewares.streamlit-stripprefix.stripprefix.prefixes=/ruby-reports
+      - traefik.http.middlewares.streamlit-stripprefix.stripprefix.prefixes=/_streamlit
 
       # Apply middlewares
       - traefik.http.routers.streamlit-revenue-https.middlewares=streamlit-auth,streamlit-stripprefix
