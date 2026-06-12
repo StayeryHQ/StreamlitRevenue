@@ -63,7 +63,6 @@ def _noop_progress(_msg: str, _pct: "float | None" = None) -> None:
 
 def run_refresh(
     lookback_years: int = 3,
-    future_buffer_days: int = 180,
     fuzz_threshold: int = 85,
     properties: list[str] | None = None,
     snapshot_dir: "str | Path | None" = None,
@@ -73,9 +72,9 @@ def run_refresh(
     """Pull aus BigQuery, engineer, fuzzy-cluster, snapshot schreiben.
 
     Args:
-        lookback_years: Wie viele Jahre rückwärts pullen (default 3).
-        future_buffer_days: Wie viele Tage in die Zukunft pullen (default 180,
-            für die Pipeline-Sicht in Code Deep-Dive).
+        lookback_years: Wie viele Jahre rückwärts pullen (default 3). Der Pull
+            zieht ab ``heute - lookback_years`` ALLE zukünftigen Anreisen/
+            Nächte (keine Obergrenze) - volle Lead-Time-Pipeline.
         fuzz_threshold: rapidfuzz token_sort_ratio - höher = strenger (default 85).
         properties: Liste von hotel_codes. None oder leer → alle aus locations.yaml.
         snapshot_dir: Ziel-Pfad. None → ``$STAYERY_SNAPSHOT_DIR`` env-var, sonst
@@ -105,12 +104,13 @@ def run_refresh(
     # ----- 2. Properties + Pull-Window ----------
     if not properties:
         properties = H.all_properties()
-    pull_end = pd.Timestamp.today().normalize() + pd.Timedelta(days=future_buffer_days)
-    pull_start = (pull_end - pd.DateOffset(years=lookback_years)).normalize()
+    pull_start = (
+        pd.Timestamp.today().normalize() - pd.DateOffset(years=lookback_years)
+    ).normalize()
 
     # ----- 3. Reservations pull ----------
     progress(
-        f"Ziehe Reservations ({pull_start.date()} – {pull_end.date()}) …", 0.15
+        f"Ziehe Reservations (ab {pull_start.date()}, offen in die Zukunft) …", 0.15
     )
     _RES_COLS = ",\n    ".join(H.RES_COLUMNS)
     res_sql = f"""
@@ -118,12 +118,11 @@ def run_refresh(
         {_RES_COLS}
     FROM `{H.RES_TABLE}`
     WHERE property_code IN UNNEST(@properties)
-      AND DATE(arrival) BETWEEN @start AND @end
+      AND DATE(arrival) >= @start
     """
     params = [
         bigquery.ArrayQueryParameter("properties", "STRING", properties),
         bigquery.ScalarQueryParameter("start", "DATE", pull_start.date()),
-        bigquery.ScalarQueryParameter("end", "DATE", pull_end.date()),
     ]
     cfg = bigquery.QueryJobConfig(query_parameters=params)
     t0 = time.time()
@@ -140,7 +139,7 @@ def run_refresh(
         {_SLICE_COLS}
     FROM `{H.SLICE_TABLE}`
     WHERE property_code IN UNNEST(@properties)
-      AND serviceDate BETWEEN @start AND @end
+      AND serviceDate >= @start
     """
     cfg = bigquery.QueryJobConfig(query_parameters=params)
     t0 = time.time()
@@ -197,7 +196,7 @@ def run_refresh(
         extra_metadata={
             "fuzz_threshold": int(fuzz_threshold),
             "pull_start": pull_start.date().isoformat(),
-            "pull_end": pull_end.date().isoformat(),
+            "pull_end": "open",
             "refreshed_via": refreshed_via,
         },
     )

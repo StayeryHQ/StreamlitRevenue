@@ -7,7 +7,7 @@ print-Progress-Callback, Exit-Code setzen).
 Usage::
 
     python scripts/refresh_snapshot.py
-    python scripts/refresh_snapshot.py --lookback-years 5 --future-buffer-days 365
+    python scripts/refresh_snapshot.py --lookback-years 5
     python scripts/refresh_snapshot.py --properties FRA_SH BER_FR
     python scripts/refresh_snapshot.py --snapshot-dir gs://stayery-snapshots
 
@@ -34,9 +34,8 @@ def _parse_args() -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("--lookback-years", type=int, default=3,
-                   help="Wie weit zurück Reservations + Timeslices ziehen (default 3).")
-    p.add_argument("--future-buffer-days", type=int, default=180,
-                   help="Wie weit in die Zukunft Reservations ziehen für Pipeline (default 180).")
+                   help="Wie weit zurück Reservations + Timeslices ziehen (default 3). "
+                        "Zukunft ist offen - alle künftigen Anreisen/Nächte werden gezogen.")
     p.add_argument("--fuzz-threshold", type=int, default=85,
                    help="rapidfuzz token_sort_ratio - höher = strenger (default 85).")
     p.add_argument("--properties", nargs="*", default=None,
@@ -56,7 +55,6 @@ def main() -> None:
     try:
         meta = run_refresh(
             lookback_years=args.lookback_years,
-            future_buffer_days=args.future_buffer_days,
             fuzz_threshold=args.fuzz_threshold,
             properties=args.properties,
             snapshot_dir=args.snapshot_dir,
