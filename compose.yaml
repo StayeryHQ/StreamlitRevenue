@@ -27,6 +27,7 @@ services:
       - traefik.http.middlewares.streamlit-auth.forwardauth.address=http://stayomat_dev_web:6000/api/forward-auth/streamlit
       - traefik.http.middlewares.streamlit-auth.forwardauth.authResponseHeaders=X-User-Id
       - traefik.http.middlewares.streamlit-auth.forwardauth.trustForwardHeader=true
+      - traefik.http.middlewares.streamlit-auth.forwardauth.authRequestHeaders=Cookie
 
       # Strip /ruby-reports prefix before forwarding to Streamlit
       - traefik.http.middlewares.streamlit-stripprefix.stripprefix.prefixes=/_streamlit
