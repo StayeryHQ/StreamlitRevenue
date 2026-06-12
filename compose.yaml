@@ -17,7 +17,7 @@ services:
       - traefik.http.services.streamlit-revenue.loadbalancer.server.port=8501
 
       # Router for /ruby-reports path
-      - traefik.http.routers.streamlit-revenue-https.rule=Host(`stayomat.de`) && PathPrefix(`/ruby-reports`)
+      - traefik.http.routers.streamlit-revenue-https.rule=Host(`dev.stayomat.de`) && PathPrefix(`/ruby-reports`)
       - traefik.http.routers.streamlit-revenue-https.entrypoints=https
       - traefik.http.routers.streamlit-revenue-https.tls=true
       - traefik.http.routers.streamlit-revenue-https.tls.certresolver=le
