@@ -8,6 +8,30 @@ services:
       - bigquery_secret
     environment:
       - GCP_SERVICE_ACCOUNT_JSON_FILE=/run/secrets/bigquery_secret
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=traefik-public
+      - traefik.constraint-label=traefik-public
+
+      # Service configuration
+      - traefik.http.services.streamlit-revenue.loadbalancer.server.port=8501
+
+      # Router for /ruby-reports path
+      - traefik.http.routers.streamlit-revenue-https.rule=Host(`${APP_DOMAIN}`) && PathPrefix(`/ruby-reports`)
+      - traefik.http.routers.streamlit-revenue-https.entrypoints=https
+      - traefik.http.routers.streamlit-revenue-https.tls=true
+      - traefik.http.routers.streamlit-revenue-https.tls.certresolver=le
+
+      # ForwardAuth middleware to check authentication
+      - traefik.http.middlewares.streamlit-auth.forwardauth.address=http://stayomat_web:6000/api/forward-auth/streamlit
+      - traefik.http.middlewares.streamlit-auth.forwardauth.authResponseHeaders=X-User-Id
+      - traefik.http.middlewares.streamlit-auth.forwardauth.trustForwardHeader=true
+
+      # Strip /ruby-reports prefix before forwarding to Streamlit
+      - traefik.http.middlewares.streamlit-stripprefix.stripprefix.prefixes=/ruby-reports
+
+      # Apply middlewares
+      - traefik.http.routers.streamlit-revenue-https.middlewares=streamlit-auth,streamlit-stripprefix
 
 networks:
   streamlit:
