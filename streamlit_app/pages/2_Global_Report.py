@@ -376,6 +376,12 @@ total_ly_stay = _total(raw_stay, "ist_old")
 total_ist_cre = _total(raw_created, "ist_new")
 total_ly_cre = _total(raw_created, "ist_old")
 
+st.caption(
+    "ℹ️ Die Kacheln folgen dem Sidebar-Toggle **Späte Öffner einbeziehen**: "
+    "Standorte ohne Vorjahres-Daten sind nur enthalten, wenn der Toggle aktiv ist - "
+    "dann steht ihr NEW-Umsatz aber keinem Vorjahr gegenüber, der YoY-Vergleich ist "
+    "also leicht verzerrt. Toggle aus = späte Öffner überall raus (IST, PLAN, LY)."
+)
 c1, c2, c3, c4 = st.columns(4)
 c1.metric(
     f"IST {period_tag_new} (Stay)",
