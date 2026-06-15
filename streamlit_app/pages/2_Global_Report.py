@@ -219,7 +219,12 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     pace_pull_end = pd.Timestamp(f"{YEAR_NEW}-12-31")
     pull_start = min(pull_start, pace_pull_start)
     pull_end = max(pull_end, pace_pull_end)
-    nightly = CD.get_timeslices(start=pull_start, end=pull_end, properties=props_pick)
+    # OHNE oberes serviceDate-Limit laden: die „nach Erstellungsdatum"-Sichten
+    # brauchen auch Forward-Bookings (Anreise weit in der Zukunft). ALLE
+    # Aufenthalts-Sichten (performance_by_stay, Heatmaps, Tabellen, pace) filtern
+    # `nightly` intern selbst nach stay_date/Stay-Jahr - sie sehen also nie die
+    # Zukunfts-Nächte. So bleibt es EIN Frame im Speicher (kein zweiter Pull).
+    nightly = CD.get_timeslices(start=pull_start, end=None, properties=props_pick)
 
 reset_export(PAGE)
 
@@ -286,14 +291,6 @@ _scope_caption = (
 )
 st.caption(_scope_caption)
 
-# „Nach Erstellungsdatum"-Sichten brauchen ALLE Aufenthalte der im Zeitraum
-# ERSTELLTEN Buchungen - auch solche mit Anreise weit in der Zukunft. Das oben
-# geladene `nightly` ist nach serviceDate auf das NEW-Jahr gekappt (für die
-# Aufenthalts-Sichten korrekt), würde hier aber die Forward-Bookings abschneiden.
-# Daher für die created-Sichten OHNE oberes serviceDate-Limit nachladen.
-# props_pick ist bereits späte-Öffner-gefiltert -> der Property-Filter genügt.
-nightly_created = CD.get_timeslices(start=pull_start, end=None, properties=props_pick)
-
 disp_stay, raw_stay = GT.performance_by_stay(
     nightly,
     props_pick,
@@ -319,7 +316,7 @@ disp_chan_stay, raw_chan_stay = GT.channel_volume_by_stay(
     include_cancellations=_include_cancellations,
 )
 disp_created, raw_created = GT.performance_by_created(
-    nightly_created,
+    nightly,
     props_pick,
     start_new,
     end_new,
@@ -330,7 +327,7 @@ disp_created, raw_created = GT.performance_by_created(
     include_cancellations=_include_cancellations,
 )
 disp_chan_created, raw_chan_created = GT.channel_volume_by_created(
-    nightly_created,
+    nightly,
     start_new,
     end_new,
     start_old,
