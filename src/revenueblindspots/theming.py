@@ -23,12 +23,41 @@ from .helpers import CONFIGS_DIR
 # Path to the brand spec
 _BRAND_CONFIG: Path = CONFIGS_DIR / "stayery_brand.yaml"
 
+# Bundled brand fonts (otf) shipped with the Streamlit app.
+_FONTS_DIR: Path = Path(__file__).resolve().parents[2] / "streamlit_app" / "static" / "fonts"
+
 
 @lru_cache(maxsize=1)
 def load_brand_config() -> dict[str, Any]:
     """Load the Stayery brand spec from YAML (cached per process)."""
     with _BRAND_CONFIG.open("r", encoding="utf-8") as fh:
         return yaml.safe_load(fh)
+
+
+@lru_cache(maxsize=1)
+def _register_brand_fonts() -> list[str]:
+    """Register the bundled Stayery ``.otf`` fonts with matplotlib (once/process).
+
+    Ohne das findet matplotlib die proprietären Fonts nicht und fällt auf einen
+    Default zurück - die Charts sähen dann anders aus als die App. Returns die
+    registrierten Font-Family-Namen (z.B. ``Neue Haas Grotesk Display Pro`` aus
+    der Regular-Datei und ``Neue Haas Grotesk Text Pro`` aus den Bold/Medium-
+    Schnitten), damit sie vorne in die sans-serif-Fallback-Kette wandern.
+    """
+    from matplotlib import font_manager as _fm
+
+    registered: list[str] = []
+    if not _FONTS_DIR.is_dir():
+        return registered
+    for path in sorted(_FONTS_DIR.glob("*.otf")):
+        try:
+            _fm.fontManager.addfont(str(path))
+            name = _fm.FontProperties(fname=str(path)).get_name()
+        except Exception:
+            continue
+        if name and name not in registered:
+            registered.append(name)
+    return registered
 
 
 def _color_lookup() -> dict[str, str]:
@@ -81,9 +110,16 @@ def apply_stayery_style() -> None:
     cfg = load_brand_config()
     lookup = _color_lookup()
 
-    primary_chain = [cfg["typography"]["primary"]] + cfg["typography"][
-        "primary_fallback"
-    ]
+    # Gebündelte Brand-Fonts bei matplotlib registrieren, damit die Charts die
+    # echten Stayery-Schriften nutzen (nicht den System-Default).
+    registered = _register_brand_fonts()
+    primary = cfg["typography"]["primary"]
+    # Brand-Primary zuerst, dann die übrigen registrierten Schnitte (z.B. der
+    # Bold/Medium-Family-Name "... Text Pro"), dann die Config-Fallbacks.
+    primary_chain = [primary]
+    for fam in registered + list(cfg["typography"]["primary_fallback"]):
+        if fam not in primary_chain:
+            primary_chain.append(fam)
     palette = categorical_palette()
 
     mpl.rcParams.update(
