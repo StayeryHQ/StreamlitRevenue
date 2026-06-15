@@ -1188,16 +1188,14 @@ def pace_by_month(
     Booking ``arrival`` bestimmt den Monats-Bucket. Booking ``created`` bestimmt
     welcher Snapshot-Stand "on the books" zählt:
 
-      - ``ist_eom_old``  : Anreisen im Monat in ``year_old``, alle Buchungen
-                            unabhängig vom ``created``-Datum (= Stand "End of
-                            Month", quasi finale Realität).
-      - ``ist_asof_old`` : Anreisen im Monat in ``year_old``, aber NUR Buchungen
-                            mit ``created`` ≤ ``snapshot_date`` minus 1 Jahr.
-                            → "wie viel war zu diesem Zeitpunkt vorm Jahr bereits
-                            gebucht für diesen Monat".
-      - ``ist_asof_new`` : Anreisen im Monat in ``year_new``, NUR Buchungen mit
-                            ``created`` ≤ ``snapshot_date``.
-                            → "wie viel ist heute on-the-books für diesen Monat".
+      - ``ist_eom_old``  : OTB am Monatsletzten jedes Monats in ``year_old`` -
+                            bewusst für ALLE 12 Monate (auch Monate nach dem
+                            Snapshot-Vorjahresstand, z.B. Jul-Dez bei Snap im
+                            Juni). Das EoM-Datum liegt für das alte Jahr immer
+                            in der Vergangenheit des Snapshots.
+      - ``ist_asof_old`` : OTB am ``snapshot_date`` minus 366 Tage (analog
+                            Referenz-SQL: ``current_date - 366``).
+      - ``ist_asof_new`` : OTB am ``snapshot_date``.
 
     ``realized_only`` filtert auf ``is_realized=True`` (Stornos raus). Bei
     Pace-Anwendung für zukünftige Monate ist das relevant: stornierte
@@ -1216,7 +1214,7 @@ def pace_by_month(
     rev = df["revenue"].astype(float)
 
     snap = pd.Timestamp(snapshot_date).normalize()
-    snap_old = snap - pd.DateOffset(years=1)
+    snap_old = snap - pd.Timedelta(days=366)
 
     is_old_year = arr.dt.year == year_old
     is_new_year = arr.dt.year == year_new
