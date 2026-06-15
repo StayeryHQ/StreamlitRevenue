@@ -1,4 +1,4 @@
-"""Reusable Streamlit components for the RevenueBlindSpots app."""
+"""Reusable Streamlit components for the app."""
 from .alerts import alert_card
 from .section import (
     section, lazy_section, preload_all_button, section_loaded, render_toc,

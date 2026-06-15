@@ -1,8 +1,8 @@
 """Charts für den Global Report
 
 Storno/No-Show Konvention:
-  - "_stay" charts         realized only
-  - "_created" charts      Sales-Sicht inkl. Storno + No-Show
+  - "_stay" charts 
+  - "_created" charts      
 """
 
 from __future__ import annotations

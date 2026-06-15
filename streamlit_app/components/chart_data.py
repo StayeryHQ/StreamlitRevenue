@@ -2,8 +2,7 @@
 
 Konvention:
   - Eingabe spiegelt die Chart-Funktion (dieselben DataFrames + Perioden).
-  - Rückgabe = formatierter DataFrame mit aussagekräftigen Spalten-Namen
-    (DE-localized, mit "(€)" wo sinnvoll).
+  - Rückgabe = formatierter DataFrame
   - ``@st.cache_data`` für Reuse zwischen Chart-Render und Expander-Render.
   - Storno-Konventionen identisch zu den jeweiligen Charts
 """

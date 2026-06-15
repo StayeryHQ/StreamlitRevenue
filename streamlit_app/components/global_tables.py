@@ -2,8 +2,7 @@
 
 Vier Recap-Tabellen nach Aufenthalt (realized, mit PLAN) und nach
 Erstellung (Sales-Sicht, inkl. Storno/No-Show). Alle laufen auf der
-Timeslices-/Nightly-Basis (Netto-Revenue pro Nacht, ``baseAmount_netAmount``)
-- einheitliche Revenue-Basis über alle Tabellen.
+Timeslices-/Nightly-Basis (Netto-Revenue pro Nacht, ``baseAmount_netAmount``).
 """
 
 from __future__ import annotations

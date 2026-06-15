@@ -2,9 +2,9 @@
 Klick eine Notion-fertige Markdown-Datei.
 
 Zwei Export-Modi:
-  • „Aktuelle Ansicht"  - alle Sektionen die der User gerade sieht (= alle
+  - „Aktuelle Ansicht"  - alle Sektionen die der User gerade sieht (= alle
                           registrierten Sektionen), Notepad mit drin.
-  • „Anpassen…"         - Multi-Select welche Sektionen rein sollen + Notepad
+  - „Anpassen…"         - Multi-Select welche Sektionen rein sollen + Notepad
                           ein/aus.
 """
 

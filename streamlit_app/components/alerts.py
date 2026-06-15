@@ -1,8 +1,8 @@
 """Alarm- / Highlight-Boxen für die Analyse-Pages.
 
 Vier Stile:
-  - alert    (rot)   für kritische Abweichungen ("Berlin -12% vs PLAN")
-  - warning  (gelb)  für auffällige Beobachtungen ("OTA-Anteil +8pp YoY")
+  - alert    (rot)   für kritische Abweichungen
+  - warning  (gelb)  für auffällige Beobachtungen
   - info     (blau)  für neutrale Hinweise
   - success  (grün)  für positive Findings
 """
@@ -24,18 +24,13 @@ from revenueblindspots.theming import color
 def _tint(hex_color: str, white_share: float = 0.88) -> str:
     """Mischt eine Brand-Farbe Richtung Weiß (Tint für Alert-Hintergründe).
 
-    Farben kommen ausschließlich per ``color()`` aus der Brand-YAML —
-    hier wird nichts hardcodiert, nur aufgehellt.
+    Farben kommen ausschließlich per ``color()`` aus der Brand-YAML
     """
     h = hex_color.lstrip("#")
     r, g, b = (int(h[i : i + 2], 16) for i in (0, 2, 4))
     mix = lambda c: round(c + (255 - c) * white_share)  # noqa: E731
     return f"#{mix(r):02X}{mix(g):02X}{mix(b):02X}"
 
-
-# (Hintergrund-Tint, Border = Brand-Farbe, Icon) — abgeleitet aus der Palette:
-# alert → Red #E62828, warning → Yellow #FFE650, info → Blue #1E4BA1,
-# success → Green #08A064.
 _STYLES = {
     "alert": (_tint(color("red")), color("red"), "⚠"),
     "warning": (_tint(color("yellow"), 0.70), color("yellow"), "▲"),

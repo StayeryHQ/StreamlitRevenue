@@ -1,39 +1,40 @@
-"""Snapshot-Refresh-Pipeline - single source of truth.
+"""Snapshot-Refresh-Pipeline.
 
 Wird aufgerufen von:
-  * ``scripts/refresh_snapshot.py``                    (CLI / GitHub Action)
-  * ``streamlit_app/pages/0_Refresh_Snapshot.py``      (manueller UI-Override)
-  * potenzielle weitere Caller (Docker-Cron, REST-Endpoint, …)
-
+  * ``scripts/refresh_snapshot.py``  
+  * ``streamlit_app/pages/0_Daten_Aktualisieren.py``
+  * potenzielle weitere Caller
+  
 Caller-spezifische Unterschiede werden über zwei Parameter kontrolliert:
 
   * ``progress`` - eine Callback-Funktion ``progress(msg: str, pct: float | None)``.
     CLI passt ``print``-Wrapper, Streamlit passt eine Closure die st.progress
-    + st.empty.markdown updated. Wenn None → silent.
+    + st.empty.markdown updated
 
-  * ``refreshed_via`` - Freitext-Marker der im ``metadata.json`` landet, damit
-    man später nachvollziehen kann wer den Snapshot geschrieben hat.
+  * ``refreshed_via`` - Freitext-Marker der im ``metadata.json`` landet
 
-Auth-Quellen (in dieser Reihenfolge probiert). ``ref_tables.plan`` ist eine
+Auth-Quellen ``ref_tables.plan`` ist eine
 Drive-backed External Table (Google Sheet) - die SA-Key-Files fordern dafür den
-Drive-Scope an; der gcloud-ADC nutzt die beim Login erteilten Scopes:
+Drive-Scope an, der gcloud-ADC nutzt die beim Login erteilten Scopes:
   1. ``GCP_SERVICE_ACCOUNT_JSON_FILE`` env-var zeigt auf ein Service-Account-File.
   2. ``GOOGLE_APPLICATION_CREDENTIALS`` env-var zeigt auf ein Service-Account-File.
   3. gcloud Application Default Credentials (lokaler Dev). Für den Plan-Pull
-     einmalig MIT Drive-Scope einloggen::
+     einmalig einloggen:
 
          gcloud auth application-default login \\
              --scopes=https://www.googleapis.com/auth/bigquery,\\
              https://www.googleapis.com/auth/drive.readonly,\\
              https://www.googleapis.com/auth/cloud-platform
+
+        Might not work.
 """
+
 from __future__ import annotations
 
-import json
 import os
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable
 
 import pandas as pd
 
@@ -44,11 +45,6 @@ ProgressCallback = Callable[[str, "float | None"], None]
 
 
 # ============================== Auth ======================================
-# `ref_tables.plan` ist eine Drive-backed External Table (Google Sheet). Damit
-# BigQuery das Sheet lesen darf, braucht das Token NEBEN dem BigQuery- auch den
-# Drive-Scope - sonst: "403 Permission denied while getting Drive credentials".
-# Gilt für Service-Account-Files (SA muss zusätzlich Leserechte am Sheet haben)
-# UND für lokales gcloud-ADC (siehe DRIVE_AUTH_HINT / README).
 _BQ_SCOPES: tuple[str, ...] = (
     "https://www.googleapis.com/auth/bigquery",
     "https://www.googleapis.com/auth/drive.readonly",
@@ -57,7 +53,7 @@ _BQ_SCOPES: tuple[str, ...] = (
 DRIVE_AUTH_HINT = (
     "Die Plan-Tabelle `ref_tables.plan` ist eine Drive-backed External Table "
     "(Google Sheet). Dein Token hat keinen Drive-Lesezugriff.\n\n"
-    "Lokal (gcloud) einmalig MIT Drive-Scope neu einloggen:\n\n"
+    "Lokal (gcloud) einmalig neu einloggen:\n\n"
     "    gcloud auth application-default login \\\n"
     "        --scopes=https://www.googleapis.com/auth/bigquery,"
     "https://www.googleapis.com/auth/drive.readonly,"
@@ -70,9 +66,7 @@ DRIVE_AUTH_HINT = (
 def _is_drive_permission_error(exc: Exception) -> bool:
     """True wenn der Fehler der typische Drive-Scope-403 der Plan-Tabelle ist."""
     msg = str(exc).lower()
-    return "drive" in msg and (
-        "denied" in msg or "permission" in msg or "accessdenied" in msg
-    )
+    return "drive" in msg and ("denied" in msg or "permission" in msg or "accessdenied" in msg)
 
 
 def get_bigquery_client():
@@ -80,11 +74,9 @@ def get_bigquery_client():
 
     Service-Account-Key-Files fordern den Drive-Scope an (``_BQ_SCOPES``) - SAs
     unterliegen der User-Consent-Blockade nicht und können das Drive-Sheet hinter
-    ``ref_tables.plan`` lesen. Der lokale gcloud-ADC erzwingt KEINE Scopes (das
-    würde bei nicht erteiltem Drive-Scope je nach google-auth-Version den
-    Token-Refresh und damit auch die echten BQ-Tabellen blocken) - er nutzt die
+    ``ref_tables.plan`` lesen. Der lokale gcloud-ADC erzwingt KEINE Scopes sondern nutzt die
     beim Login erteilten Scopes. Reservations/Timeslices brauchen nur BigQuery
-    (geht immer); der Drive-backed Plan-Pull scheitert ohne Drive-Scope mit dem
+    der Drive-backed Plan-Pull scheitert ohne Drive-Scope mit dem
     ``DRIVE_AUTH_HINT`` und wird im Voll-Refresh non-fatal behandelt.
     """
     from google.cloud import bigquery
@@ -104,18 +96,17 @@ def get_bigquery_client():
         )
         return bigquery.Client(credentials=creds, project=creds.project_id)
 
-    # ADC (lokaler gcloud-Login): keine Scopes erzwingen - das Token bringt die
-    # beim Login erteilten Scopes selbst mit.
+    # ADC (lokaler gcloud-Login): keine Scopes erzwingen
     return bigquery.Client()
 
 
 # ============================== Refresh ===================================
-def _noop_progress(_msg: str, _pct: "float | None" = None) -> None:
+def _noop_progress(_msg: str, _pct: float | None = None) -> None:
     """Default no-op progress callback wenn der Caller keinen angibt."""
     pass
 
 
-def _resolve_snapshot_dir(snapshot_dir: "str | Path | None") -> "str | Path":
+def _resolve_snapshot_dir(snapshot_dir: str | Path | None) -> str | Path:
     """Ziel-Verzeichnis auflösen - env-var, Repo-data/, oder gs://-URI."""
     _REPO_ROOT = Path(__file__).resolve().parents[2]
     if snapshot_dir is None:
@@ -148,12 +139,12 @@ def _pull_plan(client, progress: ProgressCallback, pct: float = 0.5) -> pd.DataF
 
 
 def refresh_plan(
-    snapshot_dir: "str | Path | None" = None,
+    snapshot_dir: str | Path | None = None,
     refreshed_via: str = "refresh.refresh_plan",
     progress: ProgressCallback | None = None,
     client=None,
 ) -> dict:
-    """Nur die Planzahlen aktualisieren - schnell (Sekunden, eine kleine Tabelle).
+    """Nur die Planzahlen aktualisieren.
 
     Pullt `ref_tables.plan` komplett, schreibt ``plan.parquet`` neben den
     Snapshot und ergänzt den Plan-Block im ``metadata.json``. Reservations/
@@ -183,30 +174,27 @@ def run_refresh(
     lookback_years: int = 3,
     fuzz_threshold: int = 85,
     properties: list[str] | None = None,
-    snapshot_dir: "str | Path | None" = None,
+    snapshot_dir: str | Path | None = None,
     refreshed_via: str = "refresh.run_refresh",
     progress: ProgressCallback | None = None,
 ) -> dict:
     """Pull aus BigQuery, engineer, fuzzy-cluster, snapshot schreiben.
 
     Args:
-        lookback_years: Wie viele Jahre rückwärts pullen (default 3). Der Pull
-            zieht ab ``heute - lookback_years`` ALLE zukünftigen Anreisen/
-            Nächte (keine Obergrenze) - volle Lead-Time-Pipeline.
+        lookback_years: Wie viele Jahre rückwärts pullen (default 3 ohne obergrenze)
         fuzz_threshold: rapidfuzz token_sort_ratio - höher = strenger (default 85).
-        properties: Liste von hotel_codes. None oder leer → alle aus locations.yaml.
-        snapshot_dir: Ziel-Pfad. None → ``$STAYERY_SNAPSHOT_DIR`` env-var, sonst
+        properties: Liste von hotel_codes. None oder leer : alle aus locations.yaml.
+        snapshot_dir: Ziel-Pfad. None : ``$STAYERY_SNAPSHOT_DIR`` env-var, sonst
             ``data/`` im Repo. ``gs://``-URIs werden remote behandelt.
         refreshed_via: Marker im metadata.json (z.B. ``streamlit_app``,
             ``scripts/refresh_snapshot.py``, ``github_action``).
-        progress: Optional ``(msg, pct_or_none) -> None``. Wird nach jedem
-            Pipeline-Schritt aufgerufen. None → silent.
+        progress: Optional ``(msg, pct_or_none) -> None``.
 
     Returns:
         Das ``metadata.json``-Dict (siehe ``H.save_snapshot``).
 
     Raises:
-        Was auch immer ``bigquery.Client.query`` oder die engineering-Funktionen
+        Was ``bigquery.Client.query`` oder die engineering-Funktionen
         an Exceptions werfen. Caller ist verantwortlich für try/except.
     """
     from google.cloud import bigquery
@@ -227,9 +215,7 @@ def run_refresh(
     ).normalize()
 
     # ----- 3. Reservations pull ----------
-    progress(
-        f"Ziehe Reservations (ab {pull_start.date()}, offen in die Zukunft) …", 0.15
-    )
+    progress(f"Ziehe Reservations (ab {pull_start.date()}, offen in die Zukunft) …", 0.15)
     _RES_COLS = ",\n    ".join(H.RES_COLUMNS)
     res_sql = f"""
     SELECT
@@ -245,9 +231,7 @@ def run_refresh(
     cfg = bigquery.QueryJobConfig(query_parameters=params)
     t0 = time.time()
     raw_res = client.query(res_sql, job_config=cfg).to_dataframe()
-    progress(
-        f"✓ {len(raw_res):,} Reservations geladen ({time.time() - t0:.1f}s)", 0.35
-    )
+    progress(f"✓ {len(raw_res):,} Reservations geladen ({time.time() - t0:.1f}s)", 0.35)
 
     # ----- 4. Timeslices pull ----------
     progress("Ziehe Timeslices …", 0.40)
@@ -262,14 +246,10 @@ def run_refresh(
     cfg = bigquery.QueryJobConfig(query_parameters=params)
     t0 = time.time()
     raw_nig = client.query(nig_sql, job_config=cfg).to_dataframe()
-    progress(
-        f"✓ {len(raw_nig):,} Timeslices geladen ({time.time() - t0:.1f}s)", 0.55
-    )
+    progress(f"✓ {len(raw_nig):,} Timeslices geladen ({time.time() - t0:.1f}s)", 0.55)
 
     # ----- 4b. Planzahlen pull (klein, gleiche Auth) ----------
-    # NON-FATAL: scheitert der Plan-Pull (z.B. fehlender Drive-Scope lokal),
-    # soll der Voll-Refresh der echten BQ-Tabellen trotzdem durchlaufen. Ein
-    # bestehender `plan.parquet` wird dann NICHT überschrieben (siehe Save).
+    # NON-FATAL und bestehender plan wird bei error nicht überschrieben
     progress("Ziehe Planzahlen …", 0.56)
     try:
         raw_plan = _pull_plan(client, progress, pct=0.58)
@@ -286,8 +266,7 @@ def run_refresh(
     )
     dropped_res = H.zero_night_drops()["reservations"]
     progress(
-        f"✓ {len(res):,} Reservations engineered (drops {dropped_res}) "
-        f"({time.time() - t0:.1f}s)",
+        f"✓ {len(res):,} Reservations engineered (drops {dropped_res}) ({time.time() - t0:.1f}s)",
         0.70,
     )
 
@@ -306,8 +285,7 @@ def run_refresh(
     progress(f"✓ firm_by_* Spalten angelegt ({time.time() - t0:.1f}s)", 0.89)
 
     # ----- 6b. Reservation-Felder auf Timeslices broadcasten ----------
-    # Damit nightly die reservation-level / "nach Erstellungsdatum"-Analysen auf
-    # der Nacht-Netto-Basis tragen kann (Vorlaufzeit, Firmen-Cluster, Codes, …).
+    # um korrekte rev ohne services darzustellen
     progress("Broadcaste Reservation-Felder auf Timeslices …", 0.90)
     nig = H.enrich_timeslices_with_reservation_fields(nig, res)
     progress("✓ nightly um Reservation-Felder angereichert", 0.91)

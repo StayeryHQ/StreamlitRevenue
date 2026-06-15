@@ -1,4 +1,4 @@
-"""Table for B2B Deep-Dive - two tabs
+"""Table for B2B Deep-Dive two tabs
 (inkl. Storno + No-Show):
 
   - aggregate_corporate_codes(res, active_ts)   corporateCode

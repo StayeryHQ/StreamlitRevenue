@@ -7,6 +7,8 @@ services:
       - traefik-public
     secrets:
       - bigquery_secret
+    volumes:
+      - streamlit_data:/app/data
     environment:
       - GCP_SERVICE_ACCOUNT_JSON_FILE=/run/secrets/bigquery_secret
     labels:
@@ -44,3 +46,6 @@ networks:
 secrets:
   bigquery_secret:
     external: true
+
+volume:
+  streamlit_data:

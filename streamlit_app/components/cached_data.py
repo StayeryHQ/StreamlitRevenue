@@ -22,8 +22,7 @@ from revenueblindspots import helpers as H
 
 # ============================== Cache key helper ==========================
 def _snapshot_signature() -> str:
-    """Stable string for the current snapshot - invalidates cache when it
-    changes (env-var override or new snapshot written).
+    """Stable string for the current snapshot - invalidates cache when it changes
     """
     override = os.environ.get("STAYERY_SNAPSHOT_DIR", "")
     snap_dir = H.find_snapshot_dir()
@@ -78,10 +77,15 @@ def get_metadata() -> dict:
     return load_snapshot_metadata_cached(_snapshot_signature())
 
 
-def get_plan_override() -> dict:
-    """Persisted user-Override (or empty).
-    Fallback auf ``plan_override.json`` neben dem
-    Snapshot.
+def get_plan_df() -> pd.DataFrame:
+    """Planzahlen aus ``plan.parquet`` (BigQuery-Snapshot). Leer wenn fehlt."""
+    return load_plan_cached(_snapshot_signature())
+
+
+def get_plan_dict() -> dict:
+    """Plan als ``{property_code: {"YYYY-MM": eur}}`` für IST/PLAN-Vergleiche.
+
+    Leeres Dict wenn noch kein Plan-Snapshot existiert
     """
     if "plan_override" in st.session_state:
         return st.session_state["plan_override"] or {}

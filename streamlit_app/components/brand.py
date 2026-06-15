@@ -1,19 +1,17 @@
-"""Stayery brand → Streamlit-UI (CSS + Snapshot-Override-Bridge).
+"""Stayery brand für Streamlit-UI (CSS + Snapshot-Override-Bridge).
 
-**Verantwortlichkeiten im Brand-System** (alle drei Files notwendig, jede
-mit eigener Rolle - niemals Brand-Farben hardcoden außer in der YAML):
+**Verantwortlichkeiten im Brand-System**:
 
   • ``configs/stayery_brand.yaml``        = Brand-Spec / SoT (Farben, Fonts).
   • ``src/revenueblindspots/theming.py``  = liest YAML, setzt **matplotlib**.
   • ``streamlit_app/components/brand.py`` = liest YAML, generiert **CSS** für
                                              die Streamlit-UI.
 
-Wenn du einen Brand-Farbwert ändern willst → nur in der YAML.
+Wenn du einen Brand-Farbwert ändern willst mach nur in der YAML.
 
 Fonts: **Neue Haas Grotesk Display Pro** + **Topol** laufen über
-``@font-face`` aus ``streamlit_app/static/fonts/`` (siehe README dort).
-Ohne die Files fällt der Stack auf System-Fonts (Helvetica Neue → Helvetica
-→ Arial). Keine externen Font-Requests.
+``@font-face`` aus ``streamlit_app/static/fonts/``.
+Ohne die Files fällt der Stack auf System-Fonts.
 """
 
 from __future__ import annotations
@@ -65,8 +63,7 @@ _BRAND_CSS = Template(r"""
 /* -------------------------------------------------------------------------
    0 - Brand-Fonts aus streamlit_app/static/fonts/.
        Wenn die OTF-Files dort fehlen, fällt der font-family-Stack auf
-       System-Fonts zurück (Helvetica Neue → Helvetica → Arial). Keine
-       externen Font-Requests.
+       System-Fonts zurück.
    ------------------------------------------------------------------------- */
 /* Neue Haas Grotesk Display Pro - Regular 400 (DS-55Rg = echtes Display) */
 @font-face {
@@ -135,7 +132,7 @@ html, body, [class*="css"], .stMarkdown, .stText, .stMetric, button, input, sele
 /* -------------------------------------------------------------------------
    2 - Headings - bold, mit dezenter Yellow-Akzent-Linie unten
    ------------------------------------------------------------------------- */
-/* H1 / Headlines / Statements → Topol Bold, ALL CAPS (Brand-Standard).
+/* H1 / Headlines / Statements - Topol Bold, ALL CAPS (Brand-Standard).
    Kein manuelles letter-spacing (Tracking-Regel). */
 h1 {
     color: ${ink};
@@ -146,7 +143,7 @@ h1 {
     font-size: 2.4rem !important;
     margin-bottom: 0.6rem !important;
 }
-/* Sub-Headlines (kurz, scannbar) → Neue Haas, ALL CAPS */
+/* Sub-Headlines (kurz, scannbar) - Neue Haas, ALL CAPS */
 h2 {
     color: ${ink};
     font-weight: 600;
@@ -184,7 +181,7 @@ h4 { color: ${ink}; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.3rem;
     border-radius: 12px !important;
     font-weight: 500 !important;
     font-size: 0.875rem !important;
-    text-transform: uppercase !important;  /* CTAs → Neue Haas, ALL CAPS */
+    text-transform: uppercase !important;  /* CTAs - Neue Haas, ALL CAPS */
     padding: 0.55rem 1.2rem !important;
     box-shadow: 0 1px 0 rgba(0,0,0,0.04);
     transition: transform .22s cubic-bezier(.22,1,.36,1),
@@ -291,7 +288,7 @@ h4 { color: ${ink}; font-weight: 600; margin-top: 0.6rem; margin-bottom: 0.3rem;
     letter-spacing: 0.06em;
     font-size: 0.72rem !important;
 }
-/* Zahlen → Topol Bold (Brand-Standard "Numbers / Signage") */
+/* Zahlen - Topol Bold (Brand-Standard "Numbers / Signage") */
 [data-testid="stMetricValue"] {
     color: ${ink} !important;
     font-family: "Topol", "Neue Haas Grotesk Display Pro",
@@ -516,7 +513,7 @@ def inject_brand_css() -> None:
 
 
 def hero(eyebrow: str, title: str, subtitle: str | None = None) -> None:
-    """Editorial hero block"""
+    """Editorial block"""
     sub = f'<div class="stayery-hero-subtitle">{subtitle}</div>' if subtitle else ""
     st.markdown(
         f'<div class="stayery-hero">'

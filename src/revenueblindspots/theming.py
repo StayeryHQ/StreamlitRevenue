@@ -1,4 +1,4 @@
-"""Stayery brand theming for matplotlib.
+"""Brand theming for matplotlib.
 
 Loads the brand spec from ``configs/stayery_brand.yaml`` and applies matplotlib
 styles. Font selection uses a fallback chain so charts render acceptably on
@@ -20,7 +20,7 @@ import yaml
 
 from .helpers import CONFIGS_DIR
 
-# Path to the brand spec - co-located with all other configs.
+# Path to the brand spec
 _BRAND_CONFIG: Path = CONFIGS_DIR / "stayery_brand.yaml"
 
 
@@ -32,7 +32,7 @@ def load_brand_config() -> dict[str, Any]:
 
 
 def _color_lookup() -> dict[str, str]:
-    """Flatten the {core, supporting} palettes into one name->hex dict."""
+    """Flatten the {core, supporting} palettes into one one name in hex dict."""
     cfg = load_brand_config()
     return {**cfg["colors"]["core"], **cfg["colors"]["supporting"]}
 
@@ -83,7 +83,7 @@ def apply_stayery_style() -> None:
 
     primary_chain = [cfg["typography"]["primary"]] + cfg["typography"][
         "primary_fallback"
-    ]  # concatenates two lists to result in a list of strings
+    ]
     palette = categorical_palette()
 
     mpl.rcParams.update(
@@ -103,22 +103,22 @@ def apply_stayery_style() -> None:
             "figure.titleweight": "bold",
             # ---- Color cycle -----------------------------------------------
             "axes.prop_cycle": mpl.cycler(color=palette),
-            # ---- Backgrounds (premium, clean) ------------------------------
+            # ---- Backgrounds ------------------------------
             "figure.facecolor": lookup["white"],
             "axes.facecolor": lookup["white"],
             "savefig.facecolor": lookup["white"],
-            # ---- Spines (minimal: only bottom & left) ----------------------
+            # ---- Spines ----------------------
             "axes.spines.top": False,
             "axes.spines.right": False,
             "axes.edgecolor": lookup["black"],
             "axes.linewidth": 1.0,
-            # ---- Grid (subtle horizontal only) -----------------------------
+            # ---- Grid -----------------------------
             "axes.grid": True,
             "axes.grid.axis": "y",
             "grid.color": "#E5E5E5",
             "grid.linewidth": 0.6,
             "grid.linestyle": "-",
-            # ---- Ticks (quiet) ---------------------------------------------
+            # ---- Ticks ---------------------------------------------
             "xtick.color": lookup["black"],
             "ytick.color": lookup["black"],
             "xtick.direction": "out",
