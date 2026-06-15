@@ -589,6 +589,7 @@ RES_COLUMNS: tuple[str, ...] = (
     "modified",
     "is_first_res",
     "is_last_res",
+    "cancellationTime"
 )
 
 # Columns pulled from `reservations_timeslices` (one row per stay-night).
