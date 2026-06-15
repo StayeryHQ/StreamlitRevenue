@@ -1091,13 +1091,6 @@ def landscape_kpis(
         → Bei einer 14-Nacht-Buchung mit 3 Nächten im Window zählen alle
            14 Nights und das gesamte Booking-Revenue.
 
-    **Warum andere Dashboards andere Zahlen zeigen können:**
-    Apaleo's "Statistics", Power-BI-Dashboards o.ä. nutzen oft Variante (B),
-    weil sie Booking-getrieben aufbauen. Wir nutzen (A) für die ADR-Headline
-    (Window-sauber, kein Spillover) und (B) für die ALOS-Headline
-    (Hotelbranche-Konvention "wie lange bleiben Gäste"). Beide Alternativen
-    sind im Return-Dict für direkten Abgleich.
-
     **Für korrekte Variante-B-ADR**: das optionale ``reservations`` Argument
     übergeben (DataFrame mit ``id``, ``nights``, ``revenue``). Ohne das wird
     ``adr_eur_reservation`` NaN, weil aus ``nightly`` allein nicht die GANZE
