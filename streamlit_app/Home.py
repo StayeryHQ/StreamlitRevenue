@@ -73,7 +73,7 @@ with cols[0]:
         speichern. **Voraussetzung für alle anderen Pages. Von Admin durchgeführt.**
         """
     )
-    st.page_link("pages/0_Refresh_Snapshot.py", label="→ Refresh-Snapshot öffnen")
+    st.page_link("pages/0_Daten_Aktualisieren.py", label="→ Daten Aktualisieren")
 
     st.markdown(
         """
@@ -111,15 +111,6 @@ with cols[1]:
         """
     )
     st.page_link("pages/4_Code_Deepdive.py", label="→ Code Deep-Dive öffnen")
-
-    st.markdown(
-        """
-        ### Plan-Upload
-        Wide-Format Excel mit Monats-Planzahlen hochladen - Plan wird
-        persistiert (überlebt App-Restart), sofort wirksam im Global Report.
-        """
-    )
-    st.page_link("pages/5_Plan_Upload.py", label="→ Plan-Upload öffnen")
 
 
 st.divider()
