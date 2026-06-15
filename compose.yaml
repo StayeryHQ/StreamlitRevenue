@@ -47,5 +47,5 @@ secrets:
   bigquery_secret:
     external: true
 
-volume:
+volumes:
   streamlit_data:
