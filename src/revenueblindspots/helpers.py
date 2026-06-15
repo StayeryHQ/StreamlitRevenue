@@ -1316,6 +1316,67 @@ def add_firm_definitions(
     return df
 
 
+# Konstante Booking-Level-Felder, die per ``id`` auf die Timeslices gebroadcastet
+# werden, damit die Nightly-Tabelle die reservation-level / "nach
+# Erstellungsdatum"-Analysen auf der Nacht-Netto-Basis tragen kann. BEWUSST OHNE
+# Booking-€-Summen (``kept_revenue`` / ``lost_revenue``) - die würden sich über
+# die Nächte vervielfachen.
+_RESERVATION_FIELDS_FOR_TIMESLICES: tuple[str, ...] = (
+    "firm_by_code",
+    "firm_by_effective",
+    "firm_by_effective_fuzzy",
+    "firm_by_business_purpose",
+    "company",
+    "has_company",
+    "company_code",
+    "effective_code",
+    "has_code",
+    "has_promo",
+    "lead_time_days",
+    "lead_time_bucket",
+    "cancel_lead_time_days",
+    "is_flex",
+    "is_corporate_rate",
+    "created_year_month",
+)
+
+
+def enrich_timeslices_with_reservation_fields(
+    nig: pd.DataFrame, res: pd.DataFrame
+) -> pd.DataFrame:
+    """Broadcast konstante Booking-Level-Felder von ``res`` auf ``nig`` (per ``id``).
+
+    Jede Stay-Nacht erbt die buchungsweit konstanten Attribute ihrer Reservierung
+    (Vorlaufzeit, Firmen-Clustering, Vertragscodes, Rate-Flags), damit die
+    Nightly-Tabelle die reservation-level / "nach Erstellungsdatum"-Analysen auf
+    der Nacht-Netto-Revenue-Basis rechnen kann. Booking-€-Summen
+    (``kept_revenue`` / ``lost_revenue``) werden bewusst NICHT mitgebroadcastet -
+    sie würden sich über die Nächte vervielfachen.
+
+    Defensiv: nur Felder, die in ``res`` vorhanden und in ``nig`` noch nicht da
+    sind, werden ergänzt. Nächte, deren ``id`` keine Reservierung matcht, bleiben
+    NaN. Verändert die Zeilenzahl nicht (Left-Join auf eindeutige ``id``).
+
+    Args:
+        nig: Engineerte Timeslices (eine Zeile je Stay-Nacht, ``id`` = Reservierungs-id).
+        res: Engineerte Reservations inkl. ``firm_by_*`` (eine Zeile je ``id``).
+
+    Returns:
+        ``nig`` mit den zusätzlichen Spalten (Kopie).
+    """
+    if "id" not in nig.columns or "id" not in res.columns:
+        return nig
+    cols = [
+        c
+        for c in _RESERVATION_FIELDS_FOR_TIMESLICES
+        if c in res.columns and c not in nig.columns
+    ]
+    if not cols:
+        return nig
+    lookup = res.drop_duplicates("id").set_index("id")[cols]
+    return nig.join(lookup, on="id")
+
+
 # =============================================================================
 # Fuzzy company-name clustering - merges legal-form / spelling variants.
 # =============================================================================

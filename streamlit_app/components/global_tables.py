@@ -1,7 +1,9 @@
 """Tabellen für den Global Report.
 
 Vier Recap-Tabellen nach Aufenthalt (realized, mit PLAN) und nach
-Erstellung (Sales-Sicht, inkl. Storno/No-Show).
+Erstellung (Sales-Sicht, inkl. Storno/No-Show). Alle laufen auf der
+Timeslices-/Nightly-Basis (Netto-Revenue pro Nacht, ``baseAmount_netAmount``)
+- einheitliche Revenue-Basis über alle Tabellen.
 """
 
 from __future__ import annotations
@@ -206,7 +208,7 @@ def channel_volume_by_stay(
 # ============================== 2.A · Performance Standorte nach Created ==
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def performance_by_created(
-    reservations: pd.DataFrame,
+    nightly: pd.DataFrame,
     properties: list[str],
     start_new: pd.Timestamp,
     end_new: pd.Timestamp,
@@ -218,18 +220,23 @@ def performance_by_created(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Standort-Performance nach Erstellungsdatum - IST vs LY (KEIN PLAN).
 
+    Quelle = Timeslices (nightly): Netto-Revenue pro Nacht (``baseAmount_netAmount``),
+    nach ``created`` gebucketet. Damit identische Revenue-Basis wie die
+    Aufenthalts-Tabellen - das Reservations-Netto enthielt zusätzlich
+    Services/Extras und stimmte deshalb nicht mit der Stay-Sicht überein.
+
     include_cancellations=True  (default für Created/Sales-Sicht) → alles drin.
     include_cancellations=False → nur realized - gleicher Daten-Scope wie Stay.
     """
-    res_new = H.filter_period(reservations, start_new, end_new, "created")
-    res_old = H.filter_period(reservations, start_old, end_old, "created")
+    nig_new = H.filter_period(nightly, start_new, end_new, "created")
+    nig_old = H.filter_period(nightly, start_old, end_old, "created")
 
     if not include_cancellations:
-        res_new = res_new[res_new["is_realized"]]
-        res_old = res_old[res_old["is_realized"]]
+        nig_new = nig_new[nig_new["is_realized"]]
+        nig_old = nig_old[nig_old["is_realized"]]
 
-    ist_new = res_new.groupby("property_code", observed=True)["revenue"].sum()
-    ist_old = res_old.groupby("property_code", observed=True)["revenue"].sum()
+    ist_new = nig_new.groupby("property_code", observed=True)["revenue"].sum()
+    ist_old = nig_old.groupby("property_code", observed=True)["revenue"].sum()
 
     rows = []
     for pc in properties:
@@ -291,7 +298,7 @@ def performance_by_created(
 # ============================== 2.B · Channel-Mix nach Created =============
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def channel_volume_by_created(
-    reservations: pd.DataFrame,
+    nightly: pd.DataFrame,
     start_new: pd.Timestamp,
     end_new: pd.Timestamp,
     start_old: pd.Timestamp,
@@ -302,11 +309,14 @@ def channel_volume_by_created(
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """2.B - Channel-Volumen nach Erstellungsdatum.
 
+    Quelle = Timeslices (nightly): Netto-Revenue pro Nacht, nach ``created``
+    gebucketet - gleiche Revenue-Basis wie die Aufenthalts-Tabellen.
+
     include_cancellations=True (default, Sales-Sicht) → alle Buchungen.
     """
-    res_new = H.filter_period(reservations, start_new, end_new, "created")
-    res_old = H.filter_period(reservations, start_old, end_old, "created")
-    return _build_channel_table(res_new, res_old, year_old, year_new, realized_only=False)
+    nig_new = H.filter_period(nightly, start_new, end_new, "created")
+    nig_old = H.filter_period(nightly, start_old, end_old, "created")
+    return _build_channel_table(nig_new, nig_old, year_old, year_new, realized_only=False)
 
 
 # ============================== Helper - channel table builder =============

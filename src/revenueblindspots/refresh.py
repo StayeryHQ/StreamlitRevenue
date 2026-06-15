@@ -174,7 +174,14 @@ def run_refresh(
     progress("Fuzzy-Cluster der Firmennamen …", 0.82)
     t0 = time.time()
     H.add_firm_definitions(res, apply_fuzzy=True, fuzzy_threshold=int(fuzz_threshold))
-    progress(f"✓ firm_by_* Spalten angelegt ({time.time() - t0:.1f}s)", 0.90)
+    progress(f"✓ firm_by_* Spalten angelegt ({time.time() - t0:.1f}s)", 0.89)
+
+    # ----- 6b. Reservation-Felder auf Timeslices broadcasten ----------
+    # Damit nightly die reservation-level / "nach Erstellungsdatum"-Analysen auf
+    # der Nacht-Netto-Basis tragen kann (Vorlaufzeit, Firmen-Cluster, Codes, …).
+    progress("Broadcaste Reservation-Felder auf Timeslices …", 0.90)
+    nig = H.enrich_timeslices_with_reservation_fields(nig, res)
+    progress("✓ nightly um Reservation-Felder angereichert", 0.91)
 
     # ----- 7. Resolve snapshot target ----------
     if snapshot_dir is None:

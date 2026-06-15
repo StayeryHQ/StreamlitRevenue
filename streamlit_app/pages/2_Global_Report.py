@@ -223,7 +223,6 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     pull_start = min(pull_start, pace_pull_start)
     pull_end = max(pull_end, pace_pull_end)
     nightly = CD.get_timeslices(start=pull_start, end=pull_end, properties=props_pick)
-    res = CD.get_reservations(start=pull_start, end=pull_end, properties=props_pick)
 
 reset_export(PAGE)
 
@@ -260,12 +259,11 @@ if _late_openers:
                 'einbeziehen" in der Sidebar aktivieren.'
             )
             st.stop()
-        # WICHTIG: auch die geladenen DataFrames auf die gefilterte Liste
+        # WICHTIG: auch das geladene `nightly` auf die gefilterte Liste
         # reduzieren - sonst tauchen die Late-Openers in Heatmaps + anderen
-        # Aggregationen auf, die direkt aus `nightly` / `res` lesen statt
+        # Aggregationen auf, die direkt aus `nightly` lesen statt
         # `props_pick` zu respektieren.
         nightly = nightly[~nightly["property_code"].isin(_late_openers)]
-        res = res[~res["property_code"].isin(_late_openers)]
         # Recompute props_tag + cache key seed da Auswahl effektiv kleiner.
         props_tag = "+".join(sorted(props_pick)) if len(props_pick) < 11 else "all"
 
@@ -316,7 +314,7 @@ disp_chan_stay, raw_chan_stay = GT.channel_volume_by_stay(
     include_cancellations=_include_cancellations,
 )
 disp_created, raw_created = GT.performance_by_created(
-    res,
+    nightly,
     props_pick,
     start_new,
     end_new,
@@ -327,7 +325,7 @@ disp_created, raw_created = GT.performance_by_created(
     include_cancellations=_include_cancellations,
 )
 disp_chan_created, raw_chan_created = GT.channel_volume_by_created(
-    res,
+    nightly,
     start_new,
     end_new,
     start_old,
@@ -476,7 +474,10 @@ with section(
     chart_help("pace_month")
 # ===== 3 · Nach Erstellungsdatum ==========================================
 st.markdown("# 3 · Performance nach Erstellungsdatum")
-st.caption("Sales-Sicht: alles was im Zeitraum gebucht wurde, inkl. später stornierter.")
+st.caption(
+    "Sales-Sicht: alles was im Zeitraum gebucht wurde, inkl. später stornierter. "
+    "Netto-Revenue pro Nacht (Timeslices), konsistent mit der Aufenthalts-Sicht."
+)
 
 
 with section(

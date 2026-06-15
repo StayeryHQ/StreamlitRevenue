@@ -48,10 +48,10 @@ KPI_GLOBAL_IST_OLD = (
     "Delta-Pfeil = YoY-Veränderung."
 )
 KPI_GLOBAL_SALES = (
-    "Was wurde im Zeitraum tatsächlich gebucht (alle Reservations nach "
-    "Erstellungs-Datum, inkl. später stornierter). Das ist die Sales-Sicht: "
-    "wie viel Volumen wurde gewonnen unabhängig "
-    "davon ob die Gäste später anreisen oder stornieren."
+    "Was wurde im Zeitraum tatsächlich gebucht (nach Erstellungs-Datum, inkl. "
+    "später stornierter). Netto-Revenue pro Nacht (Timeslices, ohne Services) - "
+    "gleiche Revenue-Basis wie die Aufenthalts-Sicht. Sales-Sicht: wie viel "
+    "Volumen wurde gewonnen, unabhängig davon ob Gäste anreisen oder stornieren."
 )
 
 KPI_LIFETIME_REVENUE = (
@@ -168,12 +168,13 @@ CHART_TOOLTIPS: dict[str, str] = {
     ),
     "perf_created": (
         "Performance pro Standort nach **Erstellungs-Datum** der Buchung. "
-        "Sales-Sicht: alles was im Zeitraum gebucht wurde, inkl. später "
-        "stornierter. KEIN PLAN-Vergleich (Plan ist immer auf Aufenthalt bezogen)."
+        "Netto-Revenue pro Nacht (Timeslices), inkl. später stornierter. "
+        "KEIN PLAN-Vergleich (Plan ist immer auf Aufenthalt bezogen)."
     ),
     "chan_created": (
-        "Channel-Volumen nach Erstellungs-Datum - wie verteilt sich das "
-        "Sales-Volumen über die Channels. Inkl. später stornierter Buchungen."
+        "Channel-Volumen nach Erstellungs-Datum (Netto-Revenue pro Nacht, "
+        "Timeslices) - wie verteilt sich das Sales-Volumen über die Channels. "
+        "Inkl. später stornierter Buchungen."
     ),
     "perf_stay": (
         "Performance pro Standort nach **Aufenthalts-Datum**. Nur realisierte "
