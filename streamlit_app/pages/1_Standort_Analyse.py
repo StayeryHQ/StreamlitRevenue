@@ -335,7 +335,7 @@ with section(
     description="Headline-KPIs (Realized-Sicht: Storno + No-Show ausgeschlossen).",
 ):
     _plan_active = CD.get_active_plan()
-    plan_new_eur = H.plan_revenue(property_code, start_new, end_new, override=_plan_active)
+    plan_new_eur = H.plan_revenue(property_code, start_new, end_new, plan=_plan_active)
     delta_plan_eur = kpi_new["revenue_eur"] - plan_new_eur
     delta_plan_pct = (
         (kpi_new["revenue_eur"] / plan_new_eur - 1) * 100 if plan_new_eur > 0 else float("nan")
@@ -514,7 +514,7 @@ with section(
         f"**{YEAR_NEW}/Today** = aktueller Stand on-the-books."
     ),
 ):
-    pace_df = H.pace_by_month(res, YEAR_OLD, YEAR_NEW, SNAP_DATE, properties=[property_code])
+    pace_df = H.pace_by_month(nightly, YEAR_OLD, YEAR_NEW, SNAP_DATE, properties=[property_code])
     png = CD.chart_png(_ck("pace"), charts.pace_by_month_chart, pace_df, LABEL, YEAR_OLD, YEAR_NEW)
     st.image(png, use_container_width=False)
     CD.data_table_expander(pace_df, filename=f"{property_code}_pace_by_month")
