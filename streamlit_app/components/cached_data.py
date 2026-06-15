@@ -284,6 +284,10 @@ _PERSIST_KEY_PREFIXES: tuple[str, ...] = (
     "b2b_",
     # Code Deep-Dive Sidebar
     "cd_",
+    # Notepad-Store (pro Page) - muss den Page-Wechsel überleben. Der Store-Key
+    # ist KEIN Widget-Key (das Textfeld notepad_input:: wird je Render frisch aus
+    # dem Store geseedet), darum re-touchen wir hier nur den Store.
+    "notepad_store::",
 )
 
 _WRITE_PROTECTED_PATTERNS: tuple[str, ...] = (
