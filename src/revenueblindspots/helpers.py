@@ -264,8 +264,6 @@ def save_plan(plan_df: pd.DataFrame, snapshot_dir: "Path | str",
     path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["plan"])
     df.to_parquet(str(path), compression="snappy", index=False)
 
-    # Round-trip-Check: sofort zurücklesen, damit "erfolgreich hinterlegt"
-    # garantiert ist statt eines still geschriebenen Leer-/Teil-Plans.
     _back = load_plan(snapshot_dir)
     if len(_back) != len(df):
         raise RuntimeError(
@@ -288,7 +286,7 @@ def save_plan(plan_df: pd.DataFrame, snapshot_dir: "Path | str",
 
 
 def plan_to_dict(plan_df: pd.DataFrame) -> dict[str, dict[str, float]]:
-    """Parquet-Plan → ``{property_code: {"YYYY-MM": revenue_eur}}``.
+    """Parquet-Plan ``{property_code: {"YYYY-MM": revenue_eur}}``.
 
     Das ist das Format, das ``plan_revenue()`` konsumiert (Monats-Keys als
     Period-Strings). Doppelte (code, monat)-Zeilen werden summiert.
@@ -1443,6 +1441,40 @@ def enrich_timeslices_with_reservation_fields(
         return nig
     lookup = res.drop_duplicates("id").set_index("id")[cols]
     return nig.join(lookup, on="id")
+
+
+def timeslices_are_enriched(nightly: pd.DataFrame) -> bool:
+    """True wenn ``nightly`` die gebroadcasteten Booking-Felder trägt.
+
+    Sentinel für "Snapshot nach dem Foundation-Refresh" - die reservation-level
+    Analysen brauchen u.a. ``lead_time_bucket`` und ``firm_by_effective_fuzzy``.
+    """
+    if nightly is None or nightly.empty:
+        return False
+    return "lead_time_bucket" in nightly.columns and "firm_by_effective_fuzzy" in nightly.columns
+
+
+def reservations_from_timeslices(nightly: pd.DataFrame) -> pd.DataFrame:
+    """Timeslices auf Buchungs-Ebene zurückfalten (eine Zeile je ``id``).
+
+    ``revenue`` = Summe der (geladenen) Nacht-Netto je Buchung
+    (``baseAmount_netAmount``); alle anderen Spalten sind buchungsweit konstant
+    und werden via ``first()`` übernommen. Ergebnis ist ein reservations-förmiges
+    Frame, das die services-inklusive ``reservations`` in den reservation-level /
+    "nach Erstellungsdatum"-Analysen ersetzt - gleiche Nacht-Netto-Revenue-Basis
+    wie die Aufenthalts-Tabellen. Counts auf dem Ergebnis zählen Buchungen (eine
+    Zeile je ``id``), nicht Nächte.
+
+    Voraussetzung: ``nightly`` ist angereichert
+    (siehe ``enrich_timeslices_with_reservation_fields`` /
+    ``timeslices_are_enriched``).
+    """
+    if nightly is None or nightly.empty or "id" not in nightly.columns:
+        return nightly.iloc[0:0].copy() if nightly is not None else pd.DataFrame()
+    g = nightly.groupby("id", sort=False)
+    out = g.first()
+    out["revenue"] = g["revenue"].sum()
+    return out.reset_index()
 
 
 # =============================================================================

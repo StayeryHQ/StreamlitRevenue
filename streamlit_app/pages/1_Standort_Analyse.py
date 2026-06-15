@@ -150,7 +150,18 @@ def _ck(section_id: str) -> str:
 # ============================== Data load ==================================
 with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     nightly = CD.get_timeslices(properties=[property_code])
-    res = CD.get_reservations(properties=[property_code])
+
+    # Reservation-level Sektionen (Gruppen-Größe, Vorlaufzeit/Storno, Firmen-
+    # kunden, Vertragscodes) laufen jetzt auf der Nacht-Netto-Basis: nightly auf
+    # Buchungs-Ebene zurückfalten (revenue = Nacht-Netto je Buchung), nach
+    # `created` gebucketet ("nach Erstellungsdatum"). Solange der Snapshot die
+    # gebroadcasteten Felder noch nicht trägt (vor dem Foundation-Voll-Refresh)
+    # Fallback auf die services-inklusive Reservations + Hinweis-Banner.
+    _enriched = H.timeslices_are_enriched(nightly)
+    if _enriched:
+        res = H.reservations_from_timeslices(nightly)
+    else:
+        res = CD.get_reservations(properties=[property_code])
 
     if "firm_by_effective_fuzzy" in res.columns:
         res["company"] = res["firm_by_effective_fuzzy"].fillna(res["company"])
@@ -158,8 +169,8 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
 
     nig_old = H.filter_period(nightly, start_old, end_old, "stay_date")
     nig_new = H.filter_period(nightly, start_new, end_new, "stay_date")
-    res_old = H.filter_period(res, start_old, end_old, "arrival")
-    res_new = H.filter_period(res, start_new, end_new, "arrival")
+    res_old = H.filter_period(res, start_old, end_old, "created")
+    res_new = H.filter_period(res, start_new, end_new, "created")
 
 # ============================== TOC ========================================
 _TOC = [
@@ -172,14 +183,14 @@ _TOC = [
     (7, "ALOS pro Channel"),
     (8, "Wochentag · Stay"),
     (9, "Wochentag · Anreise"),
-    (10, "Gruppen-Größe"),
+    (10, "Gruppen-Größe · Erstellung"),
     (11, "Inland vs. Ausland"),
     (12, "Top-Herkunftsländer"),
-    (13, "Vorlaufzeit & Storno-Risiko"),
+    (13, "Vorlaufzeit & Storno-Risiko · Erstellung"),
     (14, "Daily Occupancy nach LOS"),
-    (15, "Firmenkunden - Überblick"),
-    (16, "Direct Offline - Detail"),
-    (17, "Top Vertragscodes"),
+    (15, "Firmenkunden · Erstellung"),
+    (16, "Direct Offline · Erstellung"),
+    (17, "Top Vertragscodes · Erstellung"),
 ]
 render_toc(_TOC)
 
@@ -199,6 +210,15 @@ _scope_caption = (
     else "**Scope:** realized-only (Storno + No-Show ausgeschlossen)"
 )
 st.caption(_scope_caption)
+
+if not _enriched:
+    alert_card(
+        "Die Reservation-Sektionen (Gruppen-Größe, Vorlaufzeit/Storno, "
+        "Firmenkunden, Vertragscodes) laufen noch auf der **services-inklusiven** "
+        "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht **nach "
+        "Erstellungsdatum** einmal Voll-Refresh ziehen (Daten aktualisieren).",
+        kind="info",
+    )
 
 kpi_old = H.landscape_kpis(
     nig_old, units, days_old, reservations=res, realized_only=_realized_only,
@@ -616,7 +636,7 @@ if lazy_section(9, "Check-in-Pattern - Anreise"):
 
     chart_help("weekday_arr")
 # ===== 10 · Gruppen-Größe =================================================
-if lazy_section(10, "Gruppen-Größe"):
+if lazy_section(10, "Gruppen-Größe", subtitle="nach Erstellungsdatum · Nacht-Netto"):
     png = CD.chart_png(
         _ck("grp"), charts.group_size_yoy, res_old, res_new, YEAR_OLD, YEAR_NEW, LABEL
     )
@@ -655,7 +675,11 @@ if lazy_section(12, "Top-Herkunftsländer"):
 
     chart_help("top_countries")
 # ===== 13 · Vorlaufzeit & Storno-Risiko ===================================
-if lazy_section(13, "Vorlaufzeit & Storno-Risiko", subtitle="n = Anzahl Buchungen pro Bucket"):
+if lazy_section(
+    13,
+    "Vorlaufzeit & Storno-Risiko",
+    subtitle="nach Erstellungsdatum · Nacht-Netto · n = Anzahl Buchungen pro Bucket",
+):
     png = CD.chart_png(
         _ck("leadtime"), charts.leadtime_storno, res_old, res_new, YEAR_OLD, YEAR_NEW, LABEL
     )
@@ -703,7 +727,11 @@ if lazy_section(14, "Daily Occupancy nach LOS"):
 
     chart_help("daily_occ")
 # ===== 15 · Firmenkunden Überblick & Channel-Split ========================
-if lazy_section(15, "Firmenkunden - Überblick & Channel-Split"):
+if lazy_section(
+    15,
+    "Firmenkunden - Überblick & Channel-Split",
+    subtitle="nach Erstellungsdatum · Nacht-Netto",
+):
     png = CD.chart_png(
         _ck("corp_ov"), charts.corporate_overview, res_old, res_new, YEAR_OLD, YEAR_NEW, LABEL
     )
@@ -738,7 +766,11 @@ if lazy_section(15, "Firmenkunden - Überblick & Channel-Split"):
 
     chart_help("corp_overview")
 # ===== 16 · Direct Offline - Detail-Segmente ==============================
-if lazy_section(16, "Direct Offline - Detail-Segmente"):
+if lazy_section(
+    16,
+    "Direct Offline - Detail-Segmente",
+    subtitle="nach Erstellungsdatum · Nacht-Netto",
+):
     st.markdown("""
 #### Wichtiger Unterschied zur Tabelle weiter oben
 
@@ -821,7 +853,8 @@ Sortiert wird nach Total New (Direct_Offline + Direct_Website + OTA zusammen).
 if lazy_section(
     17,
     "Top Vertragscodes (aktuelle Periode)",
-    subtitle="Welche `corporateCode` haben am meisten Revenue generiert?",
+    subtitle="nach Erstellungsdatum · Nacht-Netto · welche `corporateCode` "
+    "haben am meisten Revenue generiert?",
 ):
     top_codes = charts.top_codes_in_period(res_new)
     if top_codes.empty:
