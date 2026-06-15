@@ -470,7 +470,7 @@ with section(
         f"(was war on-the-books) · **{YEAR_NEW}/Today** = aktueller Stand."
     ),
 ):
-    pace_df = H.pace_by_month(res, YEAR_OLD, YEAR_NEW, SNAP_DATE, properties=props_pick)
+    pace_df = H.pace_by_month(nightly, YEAR_OLD, YEAR_NEW, SNAP_DATE, properties=props_pick)
     label = (
         "Alle Standorte" if len(props_pick) == len(all_props) else f"{len(props_pick)} Standorte"
     )

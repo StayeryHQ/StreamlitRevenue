@@ -188,54 +188,12 @@ _PLAN_COLUMNS_NORMALIZED = ["property_code"] + PLAN_COLUMNS[1:]
 
 
 def load_plan(snapshot_dir: "Path | str | None" = None) -> pd.DataFrame:
-    """Planzahlen aus ``<snapshot_dir>/plan.parquet``.
+    """Planzahlen aus ``<snapshot_dir>/plan.parquet`` (BigQuery-Snapshot).
 
-    Leeres DataFrame (mit Spalten) wenn das File fehlt.
+    Einzige Plan-Quelle. Liefert ein leeres DataFrame (mit den normalisierten
+    Spalten) wenn das File fehlt. Lokaler Pfad oder ``gs://``-URI - pandas/
+    pyarrow lesen beides transparent.
     """
-    return {"plan": override or {}}
-
-
-def load_default_plan() -> dict[str, dict[str, float]]:
-    """Repo-Default-Plan aus ``data/plan_default.xlsx`` parsen.
-
-    Returns ein leeres Dict wenn die Datei fehlt oder nicht parsbar ist
-    (Fail-safe - App läuft auch ohne Default-Plan, PLAN-Werte zeigen dann 0 €).
-    """
-    from .plan_parser import load_default_plan as _ldp
-    return _ldp()
-
-
-def active_plan(override: dict[str, dict[str, float]] | None = None,
-                  *, default: dict[str, dict[str, float]] | None = None,
-                  ) -> dict[str, dict[str, float]]:
-    """Aktiver Plan = Override falls vorhanden, sonst Default.
-
-    „Komplett ersetzen"-Semantik: sobald ein Override-Dict mit mind. einem
-    Hotel-Eintrag aktiv ist, wird der Default-Plan komplett ignoriert.
-    So vermeiden wir Halb-Merge-Inkonsistenzen - der User lädt einen vollen
-    Plan hoch oder gar keinen.
-
-    Args:
-        override: i.d.R. ``st.session_state['plan_override']`` oder das
-            persistierte ``plan_override.json``.
-        default: optional bereits geladener Default (Test-Hook). Wenn None,
-            wird ``load_default_plan()`` aufgerufen.
-    """
-    if override:
-        return override
-    return default if default is not None else load_default_plan()
-
-
-PLAN_OVERRIDE_FILENAME = "plan_override.json"
-
-
-def load_plan_override(snapshot_dir: "Path | str | None" = None) -> dict[str, dict[str, float]]:
-    """Load the persisted plan-override from ``<snapshot_dir>/plan_override.json``.
-
-    Returns an empty dict if the file does not exist. Supports both local
-    paths and ``gs://`` URIs.
-    """
-    import json as _json
     snap = snapshot_dir or find_snapshot_dir()
     if snap is None:
         return pd.DataFrame(columns=_PLAN_COLUMNS_NORMALIZED)
@@ -243,6 +201,19 @@ def load_plan_override(snapshot_dir: "Path | str | None" = None) -> dict[str, di
     if not _snapshot_exists(path):
         return pd.DataFrame(columns=_PLAN_COLUMNS_NORMALIZED)
     return pd.read_parquet(str(path))
+
+
+def _write_metadata_json(meta: dict[str, Any], snapshot_dir: "Path | str") -> None:
+    """``metadata.json`` an die Snapshot-Location schreiben (lokal oder ``gs://``)."""
+    import json as _json
+    meta_path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["metadata"])
+    body = _json.dumps(meta, indent=2, ensure_ascii=False)
+    if _is_remote(meta_path):
+        import fsspec
+        with fsspec.open(meta_path, "w") as f:
+            f.write(body)
+    else:
+        Path(meta_path).write_text(body, encoding="utf-8")
 
 
 def save_plan(plan_df: pd.DataFrame, snapshot_dir: "Path | str",
@@ -286,78 +257,39 @@ def save_plan(plan_df: pd.DataFrame, snapshot_dir: "Path | str",
 
 
 def plan_to_dict(plan_df: pd.DataFrame) -> dict[str, dict[str, float]]:
-    """Parquet-Plan ``{property_code: {"YYYY-MM": revenue_eur}}``.
+    """Parquet-Plan -> ``{property_code: {"YYYY-MM": revenue_eur}}``.
 
-    Das ist das Format, das ``plan_revenue()`` konsumiert (Monats-Keys als
-    Period-Strings). Doppelte (code, monat)-Zeilen werden summiert.
+    Das Format, das ``plan_revenue()`` konsumiert (Monats-Keys als
+    ``YYYY-MM``-Strings). Doppelte ``(code, monat)``-Zeilen werden summiert.
+    Leeres Dict wenn der Plan leer/None ist.
     """
     if plan_df is None or plan_df.empty:
         return {}
-    path = _join_snapshot(snap, PLAN_OVERRIDE_FILENAME)
-    if not _snapshot_exists(path):
+    df = plan_df.copy()
+    df["month"] = pd.to_datetime(df["month"], errors="coerce")
+    df = df.dropna(subset=["property_code", "month"])
+    if df.empty:
         return {}
-    try:
-        if _is_remote(path):
-            import fsspec
-            with fsspec.open(path, "r") as f:
-                payload = _json.loads(f.read())
-        else:
-            payload = _json.loads(Path(path).read_text(encoding="utf-8"))
-    except Exception:
-        return {}
-    plan = payload.get("plan") if isinstance(payload, dict) else None
-    return plan if isinstance(plan, dict) else {}
-
-
-def save_plan_override(plan: dict[str, dict[str, float]],
-                        snapshot_dir: "Path | str | None" = None) -> str:
-    """Write the plan-override to ``<snapshot_dir>/plan_override.json``.
-
-    Returns the path / URI it was written to.
-    """
-    import json as _json
-    from datetime import datetime
-    snap = snapshot_dir or find_snapshot_dir()
-    if snap is None:
-        raise RuntimeError("Kein Snapshot-Verzeichnis konfiguriert - STAYERY_SNAPSHOT_DIR setzen.")
-    path = _join_snapshot(snap, PLAN_OVERRIDE_FILENAME)
-    payload = {"plan": plan, "saved_at": datetime.now().isoformat(timespec="seconds")}
-    body = _json.dumps(payload, ensure_ascii=False, indent=2)
-    if _is_remote(path):
-        import fsspec
-        with fsspec.open(path, "w") as f:
-            f.write(body)
-    else:
-        p = Path(path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(body, encoding="utf-8")
-    return str(path)
-
-
-def delete_plan_override(snapshot_dir: "Path | str | None" = None) -> None:
-    """Remove the persisted plan-override (revert to empty plan)."""
-    snap = snapshot_dir or find_snapshot_dir()
-    if snap is None:
-        return
-    path = _join_snapshot(snap, PLAN_OVERRIDE_FILENAME)
-    if not _snapshot_exists(path):
-        return
-    if _is_remote(path):
-        import fsspec
-        fs, p = fsspec.url_to_fs(str(path))
-        fs.rm(p)
-    else:
-        Path(path).unlink(missing_ok=True)
+    ym = df["month"].dt.strftime("%Y-%m")
+    grouped = df.assign(_ym=ym).groupby(["property_code", "_ym"])["revenue"].sum()
+    out: dict[str, dict[str, float]] = {}
+    for (pc, month_key), value in grouped.items():
+        out.setdefault(str(pc), {})[str(month_key)] = float(value)
+    return out
 
 
 def plan_revenue(
     property_code: str,
     start: pd.Timestamp,
     end: pd.Timestamp,
-    override: dict[str, dict[str, float]] | None = None,
+    plan: dict[str, dict[str, float]] | None = None,
 ) -> float:
-    """Planned revenue for one hotel over [start, end] (pro-rata by month)."""
-    months = revenue_plan(override).get("plan", {}).get(property_code, {})
+    """Geplantes Revenue für ein Hotel über [start, end] (pro-rata je Monat).
+
+    ``plan`` ist das Dict aus ``plan_to_dict(load_plan())``:
+    ``{property_code: {"YYYY-MM": revenue_eur}}``. Fehlt der Plan -> 0.0.
+    """
+    months = (plan or {}).get(property_code, {})
     total = 0.0
     for ym, value in months.items():
         period = pd.Period(str(ym), freq="M")
@@ -382,6 +314,7 @@ def plan_revenue(
 SNAPSHOT_FILES = {
     "reservations": "reservations.parquet",
     "timeslices":   "timeslices.parquet",
+    "plan":         "plan.parquet",
     "metadata":     "metadata.json",
 }
 
