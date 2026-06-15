@@ -30,7 +30,7 @@ def to_net(gross: Any) -> Any:
 
 
 # =============================================================================
-# Config - locations.yaml & revenue_plan.yaml
+# Config - locations.yaml & Planzahlen (BigQuery ref_tables.plan)
 # =============================================================================
 @lru_cache(maxsize=1)
 def _locations() -> list[dict[str, Any]]:
@@ -306,7 +306,7 @@ def plan_revenue(
 # =============================================================================
 # Parquet snapshot - single source of truth for the analysis pages.
 # =============================================================================
-# The Refresh-Snapshot page is the only place that talks to BigQuery; it
+# The "Daten aktualisieren" page is the only place that talks to BigQuery; it
 # writes a pre-engineered parquet to `data/` (or `gs://…` via env-var).
 # All analysis pages read that snapshot and filter in-memory - zero
 # BigQuery cost per filter change.
@@ -444,14 +444,14 @@ def load_reservations(
     snap = snapshot_dir or find_snapshot_dir()
     if snap is None:
         raise FileNotFoundError(
-            "Snapshot nicht gefunden. Bitte erst einmal Refresh ausführen "
-            "(Streamlit-App: Refresh-Snapshot, oder Notebook 00_refresh_snapshot)."
+            "Snapshot nicht gefunden. Bitte erst einmal `Daten aktualisieren` "
+            "ausführen (Streamlit-App)."
         )
     path = _join_snapshot(snap, SNAPSHOT_FILES["reservations"])
     if not _snapshot_exists(path):
         raise FileNotFoundError(
             f"Reservations-Snapshot fehlt: {path}\n"
-            f"Bitte Refresh ausführen."
+            f"Bitte `Daten aktualisieren` ausführen."
         )
     return _read_parquet_with_filter(path, "arrival", start, end, properties)
 
@@ -469,13 +469,13 @@ def load_timeslices(
     snap = snapshot_dir or find_snapshot_dir()
     if snap is None:
         raise FileNotFoundError(
-            "Snapshot nicht gefunden. Bitte erst Refresh ausführen."
+            "Snapshot nicht gefunden. Bitte erst `Daten aktualisieren` ausführen."
         )
     path = _join_snapshot(snap, SNAPSHOT_FILES["timeslices"])
     if not _snapshot_exists(path):
         raise FileNotFoundError(
             f"Timeslices-Snapshot fehlt: {path}\n"
-            f"Bitte Refresh ausführen."
+            f"Bitte `Daten aktualisieren` ausführen."
         )
     return _read_parquet_with_filter(path, "serviceDate", start, end, properties)
 
@@ -1178,7 +1178,7 @@ def union_period(
 
 
 def pace_by_month(
-    reservations: pd.DataFrame,
+    nightly: pd.DataFrame,
     year_old: int,
     year_new: int,
     snapshot_date: pd.Timestamp,
@@ -1186,74 +1186,94 @@ def pace_by_month(
     realized_only: bool = True,
     properties: list[str] | None = None,
 ) -> pd.DataFrame:
-    """Pace by month - 3 Revenue-Werte je Anreise-Monat (1-12).
+    """Pace by month - 3 Revenue-Werte je **Übernachtungs-Monat** (1-12).
 
-    Bucket = Monat der Übernachtung (``stay_date``). "On the books" am
-    Stichtag T heißt ``created <= T`` UND (nicht storniert ODER Storno erst
-    nach T, d.h. ``cancel_time > T``). NoShows sind überall ausgeschlossen.
+    Läuft auf den **Timeslices** (``nightly``): eine Zeile = eine Nacht,
+    ``revenue`` = Nacht-Netto (``baseAmount_netAmount``). Jede Nacht wird ihrem
+    eigenen ``stay_date`` (= ``serviceDate``) zugeordnet - das Revenue landet im
+    Monat der tatsächlichen Übernachtung, NICHT der Buchung/Anreise.
 
-      - ``ist_eom_old``  : OTB am Monatsletzten jedes Monats in ``year_old`` -
-                            bewusst für ALLE 12 Monate (auch Monate nach dem
-                            Snapshot-Vorjahresstand, z.B. Jul-Dez bei Snap im
-                            Juni). Das EoM-Datum liegt für das alte Jahr immer
-                            in der Vergangenheit des Snapshots.
-      - ``ist_asof_old`` : OTB am ``snapshot_date`` minus 366 Tage (analog
-                            Referenz-SQL: ``current_date - 366``).
-      - ``ist_asof_new`` : OTB am ``snapshot_date``.
+      - ``ist_eom_old``  : finale realisierte Realität für ``year_old`` (alle
+                            12 Stay-Monate, realized-only).
+      - ``ist_asof_old`` : On-the-books-Stand am ``snapshot_date`` minus 366
+                            Tage (Vorjahres-Pendant des Snapshot-Stichtags).
+      - ``ist_asof_new`` : On-the-books-Stand am ``snapshot_date``.
 
-    Storno-Zeitpunkt = ``cancel_time`` (= ``cancellationTime``, Fallback
-    ``modified`` als Proxy). Alle Stichtage hängen am ``snapshot_date``
-    (Parquet-Stand), nie an "heute". Fallback: fehlt der Storno-Zeitstempel ganz
-    (Alt-Snapshot), werden Stornos komplett ausgeschlossen statt zeitlich
-    rekonstruiert - die asof-Serien unterschätzen den damaligen OTB-Stand leicht.
+    "On the books" am Stichtag T = die Nacht gehört zu einer Buchung mit
+    ``created <= T`` UND (nicht storniert ODER Storno erst nach T, d.h.
+    ``cancel_time > T``). So zählen Nächte, die am Stichtag noch standen aber
+    später storniert wurden, korrekt mit - sonst unterschätzen die asof-Serien
+    den damaligen Stand.
+
+    Storno-Zeitpunkt = ``cancel_time`` (trägt aus dem Engineering bereits
+    ``cancellationTime`` mit ``modified`` als Fallback); fehlt ``cancel_time``,
+    wird die rohe ``modified``-Spalte genutzt. Hat eine stornierte Nacht gar
+    keinen Storno-Zeitstempel, wird sie ausgeschlossen (statt zeitlich
+    rekonstruiert). NoShows sind überall ausgeschlossen. Alle Stichtage hängen
+    am ``snapshot_date`` (Parquet-Stand), nie an "heute".
     """
-    df = reservations
+    df = nightly
     if properties:
         df = df[df["property_code"].isin(properties)]
-    if realized_only:
-        df = df[df["is_realized"]]
+    # NoShows immer raus (Pace-Konvention).
+    if "is_no_show" in df.columns:
+        df = df[~df["is_no_show"].astype(bool)]
     if df.empty:
         return pd.DataFrame(columns=["month", "ist_eom_old", "ist_asof_old", "ist_asof_new"])
 
-    arr = pd.to_datetime(df["arrival"]).dt.normalize()
+    stay_col = "stay_date" if "stay_date" in df.columns else "serviceDate"
+    stay = pd.to_datetime(df[stay_col]).dt.normalize()
     created = pd.to_datetime(df["created"]).dt.normalize()
     rev = df["revenue"].astype(float)
+    month = stay.dt.month
 
-    # Storno-Zeitpunkt: cancel_time (= cancellationTime, Fallback modified) wenn
-    # vorhanden, sonst direkt modified; fehlt beides -> kein Storno-Stichtag.
-    _cancel_col = "cancel_time" if "cancel_time" in df.columns else "modified"
-    has_cancel_ts = _cancel_col in df.columns and df[_cancel_col].notna().any()
-    if has_cancel_ts:
-        cancel_ts = pd.to_datetime(df[_cancel_col]).dt.normalize()
-
-    def _otb(asof: pd.Timestamp, base_mask) -> pd.Series:
-        """Revenue on the books am Stichtag, gruppiert nach Stay-Monat."""
-        if has_cancel_ts:
-            on_books = (created <= asof) & (~cancelled | (cancel_ts > asof))
-        else:
-            on_books = (created <= asof) & ~cancelled
-        m = base_mask & on_books
-        return rev[m].groupby(stay[m].dt.month).sum()
+    cancelled = (
+        df["is_cancelled"].astype(bool)
+        if "is_cancelled" in df.columns
+        else pd.Series(False, index=df.index)
+    )
+    realized = (
+        df["is_realized"].astype(bool)
+        if "is_realized" in df.columns
+        else ~cancelled
+    )
+    # Storno-Zeitstempel: cancel_time (= cancellationTime ?? modified aus dem
+    # Engineering), sonst rohe modified-Spalte; fehlt beides -> Stornos raus.
+    _cancel_col = (
+        "cancel_time" if "cancel_time" in df.columns
+        else ("modified" if "modified" in df.columns else None)
+    )
+    cancel_ts = (
+        pd.to_datetime(df[_cancel_col], errors="coerce").dt.normalize()
+        if _cancel_col is not None
+        else None
+    )
 
     snap = pd.Timestamp(snapshot_date).normalize()
     snap_old = snap - pd.Timedelta(days=366)
 
-    is_old_year = arr.dt.year == year_old
-    is_new_year = arr.dt.year == year_new
-    month = arr.dt.month
+    is_old_year = stay.dt.year == year_old
+    is_new_year = stay.dt.year == year_new
 
-    eom_old = (
-        rev[is_old_year]
-        .groupby(month[is_old_year]).sum()
-    )
-    asof_old = (
-        rev[is_old_year & (created <= snap_old)]
-        .groupby(month[is_old_year & (created <= snap_old)]).sum()
-    )
-    asof_new = (
-        rev[is_new_year & (created <= snap)]
-        .groupby(month[is_new_year & (created <= snap)]).sum()
-    )
+    def _otb(asof: pd.Timestamp, year_mask: pd.Series) -> pd.Series:
+        """Nacht-Netto on-the-books am Stichtag, gruppiert nach Stay-Monat."""
+        if cancel_ts is not None:
+            # nicht storniert ODER Storno erst nach dem Stichtag; storniert
+            # ohne Zeitstempel -> raus.
+            still_on = (~cancelled) | (cancelled & cancel_ts.notna() & (cancel_ts > asof))
+        else:
+            still_on = ~cancelled
+        m = year_mask & (created <= asof) & still_on
+        return rev[m].groupby(month[m]).sum()
+
+    # finale Realität fürs alte Jahr: realized-only (bzw. nicht-storniert wenn
+    # is_realized fehlt). realized_only=False -> alle nicht-stornierten Nächte.
+    eom_base = realized if realized_only else ~cancelled
+    eom_mask = is_old_year & eom_base
+    eom_old = rev[eom_mask].groupby(month[eom_mask]).sum()
+
+    asof_old = _otb(snap_old, is_old_year)
+    asof_new = _otb(snap, is_new_year)
 
     out = pd.DataFrame({
         "month":        list(range(1, 13)),

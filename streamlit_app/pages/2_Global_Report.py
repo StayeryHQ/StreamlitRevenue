@@ -74,7 +74,7 @@ with st.sidebar:
 
     meta = CD.get_metadata()
     if not meta:
-        st.error("Kein Snapshot - bitte erst `Refresh-Snapshot` ausführen.")
+        st.error("Kein Snapshot - bitte erst `Daten aktualisieren` ausführen.")
         st.stop()
 
     all_props = meta.get("properties") or H.all_properties()
@@ -186,12 +186,9 @@ with st.sidebar:
         st.stop()
 
     st.divider()
-    if st.session_state.get("plan_override"):
-        _plan_status = "Upload-Override (persistiert)"
-    elif CD.get_default_plan():
-        _plan_status = "Repo-Default (data/plan_default.xlsx)"
-    else:
-        _plan_status = "-"
+    _plan_status = (
+        "BigQuery-Snapshot (plan.parquet)" if CD.get_active_plan() else "– (kein Plan-Snapshot)"
+    )
     st.caption(f"Plan: {_plan_status}")
     st.caption(f"Snapshot vom **{str(meta.get('refreshed_at', '?'))[:10]}**")
 
@@ -201,7 +198,7 @@ render_notepad(PAGE)
 YEAR_OLD = start_old.year
 YEAR_NEW = start_new.year
 PERIOD_TAG = f"{period_tag_new} vs. {period_tag_old}"
-plan_override = CD.get_active_plan()  # Upload-Override > Repo-Default
+plan_dict = CD.get_active_plan()  # Plan aus BigQuery-Snapshot (plan.parquet)
 SNAP_TAG = CD.snapshot_tag()
 SNAP_DATE = pd.Timestamp(str(meta.get("refreshed_at", ""))[:10] or pd.Timestamp.today().date())
 props_tag = "+".join(sorted(props_pick)) if len(props_pick) < 11 else "all"
@@ -300,7 +297,7 @@ disp_stay, raw_stay = GT.performance_by_stay(
     YEAR_NEW,
     period_tag_new,
     period_tag_old,
-    plan_override=plan_override,
+    plan=plan_dict,
     include_cancellations=_include_cancellations,
 )
 disp_chan_stay, raw_chan_stay = GT.channel_volume_by_stay(

@@ -67,7 +67,7 @@ with st.sidebar:
 
     meta = CD.get_metadata()
     if not meta:
-        st.error("Kein Snapshot - bitte erst `Refresh-Snapshot` ausführen.")
+        st.error("Kein Snapshot - bitte erst `Daten aktualisieren` ausführen.")
         st.stop()
 
     all_props = meta.get("properties") or H.all_properties()
@@ -357,8 +357,8 @@ with section(
             else f"PLAN {H.fmt_eur(plan_new_eur)}"
         ),
         help=(
-            "IST-Revenue der NEW-Periode vs. PLAN aus dem aktuell aktivierten "
-            "Plan-Upload (pro-rata pro Monat). Grau = kein PLAN hinterlegt."
+            "IST-Revenue der NEW-Periode vs. PLAN aus dem BigQuery-Snapshot "
+            "(`ref_tables.plan`, pro-rata pro Monat). Grau = kein PLAN hinterlegt."
         ),
     )
     c3.metric(

@@ -84,10 +84,13 @@ def performance_by_stay(
     year_new: int,
     period_tag_new: str = "",
     period_tag_old: str = "",
-    plan_override: dict | None = None,
+    plan: dict | None = None,
     include_cancellations: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Standort-Performance nach Aufenthaltsdatum - IST vs PLAN vs LY.
+
+    ``plan`` = ``{property_code: {"YYYY-MM": eur}}`` aus dem BigQuery-Snapshot
+    (``plan_to_dict(load_plan())``).
 
     include_cancellations=False (default) → realized-only (Storno + No-Show raus).
     include_cancellations=True            → alle Buchungen werden gezählt.
@@ -109,7 +112,7 @@ def performance_by_stay(
     for pc in properties:
         ic = float(ist_new.get(pc, 0.0))
         ily = float(ist_old.get(pc, 0.0))
-        ip = H.plan_revenue(pc, start_new, end_new, override=plan_override)
+        ip = H.plan_revenue(pc, start_new, end_new, plan=plan)
         if ic == 0 and ily == 0 and ip == 0:
             continue
         d_plan = ic - ip

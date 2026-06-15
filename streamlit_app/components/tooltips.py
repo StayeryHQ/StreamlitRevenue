@@ -40,7 +40,7 @@ KPI_GLOBAL_IST_STAY = (
     "Die Zahl mit der Plan werte verglichen werden."
 )
 KPI_GLOBAL_PLAN = (
-    "Hochgeladener Plan aus der Plan-Upload-Page, pro-rata pro Monat × Standort. "
+    "Plan aus dem BigQuery-Snapshot (`ref_tables.plan`), pro-rata pro Monat × Standort. "
     "Wenn kein Plan hinterlegt: 0 €."
 )
 KPI_GLOBAL_IST_OLD = (

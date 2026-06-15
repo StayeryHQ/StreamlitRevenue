@@ -53,7 +53,7 @@ with st.sidebar:
 
     meta = CD.get_metadata()
     if not meta:
-        st.error("Kein Snapshot - bitte erst `Refresh-Snapshot` ausführen.")
+        st.error("Kein Snapshot - bitte erst `Daten aktualisieren` ausführen.")
         st.stop()
 
     all_props = meta.get("properties") or H.all_properties()

@@ -40,7 +40,7 @@ from components import cached_data as _CD
 meta = _CD.get_metadata()
 if not meta:
     st.error(
-        "**Kein Snapshot gefunden.** Bitte einmal die Refresh-Snapshot Page "
+        "**Kein Snapshot gefunden.** Bitte einmal die `Daten aktualisieren` Page "
         "aufrufen. Bis dahin können die Analyse-Pages keine Daten laden."
     )
 else:
@@ -68,7 +68,7 @@ cols = st.columns(2)
 with cols[0]:
     st.markdown(
         """
-        ### Refresh-Snapshot
+        ### Daten aktualisieren
         Daten aus BigQuery ziehen, engineered + fuzzy-clustern, als Parquet
         speichern. **Voraussetzung für alle anderen Pages. Von Admin durchgeführt.**
         """
@@ -150,7 +150,7 @@ st.dataframe(_loc_df, hide_index=True, use_container_width=True, height=320)
 with st.expander("➕ Neuen Standort hinzufügen", expanded=False):
     st.markdown(
         "Felder ausfüllen & unten erscheint das YAML-Snippet zum Kopieren in "
-        "`configs/locations.yaml`. Danach einmal **Refresh-Snapshot** ausführen, "
+        "`configs/locations.yaml`. Danach einmal **Daten aktualisieren** ausführen, "
         "damit BigQuery den neuen Code mit zieht."
     )
     c1, c2 = st.columns(2)
@@ -214,6 +214,6 @@ with st.expander("➕ Neuen Standort hinzufügen", expanded=False):
             )
             st.code(snippet, language="yaml")
             st.caption(
-                f"Pfad: `{_LOC_PATH}` - danach **Refresh-Snapshot** ausführen, "
+                f"Pfad: `{_LOC_PATH}` - danach **Daten aktualisieren** ausführen, "
                 f"damit `{new_code}` aus BigQuery gezogen wird."
             )
