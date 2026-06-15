@@ -45,6 +45,13 @@ def load_snapshot_metadata_cached(_snapshot_sig: str) -> dict:
 
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
+def load_plan_cached(_snapshot_sig: str) -> pd.DataFrame:
+    """Planzahlen aus ``plan.parquet`` (BigQuery-Snapshot), cache-invalidiert
+    über den Snapshot-Signatur-Key."""
+    return H.load_plan()
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
 def load_reservations_cached(
     _snapshot_sig: str,
     start: pd.Timestamp | None = None,
@@ -82,32 +89,13 @@ def get_plan_df() -> pd.DataFrame:
     return load_plan_cached(_snapshot_signature())
 
 
-def get_plan_dict() -> dict:
+def get_active_plan() -> dict:
     """Plan als ``{property_code: {"YYYY-MM": eur}}`` für IST/PLAN-Vergleiche.
 
-    Leeres Dict wenn noch kein Plan-Snapshot existiert
+    Einzige Quelle: ``plan.parquet`` aus dem BigQuery-Snapshot (kein Upload/
+    Override mehr). Leeres Dict wenn noch kein Plan-Snapshot existiert.
     """
-    if "plan_override" in st.session_state:
-        return st.session_state["plan_override"] or {}
-    plan = H.load_plan_override()
-    st.session_state["plan_override"] = plan
-    return plan
-
-
-def get_default_plan() -> dict:
-    """Repo-Default-Plan aus ``data/plan_default.xlsx``, einmal pro Session geladen."""
-    if "plan_default" not in st.session_state:
-        st.session_state["plan_default"] = H.load_default_plan()
-    return st.session_state["plan_default"] or {}
-
-
-def get_active_plan() -> dict:
-    """Effektiver Plan für IST/PLAN-Vergleiche.
-
-    Logik: User-Override (Upload), sonst fällt zurück auf den
-    Repo-Default . Liefert leeres Dict wenn beides fehlt
-    """
-    return H.active_plan(get_plan_override(), default=get_default_plan())
+    return H.plan_to_dict(get_plan_df())
 
 
 def get_reservations(
