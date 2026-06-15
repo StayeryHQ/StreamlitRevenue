@@ -194,6 +194,14 @@ _TOC = [
 ]
 render_toc(_TOC)
 
+st.caption(
+    "**Datenbasis & Filter:** alle €-Werte = Nacht-Netto (`baseAmount_netAmount`). "
+    "**Aufenthalts-Sektionen** (KPIs, Pace, Channels, LOS, Wochentag, Inland/Ausland, "
+    "Länder, Occupancy) → **Aufenthalt** (serviceDate). **Reservation-Sektionen** "
+    "(Gruppen-Größe, Vorlaufzeit/Storno, Firmenkunden, Direct-Offline, Vertragscodes) → "
+    "**Erstellungsdatum** (created). Storno/No-Show via Sidebar-Toggle."
+)
+
 # ============================== Highlights =================================
 st.subheader("Highlights")
 highlights = []

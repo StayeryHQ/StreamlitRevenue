@@ -53,6 +53,13 @@ hero(
     subtitle="Snapshot + Planzahlen anzeigen oder per Klick neu aus BigQuery ziehen.",
 )
 
+st.caption(
+    "**Pull-Logik:** Reservations nach `arrival ≥ Start` (offen in die Zukunft, kein "
+    "Future-Cap), Timeslices nach `serviceDate ≥ Start`. Planzahlen aus dem "
+    "Drive-Sheet `ref_tables.plan` (braucht Drive-Scope; scheitert non-fatal, "
+    "bestehender Plan bleibt erhalten)."
+)
+
 
 def _clear_caches() -> None:
     """Analyse-Pages sehen sonst noch die alten Daten."""

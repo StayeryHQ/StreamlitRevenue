@@ -886,13 +886,14 @@ def engineer_reservations(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
 
     Adds: revenue (net €), gross_amount, nights, status flags, channel,
     origin, los_bucket, lead_time_days / lead_time_bucket,
-    cancel_lead_time_days (proxy via `modified`), booking_size /
-    group_size_bucket, room_category, rate-plan flags, has_promo /
+    cancel_lead_time_days (via `cancellationTime`, Fallback `modified`),
+    booking_size / group_size_bucket, room_category, rate-plan flags, has_promo /
     has_company, calendar fields, adr_per_night, kept_revenue / lost_revenue.
     """
     df = df.copy()
-    for c in ("arrival", "departure", "created", "modified"):
-        df[c] = _to_dt(df[c])
+    for c in ("arrival", "departure", "created", "modified", "cancellationTime"):
+        if c in df.columns:
+            df[c] = _to_dt(df[c])
     df["gross_amount"] = pd.to_numeric(df["totalGrossAmount_amount"], errors="coerce").fillna(0.0)
     df["revenue"] = to_net(df["gross_amount"])
     df["adults"] = pd.to_numeric(df["adults"], errors="coerce")
@@ -906,11 +907,18 @@ def engineer_reservations(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
     df["lead_time_days"] = (df["arrival"].dt.normalize() - df["created"].dt.normalize()).dt.days
     df["lead_time_bucket"] = pd.cut(df["lead_time_days"], bins=LEAD_BINS, labels=LEAD_LABELS)
 
-    # No cancellation timestamp exists in BigQuery - `modified` is the closest
-    # proxy for when a cancelled reservation last changed state.
+    # Storno-Zeitpunkt: `cancellationTime` ist der echte apaleo-Cancel-Zeitstempel
+    # (in den Reservations zu ~100 % gefüllt). `modified` ist nur der Fallback-
+    # Proxy, falls `cancellationTime` mal leer ist (Alt-Buchungen / fehlende Daten).
+    if "cancellationTime" in df.columns:
+        df["cancel_time"] = df["cancellationTime"].where(
+            df["cancellationTime"].notna(), df["modified"]
+        )
+    else:
+        df["cancel_time"] = df["modified"]
     df["cancel_lead_time_days"] = np.where(
         df["is_cancelled"],
-        (df["arrival"].dt.normalize() - df["modified"].dt.normalize()).dt.days,
+        (df["arrival"].dt.normalize() - df["cancel_time"].dt.normalize()).dt.days,
         np.nan,
     )
 
@@ -1047,9 +1055,11 @@ def landscape_kpis(
     """Headline KPIs (revenue, ADR, occupancy, ALOS) für eine nightly-Slice.
 
     **Datenquelle: ausschließlich ``timeslices``** (Parquet ``timeslices.parquet``).
-    Eine Zeile = eine genutzte Hotel-Nacht. ``nightly["revenue"]`` ist der
-    Anteil der jeweiligen Nacht am Reservation-Total (= booking_revenue ÷
-    LOS, gleichmäßig auf alle Nächte verteilt im BigQuery-View).
+    Eine Zeile = eine genutzte Hotel-Nacht. ``nightly["revenue"]`` ist das ECHTE
+    Netto pro Nacht (``baseAmount_netAmount``) - es variiert von Nacht zu Nacht
+    (unterschiedliche Tagesraten), KEINE Gleichverteilung booking ÷ LOS. Genau
+    deshalb laufen die Stay-/serviceDate-Sichten über die Timeslices und nicht
+    über die Reservations (die das pro-Nacht-Detail gar nicht abbilden könnten).
 
     **Filter-Pipeline** (passiert in den Pages, BEVOR diese Funktion gerufen wird):
 
@@ -1112,10 +1122,14 @@ def landscape_kpis(
     adr_timeslice  = revenue / room_nights if room_nights else float("nan")
     alos_timeslice = room_nights / n_book if n_book else float("nan")
 
-    # Variante B - Reservation-based ("die ganze Buchung, wenn ≥1 Nacht drin")
-    # Korrektheit braucht das ``reservations``-DataFrame, weil ``nightly`` nur
-    # die window-Slice ist. ``reservations[id, nights, revenue]`` liefert die
-    # gesamte Buchungs-LOS + Booking-Total-Revenue.
+    # Variante B - Reservation-based ("die ganze Buchung, wenn ≥1 Nacht drin").
+    # Braucht das booking-level ``reservations``-Frame, weil ``nightly`` nur die
+    # window-Slice ist - es liefert die gesamte Buchungs-LOS + das Booking-Total.
+    # Revenue-Basis: auf der Standort-Seite wird hier (enriched) das aus den
+    # Timeslices zurückgefaltete Nacht-Netto-Frame übergeben, ``revenue`` ist also
+    # die Summe der Nacht-Netto je Buchung (OHNE Services) - konsistent mit der
+    # restlichen App. Nur im Fallback (vor dem Voll-Refresh) ist es das
+    # services-inklusive Reservations-Revenue.
     if n_book and reservations is not None and not reservations.empty:
         ids_in_window = set(nig["id"].dropna().unique())
         res_sub = reservations[reservations["id"].isin(ids_in_window)]
@@ -1185,23 +1199,20 @@ def monthly_landscape(
 
 
 def pace_to_plan(
-    ist_eur: float,
-    plan_eur: float,
     start: pd.Timestamp,
     end: pd.Timestamp,
     today: pd.Timestamp | None = None,
 ) -> dict[str, float | str]:
-    """Run-rate 
+    """Zeit-Fortschritt der Periode - KEIN Forecast.
 
     Returns:
-        days_elapsed, days_total, elapsed_pct, 
+        ``days_elapsed``, ``days_total``, ``elapsed_pct``,
         ``status`` ('completed', 'in_progress', 'future').
 
-    For a fully-elapsed window the projection equals ``ist_eur`` (status
-    'completed'); for a future window the projection is ``nan`` (status
-    'future'). For an in-progress window we extrapolate linearly from the
-    realised pace - a pragmatic first-cut signal, not a seasonality-aware
-    forecast. Best paired with a "vs PLAN at pace" reference in the report.
+    Reine Ist-Sicht: wie weit ist die Periode zeitlich durch (Stichtag ``today``,
+    in den Reports der Snapshot-Stand). Damit ordnet man IST/PLAN ein - bei 30 %
+    verstrichener Zeit sind ~30 % vom PLAN = on-pace. Es wird NICHT auf das
+    Periodenende hochgerechnet/extrapoliert.
     """
     today = pd.Timestamp(today) if today is not None else pd.Timestamp.today().normalize()
     days_total = period_days(start, end)
@@ -1251,8 +1262,9 @@ def pace_by_month(
 ) -> pd.DataFrame:
     """Pace by month - 3 Revenue-Werte je Anreise-Monat (1-12).
 
-    Booking ``arrival`` bestimmt den Monats-Bucket. Booking ``created`` bestimmt
-    welcher Snapshot-Stand "on the books" zählt:
+    Bucket = Monat der Übernachtung (``stay_date``). "On the books" am
+    Stichtag T heißt ``created <= T`` UND (nicht storniert ODER Storno erst
+    nach T, d.h. ``cancel_time > T``). NoShows sind überall ausgeschlossen.
 
       - ``ist_eom_old``  : OTB am Monatsletzten jedes Monats in ``year_old`` -
                             bewusst für ALLE 12 Monate (auch Monate nach dem
@@ -1263,9 +1275,11 @@ def pace_by_month(
                             Referenz-SQL: ``current_date - 366``).
       - ``ist_asof_new`` : OTB am ``snapshot_date``.
 
-    ``realized_only`` filtert auf ``is_realized=True`` (Stornos raus). Bei
-    Pace-Anwendung für zukünftige Monate ist das relevant: stornierte
-    Buchungen werden NICHT als Booking-Pace gezählt.
+    Storno-Zeitpunkt = ``cancel_time`` (= ``cancellationTime``, Fallback
+    ``modified`` als Proxy). Alle Stichtage hängen am ``snapshot_date``
+    (Parquet-Stand), nie an "heute". Fallback: fehlt der Storno-Zeitstempel ganz
+    (Alt-Snapshot), werden Stornos komplett ausgeschlossen statt zeitlich
+    rekonstruiert - die asof-Serien unterschätzen den damaligen OTB-Stand leicht.
     """
     df = reservations
     if properties:
@@ -1278,6 +1292,22 @@ def pace_by_month(
     arr = pd.to_datetime(df["arrival"]).dt.normalize()
     created = pd.to_datetime(df["created"]).dt.normalize()
     rev = df["revenue"].astype(float)
+
+    # Storno-Zeitpunkt: cancel_time (= cancellationTime, Fallback modified) wenn
+    # vorhanden, sonst direkt modified; fehlt beides -> kein Storno-Stichtag.
+    _cancel_col = "cancel_time" if "cancel_time" in df.columns else "modified"
+    has_cancel_ts = _cancel_col in df.columns and df[_cancel_col].notna().any()
+    if has_cancel_ts:
+        cancel_ts = pd.to_datetime(df[_cancel_col]).dt.normalize()
+
+    def _otb(asof: pd.Timestamp, base_mask) -> pd.Series:
+        """Revenue on the books am Stichtag, gruppiert nach Stay-Monat."""
+        if has_cancel_ts:
+            on_books = (created <= asof) & (~cancelled | (cancel_ts > asof))
+        else:
+            on_books = (created <= asof) & ~cancelled
+        m = base_mask & on_books
+        return rev[m].groupby(stay[m].dt.month).sum()
 
     snap = pd.Timestamp(snapshot_date).normalize()
     snap_old = snap - pd.Timedelta(days=366)
@@ -1401,9 +1431,15 @@ _RESERVATION_FIELDS_FOR_TIMESLICES: tuple[str, ...] = (
     "lead_time_days",
     "lead_time_bucket",
     "cancel_lead_time_days",
+    "cancel_time",
     "is_flex",
     "is_corporate_rate",
     "created_year_month",
+    "arrival_weekday",
+    # Roh-Fee-Beträge (buchungsweit konstant) - daraus rechnet
+    # ``reservations_from_timeslices`` kept/lost auf der Nacht-Netto-Basis.
+    "cancellationFee_fee_amount",
+    "noShowFee_fee_amount",
 )
 
 
@@ -1465,6 +1501,12 @@ def reservations_from_timeslices(nightly: pd.DataFrame) -> pd.DataFrame:
     wie die Aufenthalts-Tabellen. Counts auf dem Ergebnis zählen Buchungen (eine
     Zeile je ``id``), nicht Nächte.
 
+    ``kept_revenue`` / ``lost_revenue`` werden hier neu auf der Nacht-Netto-Basis
+    berechnet (identische Storno-Ökonomie wie ``engineer_reservations``, nur mit
+    Nacht-Netto statt services-inklusivem Booking-Revenue): realized → voll
+    behalten; Storno/No-Show → die einbehaltene Fee, gedeckelt auf das
+    Nacht-Netto der Buchung.
+
     Voraussetzung: ``nightly`` ist angereichert
     (siehe ``enrich_timeslices_with_reservation_fields`` /
     ``timeslices_are_enriched``).
@@ -1474,6 +1516,26 @@ def reservations_from_timeslices(nightly: pd.DataFrame) -> pd.DataFrame:
     g = nightly.groupby("id", sort=False)
     out = g.first()
     out["revenue"] = g["revenue"].sum()
+
+    # Storno-Ökonomie auf Nacht-Netto-Basis (analog engineer_reservations).
+    if {"is_realized", "is_cancelled", "is_no_show"}.issubset(out.columns):
+        rev = out["revenue"].astype(float)
+
+        def _fee(col: str) -> pd.Series:
+            if col in out.columns:
+                return to_net(pd.to_numeric(out[col], errors="coerce").fillna(0.0))
+            return pd.Series(0.0, index=out.index)
+
+        fee_cancel = _fee("cancellationFee_fee_amount")
+        fee_noshow = _fee("noShowFee_fee_amount")
+        kept = np.select(
+            [out["is_realized"], out["is_cancelled"], out["is_no_show"]],
+            [rev, np.minimum(fee_cancel, rev), np.minimum(fee_noshow, rev)],
+            default=0.0,
+        )
+        out["kept_revenue"] = np.round(kept, 2)
+        out["lost_revenue"] = np.round(rev - kept, 2)
+
     return out.reset_index()
 
 

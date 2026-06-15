@@ -128,14 +128,38 @@ st.markdown(f"""
 - Lookback: **{lookback_start:%d.%m.%Y} – {lookback_end:%d.%m.%Y}**
 """)
 
+st.caption(
+    "**Datenbasis & Filter:** Nacht-Netto (Counts = Buchungen). Lookback-Fenster "
+    "über **Aufenthalt** (serviceDate); Fokus-/Vorperiode & **Future-Pipeline** nach "
+    "**Anreise** (arrival). Revenue-Charts (Verlauf, Channel, Storno) nach "
+    "Anreise-Monat. Lost-Revenue = einbehaltene Netto-Fee, gedeckelt aufs Nacht-Netto."
+)
+
 
 # ============================== Data load ==================================
-with st.spinner("Lade Reservierungen aus dem Parquet-Snapshot …"):
-    res_all = CD.get_reservations(start=lookback_start, end=lookback_end,
-                                     properties=props_pick)
+# Revenue-Konsistenz: Code-/Firmen-Revenue läuft auf der Nacht-Netto-Basis -
+# nightly auf Buchungs-Ebene zurückfalten (revenue = Summe der Nacht-Netto je
+# Buchung, inkl. kept/lost). Perioden/Future bleiben arrival-basiert. Solange
+# der Snapshot die gebroadcasteten Felder noch nicht trägt Fallback auf die
+# services-inklusive Reservations + Hinweis-Banner.
+with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
+    nightly = CD.get_timeslices(start=lookback_start, end=lookback_end, properties=props_pick)
+    _enriched = H.timeslices_are_enriched(nightly)
+    if _enriched:
+        res_all = H.reservations_from_timeslices(nightly)
+    else:
+        res_all = CD.get_reservations(start=lookback_start, end=lookback_end,
+                                      properties=props_pick)
 if res_all.empty:
     st.warning("Keine Reservierungen im Lookback-Zeitraum.")
     st.stop()
+if not _enriched:
+    alert_card(
+        "Code-/Firmen-Revenue läuft noch auf der **services-inklusiven** "
+        "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht einmal "
+        "Voll-Refresh ziehen (Daten aktualisieren).",
+        kind="info",
+    )
 res, firm_names_fuzzy, firm_names_raw = CC.resolve_codes_to_res(res_all, codes)
 
 if res.empty:
@@ -342,6 +366,11 @@ if lazy_section(5, "Storno-Verhalten",
         f"**Storno-Ökonomie über die Lifetime:**  \n"
         f"- realisierter Revenue: **{H.fmt_eur(realized_revenue)}**  \n"
         f"- verlorener Revenue: **{H.fmt_eur(lost_revenue_total)}**"
+    )
+    st.caption(
+        "Verlorener Revenue = Nacht-Netto der Stornos/No-Shows MINUS einbehaltene "
+        "Netto-Fee (nicht die volle Buchung). Storno-Timing über `cancellationTime` "
+        "(Fallback `modified` als Proxy)."
     )
     # Datentabelle: monatliche Storno-Quote
     _stor = res.copy()

@@ -353,6 +353,14 @@ _TOC = [
 ]
 render_toc(_TOC)
 
+st.caption(
+    "**Datenbasis & Filter:** alle €-Werte = Nacht-Netto (`baseAmount_netAmount`). "
+    "**§3** → **Erstellungsdatum** (created, Sales-Sicht inkl. Storno/No-Show). "
+    "**§4 + Heatmaps/§7** → **Aufenthalt** (serviceDate, realized, mit PLAN). "
+    "**Pace** = OTB-Rekonstruktion am Snapshot-Stichtag. Storno/No-Show + späte "
+    "Öffner via Sidebar-Toggle."
+)
+
 
 # ============================== Executive Summary =========================
 st.subheader("Executive Summary")

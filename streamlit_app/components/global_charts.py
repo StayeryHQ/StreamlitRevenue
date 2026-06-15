@@ -599,7 +599,7 @@ def build_pace_table(
     today = pd.Timestamp(today) if today is not None else pd.Timestamp.today().normalize()
 
     # Periodweite Werte (gleich für alle Hotels, daher außerhalb der Schleife).
-    period_pace = H.pace_to_plan(0.0, 0.0, start_new, end_new, today=today)
+    period_pace = H.pace_to_plan(start_new, end_new, today=today)
     period_status = {
         "completed": "abgeschlossen",
         "in_progress": "laufend",

@@ -80,7 +80,9 @@ CHART_TOOLTIPS: dict[str, str] = {
         "- 🔵 `aktJahr/Today` = aktueller Stand on-the-books\n\n"
         "**Pacing-Logik:** Vergleich Grau vs Blau zeigt ob wir besser/schlechter "
         "stehen als zum gleichen Zeitpunkt letztes Jahr. Vergleich Grau vs Gelb "
-        "zeigt was nach dem Stichtag noch reinkam im Vorjahr."
+        "zeigt was nach dem Stichtag noch reinkam im Vorjahr.\n\n"
+        "**Storno-Zeitpunkt** für die OTB-Rekonstruktion: `cancellationTime` "
+        "(Fallback `modified` als Proxy, falls leer)."
     ),
     "heat_ch_los": (
         "**Links:** YoY-Veränderung je Channel × LOS-Bucket. Rot = Verlust, "
@@ -115,7 +117,8 @@ CHART_TOOLTIPS: dict[str, str] = {
     ),
     "group_size": (
         "Revenue nach Anzahl Zimmer je Buchung (1 / 2 / 3+). Single-Room-Buchungen "
-        "vs Multi-Room-Buchungen zeigen Geschäftsreise- vs Gruppen-/Familien-Mix."
+        "vs Multi-Room-Buchungen zeigen Geschäftsreise- vs Gruppen-/Familien-Mix.\n\n"
+        "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto · Counts = Buchungen."
     ),
     "de_intl": (
         "DE vs International - drei Sichten: Revenue absolut, Anteil in %, "
@@ -131,7 +134,9 @@ CHART_TOOLTIPS: dict[str, str] = {
         "**Links:** Revenue pro Vorlaufzeit-Bucket (wie lange vor Anreise gebucht). "
         "n = Anzahl Buchungen.\n\n"
         "**Rechts:** Realized vs Storniert pro Bucket - Risiko-Sicht: Werden "
-        "späte Buchungen häufiger storniert als frühe?"
+        "späte Buchungen häufiger storniert als frühe?\n\n"
+        "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto · Counts = Buchungen "
+        "(Vorlaufzeit = arrival − created)."
     ),
     "daily_occ": (
         "Daily Occupancy in % der Kapazität, gestapelt nach LOS-Bucket. "
@@ -141,7 +146,8 @@ CHART_TOOLTIPS: dict[str, str] = {
     "corp_overview": (
         "**Links:** Firmen-Revenue vs Privat-Revenue (YoY in % darüber).\n\n"
         "**Rechts:** Firmen-Revenue aufgesplittet nach Channel - sieht man "
-        "ob Direct-Offline-Firmen auf OTA gewechselt sind."
+        "ob Direct-Offline-Firmen auf OTA gewechselt sind.\n\n"
+        "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto."
     ),
     "do_waterfall": (
         "Waterfall-Chart: woher kommt die Direct-Offline-Veränderung?\n"
@@ -149,12 +155,14 @@ CHART_TOOLTIPS: dict[str, str] = {
         "- **geschrumpft** = beide da, aber kleiner\n"
         "- **gewachsen** = beide da, aber größer\n"
         "- **neu** = nur NEW da\n\n"
-        "Tabellen drunter zeigen die Top-5 pro Bucket."
+        "Tabellen drunter zeigen die Top-5 pro Bucket.\n\n"
+        "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto."
     ),
     "codes": (
         "Welche Vertragscodes (`corporateCode`, fallback auf apaleo "
         "`company_code` wo gepflegt) haben in der aktuellen Periode am meisten "
-        "Revenue gemacht. Reine OTA-Privatkunden ohne Code sind hier NICHT enthalten."
+        "Revenue gemacht. Reine OTA-Privatkunden ohne Code sind hier NICHT enthalten.\n\n"
+        "**Filter:** Periode nach Erstellungsdatum (created) · Nacht-Netto."
     ),
     # Global Report
     "scorecard": (

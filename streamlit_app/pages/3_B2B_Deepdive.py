@@ -109,13 +109,39 @@ st.markdown(f"""
 - Standorte: **{len(props_pick)}** ({", ".join(props_pick)})
 """)
 
+st.caption(
+    "**Datenbasis & Filter:** Nacht-Netto je Firma/Code (1 Zeile = 1 Buchung, "
+    "Counts = Buchungen). Lade-Fenster + Revenue über **Aufenthalt** (serviceDate); "
+    "Erste/Letzte Buchung und die Aktiv-seit-Schwelle nach **Anreise** (arrival). "
+    "Roster über die ganze Historie inkl. Storno + No-Show; Revenue verloren = "
+    "einbehaltene Netto-Fee, gedeckelt aufs Nacht-Netto."
+)
+
 
 # ============================== Data load ==================================
-with st.spinner("Lade Reservierungen aus dem Parquet-Snapshot …"):
-    res = CD.get_reservations(start=start_ts, end=end_ts, properties=props_pick)
+# Revenue-Konsistenz: Firmen-/Code-Revenue läuft auf der Nacht-Netto-Basis -
+# nightly auf Buchungs-Ebene zurückfalten (revenue = Summe der Nacht-Netto je
+# Buchung, inkl. kept/lost). Solange der Snapshot die gebroadcasteten Felder
+# noch nicht trägt (vor dem Foundation-Voll-Refresh) Fallback auf die
+# services-inklusive Reservations + Hinweis-Banner.
+with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
+    nightly = CD.get_timeslices(start=start_ts, end=end_ts, properties=props_pick)
+    _enriched = H.timeslices_are_enriched(nightly)
+    if _enriched:
+        res = H.reservations_from_timeslices(nightly)
+    else:
+        res = CD.get_reservations(start=start_ts, end=end_ts, properties=props_pick)
 if res.empty:
     st.warning("Keine Reservierungen im gewählten Zeitraum.")
     st.stop()
+
+if not _enriched:
+    alert_card(
+        "Firmen-/Code-Revenue läuft noch auf der **services-inklusiven** "
+        "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht einmal "
+        "Voll-Refresh ziehen (Daten aktualisieren).",
+        kind="info",
+    )
 
 reset_export(PAGE)
 
