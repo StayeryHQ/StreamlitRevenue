@@ -137,12 +137,13 @@ def performance_by_stay(
     if raw.empty:
         return raw, raw
 
-    # Total (nur Standorte mit Zahlen in beiden Perioden - sonst Vergleich verfälscht)
-    has_both = (raw["ist_new"] > 0) & (raw["ist_old"] > 0)
-    sub = raw[has_both]
-    t_ist = sub["ist_new"].sum()
-    t_plan = sub["plan_new"].sum()
-    t_ly = sub["ist_old"].sum()
+    # Total über GENAU die übergebenen Standorte (= props_pick nach dem
+    # Späte-Öffner-Toggle der Seite). KEIN zweiter, versteckter has-both-Filter -
+    # sonst folgen die Kacheln (IST/PLAN/LY) dem Toggle nicht und ändern sich
+    # beim Ein-/Ausblenden später Öffner gar nicht.
+    t_ist = raw["ist_new"].sum()
+    t_plan = raw["plan_new"].sum()
+    t_ly = raw["ist_old"].sum()
     total = pd.DataFrame(
         [
             {
@@ -262,10 +263,10 @@ def performance_by_created(
     if raw.empty:
         return raw, raw
 
-    has_both = (raw["ist_new"] > 0) & (raw["ist_old"] > 0)
-    sub = raw[has_both]
-    t_new = sub["ist_new"].sum()
-    t_old = sub["ist_old"].sum()
+    # Total über die übergebenen Standorte (props_pick nach Späte-Öffner-Toggle);
+    # kein separater has-both-Filter, damit der Toggle die Kacheln steuert.
+    t_new = raw["ist_new"].sum()
+    t_old = raw["ist_old"].sum()
     total = pd.DataFrame(
         [
             {
