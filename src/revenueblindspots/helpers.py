@@ -1,11 +1,11 @@
-"""Shared helpers for the Stayery revenue analytics app.
+"""Shared helpers.
 
 Config (locations, plan), BigQuery columns, snapshot IO (parquet),
 feature engineering, KPI helpers, period math, formatting.
 
-Plan-Override: pass ``override=<dict>`` to ``plan_revenue()`` /
-``revenue_plan()`` - no global state. The Streamlit Plan-Upload page
-holds the override in ``st.session_state['plan_override']``.
+Planzahlen: kommen aus BigQuery (``ref_tables.plan``) und werden beim
+Refresh als ``plan.parquet`` geschrieben. Pages holen sich das Dict über
+``plan_to_dict(load_plan())`` und reichen es an ``plan_revenue(plan=...)``.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ VAT_RATE: float = 0.07
 
 
 def to_net(gross: Any) -> Any:
-    """Convert a gross (Brutto) amount to net (Netto)."""
+    """Convert a gross amount to net."""
     return gross / (1.0 + VAT_RATE)
 
 
@@ -47,7 +47,7 @@ def location(property_code: str) -> dict[str, Any]:
 
 
 def units_total(property_code: str) -> int:
-    """Total bookable units for a hotel (occupancy denominator)."""
+    """Total bookable units for a hotel."""
     return int(location(property_code)["units_total"])
 
 
@@ -59,11 +59,8 @@ def city(property_code: str) -> str:
 def city_label(property_code: str) -> str:
     """Disambiguating label for tables.
 
-    Falls dieselbe Stadt mehrere Hotels hat (z.B. zwei in Köln), wird das
-    `neighborhood`-Feld angehängt → "Köln Ehrenfeld" vs "Köln Sülz".
-    Bei eindeutiger Stadt einfach der Stadt-Name → "Frankfurt".
-    Wenn `neighborhood` leer ist (und die Stadt mehrdeutig wäre), fällt es
-    auf den Hotel-Code zurück damit der User trotzdem unterscheiden kann.
+    Falls dieselbe Stadt mehrere Stayeries hat, wird das
+    `neighborhood`-Feld angehängt.
     """
     loc = location(property_code)
     city_name = str(loc.get("city") or "").strip()
@@ -83,18 +80,17 @@ def all_properties() -> list[str]:
 
 
 def opening_date(property_code: str) -> pd.Timestamp | None:
-    """Hotel-Eröffnungsdatum aus locations.yaml, None wenn TBD.
+    """Eröffnungsdatum aus locations.yaml, None wenn TBD.
 
-    Akzeptiert ISO (``2026-04-01`` - bevorzugt), ``DD-MM-YYYY`` (deutsch),
-    ``DD.MM.YYYY``, oder bereits ein date-Objekt. Bei zweideutigem Format
-    wie ``01-10-2025`` wird ``dayfirst=True`` angenommen (DE-Konvention).
+    Akzeptiert ISO (``2026-04-01`` bevorzugt), ``DD-MM-YYYY`` (deutsch),
+    ``DD.MM.YYYY``, oder bereits ein date-Objekt.
     """
     raw = location(property_code).get("opening_date")
     if not raw:
         return None
     if isinstance(raw, (pd.Timestamp,)):
         return raw
-    # ISO via YAML-Parser kommt als date oder datetime → direkt nehmen
+    # ISO via YAML-Parser kommt als date oder datetime
     try:
         import datetime as _dt
         if isinstance(raw, (_dt.date, _dt.datetime)):
@@ -102,13 +98,13 @@ def opening_date(property_code: str) -> pd.Timestamp | None:
     except ImportError:
         pass
     s = str(raw).strip()
-    # ISO-Form (YYYY-MM-DD) → eindeutig
+    # ISO-Form (YYYY-MM-DD)
     if len(s) >= 10 and s[4] == "-" and s[7] == "-":
         try:
             return pd.Timestamp(s)
         except (ValueError, TypeError):
             pass
-    # DD-MM-YYYY / DD.MM.YYYY → dayfirst=True
+    # DD-MM-YYYY / DD.MM.YYYY
     try:
         return pd.Timestamp(pd.to_datetime(s, dayfirst=True))
     except (ValueError, TypeError):
@@ -119,8 +115,7 @@ def properties_without_old_data(
     properties: list[str],
     old_end: pd.Timestamp,
 ) -> list[str]:
-    """Hotel-Codes deren ``opening_date`` nach ``old_end`` liegt - die haben
-    in der OLD-Periode garantiert keine Daten. Für defensive UI-Warnungen."""
+    """Hotel-Codes deren ``opening_date`` nach ``old_end`` liegt haben in Old keine Daten"""
     flagged: list[str] = []
     for pc in properties:
         try:
@@ -139,11 +134,10 @@ def is_open_in_period(
     *,
     min_overlap_days: int = 1,
 ) -> bool:
-    """True wenn der Standort innerhalb des Zeitraums mindestens
-    ``min_overlap_days`` Tage offen war.
+    """True wenn der Standort innerhalb des Zeitraums mindestens ``min_overlap_days`` Tage offen war.
 
-    Standorte ohne hinterlegtes Eröffnungsdatum (TBD) gelten defensiv als
-    *nicht* offen - die UI soll sie für historische Analysen klar markieren.
+    Standorte ohne hinterlegtes Eröffnungsdatum gelten defensiv als
+    *nicht* offen.
     """
     try:
         opened = opening_date(property_code)
@@ -173,12 +167,30 @@ def filter_open_properties(
             if is_open_in_period(p, start, end, min_overlap_days=min_overlap_days)]
 
 
-def revenue_plan(override: dict[str, dict[str, float]] | None = None) -> dict[str, Any]:
-    """Active plan - Upload-override or empty.
+# =============================================================================
+# Planzahlen - BigQuery `ref_tables.plan` plan.parquet neben dem Snapshot
+# =============================================================================
+# refresh.refresh_plan pullt die Tabelle und schreibt das Parquet.
 
-    Plan-Werte werden per Plan-Upload-Page eingespielt und in
-    ``<snapshot_dir>/plan_override.json`` persistiert. Wenn nichts da ist,
-    bleibt der Plan leer und PLAN-Spalten zeigen 0 €.
+PLAN_TABLE = "stayery-analytics.ref_tables.plan"
+
+# property_id wird beim Speichern zu property_code normalisiert
+PLAN_COLUMNS = [
+    "property_id",
+    "month",
+    "revenue",
+    "rev_par",
+    "sold_count",
+    "house_count",
+    "ooo_count",
+]
+_PLAN_COLUMNS_NORMALIZED = ["property_code"] + PLAN_COLUMNS[1:]
+
+
+def load_plan(snapshot_dir: "Path | str | None" = None) -> pd.DataFrame:
+    """Planzahlen aus ``<snapshot_dir>/plan.parquet``.
+
+    Leeres DataFrame (mit Spalten) wenn das File fehlt.
     """
     return {"plan": override or {}}
 
@@ -226,6 +238,62 @@ def load_plan_override(snapshot_dir: "Path | str | None" = None) -> dict[str, di
     import json as _json
     snap = snapshot_dir or find_snapshot_dir()
     if snap is None:
+        return pd.DataFrame(columns=_PLAN_COLUMNS_NORMALIZED)
+    path = _join_snapshot(snap, SNAPSHOT_FILES["plan"])
+    if not _snapshot_exists(path):
+        return pd.DataFrame(columns=_PLAN_COLUMNS_NORMALIZED)
+    return pd.read_parquet(str(path))
+
+
+def save_plan(plan_df: pd.DataFrame, snapshot_dir: "Path | str",
+              *, refreshed_via: str = "?") -> dict[str, Any]:
+    """``plan.parquet`` schreiben + ``metadata.json`` um den Plan-Block ergänzen.
+
+    Returns den Plan-Block.
+    """
+    df = plan_df.copy()
+    if "property_id" in df.columns and "property_code" not in df.columns:
+        df = df.rename(columns={"property_id": "property_code"})
+    df["month"] = pd.to_datetime(df["month"], errors="coerce")
+    df = df.dropna(subset=["property_code", "month"])
+    df = df.sort_values(["property_code", "month"]).reset_index(drop=True)
+
+    if not _is_remote(snapshot_dir):
+        snapshot_dir = Path(snapshot_dir)
+        snapshot_dir.mkdir(parents=True, exist_ok=True)
+    path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["plan"])
+    df.to_parquet(str(path), compression="snappy", index=False)
+
+    # Round-trip-Check: sofort zurücklesen, damit "erfolgreich hinterlegt"
+    # garantiert ist statt eines still geschriebenen Leer-/Teil-Plans.
+    _back = load_plan(snapshot_dir)
+    if len(_back) != len(df):
+        raise RuntimeError(
+            f"Plan-Roundtrip fehlgeschlagen: {len(_back)} Zeilen zurückgelesen, "
+            f"{len(df)} geschrieben ({path})."
+        )
+
+    plan_meta: dict[str, Any] = {
+        "rows": int(len(df)),
+        "hotels": int(df["property_code"].nunique()) if len(df) else 0,
+        "earliest": df["month"].min().isoformat() if len(df) else None,
+        "latest": df["month"].max().isoformat() if len(df) else None,
+        "refreshed_at": pd.Timestamp.now(tz="Europe/Berlin").isoformat(),
+        "refreshed_via": refreshed_via,
+    }
+    meta = load_snapshot_metadata(snapshot_dir) or {}
+    meta["plan"] = plan_meta
+    _write_metadata_json(meta, snapshot_dir)
+    return plan_meta
+
+
+def plan_to_dict(plan_df: pd.DataFrame) -> dict[str, dict[str, float]]:
+    """Parquet-Plan → ``{property_code: {"YYYY-MM": revenue_eur}}``.
+
+    Das ist das Format, das ``plan_revenue()`` konsumiert (Monats-Keys als
+    Period-Strings). Doppelte (code, monat)-Zeilen werden summiert.
+    """
+    if plan_df is None or plan_df.empty:
         return {}
     path = _join_snapshot(snap, PLAN_OVERRIDE_FILENAME)
     if not _snapshot_exists(path):

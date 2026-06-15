@@ -14,11 +14,18 @@ Caller-spezifische Unterschiede werden über zwei Parameter kontrolliert:
   * ``refreshed_via`` - Freitext-Marker der im ``metadata.json`` landet, damit
     man später nachvollziehen kann wer den Snapshot geschrieben hat.
 
-Auth-Quellen (in dieser Reihenfolge probiert):
+Auth-Quellen (in dieser Reihenfolge probiert). ``ref_tables.plan`` ist eine
+Drive-backed External Table (Google Sheet) - die SA-Key-Files fordern dafür den
+Drive-Scope an; der gcloud-ADC nutzt die beim Login erteilten Scopes:
   1. ``GCP_SERVICE_ACCOUNT_JSON_FILE`` env-var zeigt auf ein Service-Account-File.
   2. ``GOOGLE_APPLICATION_CREDENTIALS`` env-var zeigt auf ein Service-Account-File.
-  3. gcloud Application Default Credentials (lokaler Dev nach
-     ``gcloud auth application-default login``).
+  3. gcloud Application Default Credentials (lokaler Dev). Für den Plan-Pull
+     einmalig MIT Drive-Scope einloggen::
+
+         gcloud auth application-default login \\
+             --scopes=https://www.googleapis.com/auth/bigquery,\\
+             https://www.googleapis.com/auth/drive.readonly,\\
+             https://www.googleapis.com/auth/cloud-platform
 """
 from __future__ import annotations
 
@@ -37,21 +44,68 @@ ProgressCallback = Callable[[str, "float | None"], None]
 
 
 # ============================== Auth ======================================
+# `ref_tables.plan` ist eine Drive-backed External Table (Google Sheet). Damit
+# BigQuery das Sheet lesen darf, braucht das Token NEBEN dem BigQuery- auch den
+# Drive-Scope - sonst: "403 Permission denied while getting Drive credentials".
+# Gilt für Service-Account-Files (SA muss zusätzlich Leserechte am Sheet haben)
+# UND für lokales gcloud-ADC (siehe DRIVE_AUTH_HINT / README).
+_BQ_SCOPES: tuple[str, ...] = (
+    "https://www.googleapis.com/auth/bigquery",
+    "https://www.googleapis.com/auth/drive.readonly",
+)
+
+DRIVE_AUTH_HINT = (
+    "Die Plan-Tabelle `ref_tables.plan` ist eine Drive-backed External Table "
+    "(Google Sheet). Dein Token hat keinen Drive-Lesezugriff.\n\n"
+    "Lokal (gcloud) einmalig MIT Drive-Scope neu einloggen:\n\n"
+    "    gcloud auth application-default login \\\n"
+    "        --scopes=https://www.googleapis.com/auth/bigquery,"
+    "https://www.googleapis.com/auth/drive.readonly,"
+    "https://www.googleapis.com/auth/cloud-platform\n\n"
+    "Voraussetzung: dein Google-Account (bzw. die Service-Account-Mail) hat "
+    "Leserecht auf das Sheet. Danach Refresh erneut starten."
+)
+
+
+def _is_drive_permission_error(exc: Exception) -> bool:
+    """True wenn der Fehler der typische Drive-Scope-403 der Plan-Tabelle ist."""
+    msg = str(exc).lower()
+    return "drive" in msg and (
+        "denied" in msg or "permission" in msg or "accessdenied" in msg
+    )
+
+
 def get_bigquery_client():
-    """Build a BigQuery client from the first available credential source."""
+    """Build a BigQuery client from the first available credential source.
+
+    Service-Account-Key-Files fordern den Drive-Scope an (``_BQ_SCOPES``) - SAs
+    unterliegen der User-Consent-Blockade nicht und können das Drive-Sheet hinter
+    ``ref_tables.plan`` lesen. Der lokale gcloud-ADC erzwingt KEINE Scopes (das
+    würde bei nicht erteiltem Drive-Scope je nach google-auth-Version den
+    Token-Refresh und damit auch die echten BQ-Tabellen blocken) - er nutzt die
+    beim Login erteilten Scopes. Reservations/Timeslices brauchen nur BigQuery
+    (geht immer); der Drive-backed Plan-Pull scheitert ohne Drive-Scope mit dem
+    ``DRIVE_AUTH_HINT`` und wird im Voll-Refresh non-fatal behandelt.
+    """
     from google.cloud import bigquery
     from google.oauth2 import service_account
 
     sa_json_file = os.environ.get("GCP_SERVICE_ACCOUNT_JSON_FILE")
     if sa_json_file and Path(sa_json_file).exists():
-        creds = service_account.Credentials.from_service_account_file(sa_json_file)
+        creds = service_account.Credentials.from_service_account_file(
+            sa_json_file, scopes=list(_BQ_SCOPES)
+        )
         return bigquery.Client(credentials=creds, project=creds.project_id)
 
     sa_file = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
     if sa_file and Path(sa_file).exists():
-        creds = service_account.Credentials.from_service_account_file(sa_file)
+        creds = service_account.Credentials.from_service_account_file(
+            sa_file, scopes=list(_BQ_SCOPES)
+        )
         return bigquery.Client(credentials=creds, project=creds.project_id)
 
+    # ADC (lokaler gcloud-Login): keine Scopes erzwingen - das Token bringt die
+    # beim Login erteilten Scopes selbst mit.
     return bigquery.Client()
 
 
@@ -59,6 +113,70 @@ def get_bigquery_client():
 def _noop_progress(_msg: str, _pct: "float | None" = None) -> None:
     """Default no-op progress callback wenn der Caller keinen angibt."""
     pass
+
+
+def _resolve_snapshot_dir(snapshot_dir: "str | Path | None") -> "str | Path":
+    """Ziel-Verzeichnis auflösen - env-var, Repo-data/, oder gs://-URI."""
+    _REPO_ROOT = Path(__file__).resolve().parents[2]
+    if snapshot_dir is None:
+        snapshot_dir = os.environ.get("STAYERY_SNAPSHOT_DIR") or str(_REPO_ROOT / "data")
+    if isinstance(snapshot_dir, str) and snapshot_dir.startswith("gs://"):
+        return snapshot_dir
+    target = Path(snapshot_dir).expanduser()
+    if not target.is_absolute():
+        target = _REPO_ROOT / target
+    return target
+
+
+def _pull_plan(client, progress: ProgressCallback, pct: float = 0.5) -> pd.DataFrame:
+    """Planzahlen aus `ref_tables.plan` ziehen (komplette Tabelle, klein)."""
+    cols = ",\n        ".join(H.PLAN_COLUMNS)
+    sql = f"""
+    SELECT
+        {cols}
+    FROM `{H.PLAN_TABLE}`
+    """
+    t0 = time.time()
+    try:
+        df = client.query(sql).to_dataframe()
+    except Exception as e:
+        if _is_drive_permission_error(e):
+            raise PermissionError(f"{e}\n\n{DRIVE_AUTH_HINT}") from e
+        raise
+    progress(f"✓ {len(df):,} Plan-Zeilen geladen ({time.time() - t0:.1f}s)", pct)
+    return df
+
+
+def refresh_plan(
+    snapshot_dir: "str | Path | None" = None,
+    refreshed_via: str = "refresh.refresh_plan",
+    progress: ProgressCallback | None = None,
+    client=None,
+) -> dict:
+    """Nur die Planzahlen aktualisieren - schnell (Sekunden, eine kleine Tabelle).
+
+    Pullt `ref_tables.plan` komplett, schreibt ``plan.parquet`` neben den
+    Snapshot und ergänzt den Plan-Block im ``metadata.json``. Reservations/
+    Timeslices bleiben unangetastet.
+
+    Returns:
+        Den Plan-Metadata-Block (rows, hotels, Monatsrange, refreshed_at).
+    """
+    progress = progress or _noop_progress
+    if client is None:
+        progress("Authentifiziere mit BigQuery …", 0.1)
+        client = get_bigquery_client()
+        progress(f"Authentifiziert (Projekt {client.project})", 0.2)
+    df = _pull_plan(client, progress, pct=0.6)
+    target = _resolve_snapshot_dir(snapshot_dir)
+    progress(f"Schreibe plan.parquet nach {target} …", 0.8)
+    plan_meta = H.save_plan(df, snapshot_dir=target, refreshed_via=refreshed_via)
+    progress(
+        f"✓ Plan hinterlegt + verifiziert: {plan_meta['rows']} Zeilen, "
+        f"{plan_meta['hotels']} Hotels",
+        1.0,
+    )
+    return plan_meta
 
 
 def run_refresh(
@@ -148,6 +266,17 @@ def run_refresh(
         f"✓ {len(raw_nig):,} Timeslices geladen ({time.time() - t0:.1f}s)", 0.55
     )
 
+    # ----- 4b. Planzahlen pull (klein, gleiche Auth) ----------
+    # NON-FATAL: scheitert der Plan-Pull (z.B. fehlender Drive-Scope lokal),
+    # soll der Voll-Refresh der echten BQ-Tabellen trotzdem durchlaufen. Ein
+    # bestehender `plan.parquet` wird dann NICHT überschrieben (siehe Save).
+    progress("Ziehe Planzahlen …", 0.56)
+    try:
+        raw_plan = _pull_plan(client, progress, pct=0.58)
+    except Exception as e:
+        raw_plan = None
+        progress(f"⚠ Planzahlen übersprungen (bestehender Plan bleibt): {e}", 0.58)
+
     # ----- 5. Engineering ----------
     progress("Feature-Engineering Reservations …", 0.60)
     t0 = time.time()
@@ -207,7 +336,14 @@ def run_refresh(
             "refreshed_via": refreshed_via,
         },
     )
-    progress("✓ Snapshot geschrieben", 0.98)
+    if raw_plan is not None and not raw_plan.empty:
+        plan_meta = H.save_plan(raw_plan, snapshot_dir=target, refreshed_via=refreshed_via)
+        progress(f"✓ Snapshot + Plan geschrieben ({plan_meta['rows']} Plan-Zeilen)", 0.98)
+    else:
+        progress(
+            "✓ Snapshot geschrieben - Plan übersprungen, bestehender plan.parquet bleibt.",
+            0.98,
+        )
 
     # ----- 9. Round-trip verify ----------
     progress("Verifikation: Snapshot zurücklesen …", 0.99)

@@ -1,8 +1,7 @@
-"""Headless Snapshot-Refresh - CLI-Wrapper für die GitHub Action und manuelle Runs.
+"""Snapshot-Refresh & CLI-Wrapper für automatisierte und manuelle Runs.
 
-Die eigentliche Pipeline liegt in ``src/revenueblindspots/refresh.run_refresh()``
-- diese Datei ist nur ein dünner CLI-Wrapper drumherum (Args parsen,
-print-Progress-Callback, Exit-Code setzen).
+Die main Pipeline liegt in ``src/revenueblindspots/refresh.run_refresh()``
+diese Datei ist ein CLI-Wrapper
 
 Usage::
 
@@ -11,10 +10,10 @@ Usage::
     python scripts/refresh_snapshot.py --properties FRA_SH BER_FR
     python scripts/refresh_snapshot.py --snapshot-dir gs://stayery-snapshots
 
-Auth-Pfade (in Reihenfolge):
-  1. ``GCP_SERVICE_ACCOUNT_JSON`` env-var (JSON inline - GitHub Action)
-  2. ``GOOGLE_APPLICATION_CREDENTIALS`` env-var (Pfad zu File - klassisches GCP)
-  3. gcloud Application Default Credentials (lokaler Dev)
+Auth-Pfade:
+  1. ``GCP_SERVICE_ACCOUNT_JSON`` env-var
+  2. ``GOOGLE_APPLICATION_CREDENTIALS`` env-var
+  3. gcloud Application Default Credentials (lokaler Dev fallback)
 """
 from __future__ import annotations
 
@@ -34,8 +33,8 @@ def _parse_args() -> argparse.Namespace:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     p.add_argument("--lookback-years", type=int, default=3,
-                   help="Wie weit zurück Reservations + Timeslices ziehen (default 3). "
-                        "Zukunft ist offen - alle künftigen Anreisen/Nächte werden gezogen.")
+                   help="Wie weit zurück die Daten ziehen (default 3). "
+                        "Alle künftigen Anreisen/Nächte werden gezogen.")
     p.add_argument("--fuzz-threshold", type=int, default=85,
                    help="rapidfuzz token_sort_ratio - höher = strenger (default 85).")
     p.add_argument("--properties", nargs="*", default=None,
@@ -46,7 +45,7 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _cli_progress(msg: str, _pct: "float | None" = None) -> None:
-    """Print-basierte Progress-Anzeige für die CLI / GitHub-Action-Logs."""
+    """Progress-Anzeige."""
     print(f"[refresh] {msg}", flush=True)
 
 

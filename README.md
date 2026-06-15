@@ -195,9 +195,23 @@ leeren". Sollte seit dem letzten Refresh-Fix automatisch passieren.
 liegt's vermutlich an matplotlib-Charts mit sehr viel Daten - Periode
 einschränken.
 
-**BigQuery-Auth schlägt fehl** → In Refresh-Page → „Verbindung testen"
-klicken, der Stacktrace sagt was fehlt. Lokal: `gcloud auth
-application-default login`. Streamlit Cloud: `st.secrets`-TOML.
+**BigQuery-Auth schlägt fehl** → Der Refresh-Klick scheitert mit klarer
+Fehlermeldung. Lokal: `gcloud auth application-default login`. Streamlit Cloud:
+`st.secrets`-TOML.
+
+**„403 … Permission denied while getting Drive credentials" beim Plan-Pull** →
+`ref_tables.plan` ist eine Drive-backed External Table (Google Sheet); das Token
+braucht zusätzlich den **Drive-Scope**. Lokal einmalig mit Drive-Scope einloggen:
+
+```bash
+gcloud auth application-default login \
+  --scopes=https://www.googleapis.com/auth/bigquery,https://www.googleapis.com/auth/drive.readonly,https://www.googleapis.com/auth/cloud-platform
+```
+
+Voraussetzung: dein Google-Account (bzw. die Service-Account-Mail) hat Leserecht
+auf das Sheet. Der Voll-Refresh läuft inzwischen auch ohne Plan durch (Plan wird
+übersprungen, ein bestehender `plan.parquet` bleibt erhalten); der separate
+Button „Nur Planzahlen aktualisieren" zeigt den Drive-Hinweis direkt an.
 
 **„−100 % YoY"-Alert für einen Standort, der absurd aussieht** → meistens
 ein Standort der in der OLD-Periode noch nicht offen war. Die Auto-Alert-
