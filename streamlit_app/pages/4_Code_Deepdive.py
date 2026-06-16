@@ -168,6 +168,21 @@ if not _enriched:
         "Voll-Refresh ziehen (Daten aktualisieren).",
         kind="info",
     )
+
+# promoCode lebt (vor dem Foundation-Refresh) nur in den Reservations - im
+# Timeslices-Snapshot fehlt die Spalte noch. Damit reine Promocodes auch auf der
+# Nacht-Netto-Basis auflösbar sind, joinen wir promoCode hier per `id` nach.
+# Nach dem Refresh trägt der Timeslices-Snapshot promoCode selbst -> die Spalte
+# ist dann schon da und dieser Schritt entfällt automatisch.
+if include_promo and "promoCode" not in res_all.columns and "id" in res_all.columns:
+    _pmap = CD.get_reservations(
+        start=lookback_start, end=lookback_end, properties=props_pick
+    )
+    if {"id", "promoCode"}.issubset(_pmap.columns):
+        res_all = res_all.merge(
+            _pmap[["id", "promoCode"]].drop_duplicates("id"), on="id", how="left"
+        )
+
 res, firm_names_fuzzy, firm_names_raw = CC.resolve_codes_to_res(
     res_all, codes, include_promo=include_promo
 )

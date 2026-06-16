@@ -109,7 +109,7 @@ with st.sidebar:
             key="standort_include_cancellations",
             help="Default: aus - alle KPIs sind realized-only "
             "(Storno und No-Show fallen raus). Aktivieren → alle Buchungen "
-            "zählen, auch später stornierte und nicht-erschienene.",
+            "zählen, auch später stornierte und no-shows. Vor allem bei Analyse nach Erstellungsdatum relevant.",
         )
 
         st.form_submit_button("Perioden anwenden", use_container_width=True)
@@ -139,7 +139,7 @@ SNAP_DATE = pd.Timestamp(str(meta.get("refreshed_at", ""))[:10] or pd.Timestamp.
 
 
 def _ck(section_id: str) -> str:
-    """Cache-Key - alle Filter PLUS Snapshot-Tag, damit Snapshot-Refresh
+    """Cache-Key - alle Filter plus Snapshot-Tag, damit Snapshot-Refresh
     auch alle gecachten PNGs invalidiert."""
     return (
         f"std::{SNAP_TAG}::{property_code}::{start_old.date()}::{end_old.date()}"
@@ -152,11 +152,9 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     nightly = CD.get_timeslices(properties=[property_code])
 
     # Reservation-level Sektionen (Gruppen-Größe, Vorlaufzeit/Storno, Firmen-
-    # kunden, Vertragscodes) laufen jetzt auf der Nacht-Netto-Basis: nightly auf
+    # kunden, Vertragscodes) laufen auf der Nacht-Netto-Basis: nightly auf
     # Buchungs-Ebene zurückfalten (revenue = Nacht-Netto je Buchung), nach
-    # `created` gebucketet ("nach Erstellungsdatum"). Solange der Snapshot die
-    # gebroadcasteten Felder noch nicht trägt (vor dem Foundation-Voll-Refresh)
-    # Fallback auf die services-inklusive Reservations + Hinweis-Banner.
+    # `created` gebucketet ("nach Erstellungsdatum").
     _enriched = H.timeslices_are_enriched(nightly)
     if _enriched:
         res = H.reservations_from_timeslices(nightly)
@@ -195,11 +193,11 @@ _TOC = [
 render_toc(_TOC)
 
 st.caption(
-    "**Datenbasis & Filter:** alle €-Werte = Nacht-Netto (`baseAmount_netAmount`). "
+    "**Datenbasis & Filter:** alle €-Werte = Nacht-Netto exkl. extra Services (`baseAmount_netAmount`). "
     "**Aufenthalts-Sektionen** (KPIs, Pace, Channels, LOS, Wochentag, Inland/Ausland, "
-    "Länder, Occupancy) → **Aufenthalt** (serviceDate). **Reservation-Sektionen** "
+    "Länder, Occupancy) → **Aufenthalt** (stay date). **Reservation-Sektionen** "
     "(Gruppen-Größe, Vorlaufzeit/Storno, Firmenkunden, Direct-Offline, Vertragscodes) → "
-    "**Erstellungsdatum** (created). Storno/No-Show via Sidebar-Toggle."
+    "**Erstellungsdatum** (created). Storno/No-Show via Sidebar-Toggle einstellbar."
 )
 
 # ============================== Highlights =================================
@@ -222,9 +220,9 @@ st.caption(_scope_caption)
 if not _enriched:
     alert_card(
         "Die Reservation-Sektionen (Gruppen-Größe, Vorlaufzeit/Storno, "
-        "Firmenkunden, Vertragscodes) laufen noch auf der **services-inklusiven** "
-        "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht **nach "
-        "Erstellungsdatum** einmal Voll-Refresh ziehen (Daten aktualisieren).",
+        "Firmenkunden, Vertragscodes) laufen noch auf der services-inklusiven "
+        "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht nach "
+        "Erstellungsdatum einmal Voll-Refresh ziehen (Daten aktualisieren).",
         kind="info",
     )
 
@@ -292,8 +290,8 @@ _open_new = H.is_open_in_period(property_code, start_new, end_new)
 if not _open_old and not _open_new:
     open_str = f"{_opening:%d.%m.%Y}" if _opening else "(kein Eröffnungsdatum hinterlegt)"
     alert_card(
-        f"**{LABEL}** war in **keiner** der beiden Perioden offen - "
-        f"Eröffnung: **{open_str}**. Bitte beide Perioden so wählen, dass sie "
+        f"{LABEL} war in keiner der beiden Perioden offen - "
+        f"Eröffnung: {open_str}. Bitte beide Perioden so wählen, dass sie "
         f"nach dem Eröffnungsdatum liegen, dann kann die Analyse laufen.",
         kind="alert",
         title="Beide Perioden vor Eröffnung - Analyse abgebrochen",
@@ -304,7 +302,7 @@ if not _open_old and not _open_new:
 # in der NEW-Periode aber schon.
 if not _open_old and _open_new:
     alert_card(
-        f"**{LABEL}** wurde erst am **{_opening:%d.%m.%Y}** eröffnet - die "
+        f"{LABEL} wurde erst am {_opening:%d.%m.%Y} eröffnet - die "
         f"Vergleichs-Periode ({PERIOD_TAG_OLD}) liegt davor. OLD-Werte sind "
         f"0; YoY-Vergleiche entsprechend nicht aussagekräftig. "
         f"Empfehlung: Setze OLD auf einen Zeitraum nach Eröffnung, oder "
@@ -316,7 +314,7 @@ if not _open_old and _open_new:
 # die Zukunft schauen - Stay-Daten sind 0, Created-Daten nur bis snapshot_date).
 if start_new > SNAP_DATE:
     alert_card(
-        f"**NEW-Periode** ({PERIOD_TAG_NEW}) liegt ganz in der Zukunft des "
+        f"NEW-Periode ({PERIOD_TAG_NEW}) liegt ganz in der Zukunft des "
         f"Snapshots ({SNAP_DATE:%d.%m.%Y}). Realisiertes Revenue = 0, nur "
         f"Forward-Bookings sind sichtbar.",
         kind="warning",
@@ -358,7 +356,7 @@ with section(
         ),
         help=(
             "IST-Revenue der NEW-Periode vs. PLAN aus dem BigQuery-Snapshot "
-            "(`ref_tables.plan`, pro-rata pro Monat). Grau = kein PLAN hinterlegt."
+            "(`ref_tables.plan`). Grau = kein PLAN hinterlegt."
         ),
     )
     c3.metric(
@@ -432,8 +430,7 @@ with section(
         )
         st.dataframe(details, hide_index=True, use_container_width=True)
         st.caption(
-            "Wenn deine anderen Dashboards höhere ADR / niedrigere ALOS zeigen ist es "
-            "wahrscheinlich Variante B."
+            "Zahlen können zu existierenden Dashboards abweichen wenn eine andere Variante genutzt wurde."
         )
 
     monthly_o = H.monthly_landscape(nig_old, units)
@@ -456,8 +453,8 @@ with section(
         st.image(png, use_container_width=False)
     else:
         st.caption(
-            "_Trend-Linien werden ausgeblendet - "
-            "eine der Perioden hat keine oder nur einen Monat Daten._"
+            "Trend-Linien werden ausgeblendet da "
+            "eine der Perioden keine oder nur einen Monat Daten hat."
         )
         png = None
 
@@ -547,7 +544,7 @@ with section(4, "Heatmap Channel × Business/Leisure × LOS"):
         LABEL,
     )
     st.image(png, use_container_width=False)
-    # Volle Granularität: Channel × Reisezweck × LOS (spiegelt das Chart 1:1).
+    # Channel × Reisezweck × LOS
     _tbl_chpl = CDT.channel_purpose_los_table(nig_old, nig_new, YEAR_OLD, YEAR_NEW)
     CD.data_table_expander(
         _tbl_chpl,
@@ -754,8 +751,8 @@ if lazy_section(
 
     st.markdown(
         f"### Top-Firmenkunden nach Revenue {YEAR_NEW} (alle Channels)\n\n"
-        f"_Code-Spalte = `corporateCode` "
-        f"Leer = kein Code im Datensatz._"
+        f"Code-Spalte = `corporateCode` "
+        f"Leer = kein Code im Datensatz."
     )
     top_firm_full = charts.top_companies_table(res_old, res_new, YEAR_OLD, YEAR_NEW)
     top_firm = top_firm_full.head(12).copy()
@@ -798,8 +795,8 @@ Sortiert wird nach Total New (Direct_Offline + Direct_Website + OTA zusammen).
         n_grown = len(buckets["grown"])
         n_gained = len(buckets["gained"])
         alert_card(
-            f"**verloren:** {n_lost} · **geschrumpft:** {n_shrunk} · "
-            f"**gewachsen:** {n_grown} · **neu:** {n_gained}",
+            f"verloren: {n_lost} · geschrumpft: {n_shrunk} · "
+            f"gewachsen: {n_grown} · neu: {n_gained}",
             kind="info",
         )
 

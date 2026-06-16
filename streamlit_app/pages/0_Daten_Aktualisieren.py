@@ -1,4 +1,4 @@
-"""Daten aktualisieren - direkter Draht zu BigQuery.
+"""Daten aktualisieren.
 
 Die Page macht drei Dinge:
   1. Zeigt den Status des aktuellen lokalen Parquet-Snapshots an (was ist da,
@@ -7,7 +7,7 @@ Die Page macht drei Dinge:
      Timeslices + Planzahlen), Feature-Engineering, Parquets schreiben,
      Streamlit-Caches leeren.
   3. Plan-Refresh: ruft `refresh_plan()` auf - pullt nur
-     `ref_tables.plan` (Sekunden) und schreibt `plan.parquet`.
+     `ref_tables.plan` und schreibt `plan.parquet`.
 
 Unten ist der aktive Plan einsehbar (Pivot Hotel × Monat + Rohdaten).
 
@@ -16,7 +16,7 @@ Auth läuft automatisch:
   * Im Docker → Env-var `GCP_SERVICE_ACCOUNT_JSON` (oder
     `GOOGLE_APPLICATION_CREDENTIALS`-File)
 Wenn keine Credentials da sind, scheitert der Refresh-Klick mit klarer
-Fehlermeldung - kein separater "Connection-Test"-Button nötig.
+Fehlermeldung.
 """
 
 from __future__ import annotations
@@ -54,10 +54,9 @@ hero(
 )
 
 st.caption(
-    "**Pull-Logik:** Reservations nach `arrival ≥ Start` (offen in die Zukunft, kein "
-    "Future-Cap), Timeslices nach `serviceDate ≥ Start`. Planzahlen aus dem "
-    "Drive-Sheet `ref_tables.plan` (braucht Drive-Scope; scheitert non-fatal, "
-    "bestehender Plan bleibt erhalten)."
+    "**Logik:** Reservations nach `arrival ≥ Start` (offen in die Zukunft), "
+    "Timeslices nach `StayDate ≥ Start`. Planzahlen aus dem "
+    "Drive-Sheet `ref_tables.plan`. DHW Input Datei in BigQuery eingelesen. "
 )
 
 
@@ -96,7 +95,7 @@ if meta:
         st.caption("Planzahlen: **noch nicht gezogen** - unten 'Nur Planzahlen aktualisieren'.")
 else:
     alert_card(
-        "Noch kein Snapshot vorhanden. Refresh unten starten um den ersten zu erstellen.",
+        "Noch kein Snapshot vorhanden. Refresh unten starten um zu erstellen.",
         kind="info",
     )
 
@@ -105,7 +104,7 @@ st.divider()
 
 # ============================== Refresh-Konfiguration =====================
 st.subheader("Voll-Refresh aus BigQuery")
-st.caption("Reservations + Timeslices + Planzahlen in einem Rutsch. Dauert 5-15 Minuten.")
+st.caption("Reservations + Timeslices + Planzahlen gemeinsam. Bitte während des Ladens nicht die Seite wechseln.")
 
 c1, c2 = st.columns(2)
 with c1:
@@ -130,7 +129,7 @@ properties = st.multiselect(
 st.caption(
     f"BigQuery-Pull deckt: "
     f"**{(pd.Timestamp.today() - pd.DateOffset(years=lookback_years)).date()}** "
-    f"bis **offen** (alle zukünftigen Anreisen/Nächte, kein Future-Cap)"
+    f"bis **offen** (alle zukünftigen Anreisen/Nächte ohne future-cap)"
 )
 
 # Snapshot-Pfad - in Expander damit die Default-Sicht schlank bleibt.
@@ -173,7 +172,7 @@ with col_full:
 with col_plan:
     run_plan_only = st.button(
         "Nur Planzahlen aktualisieren",
-        help="Pullt nur `ref_tables.plan` und schreibt plan.parquet - dauert Sekunden.",
+        help="Pullt nur `ref_tables.plan` und schreibt plan.parquet.",
     )
 
 if run or run_plan_only:

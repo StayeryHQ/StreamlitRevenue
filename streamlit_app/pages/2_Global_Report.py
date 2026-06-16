@@ -222,8 +222,7 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     # OHNE oberes serviceDate-Limit laden: die „nach Erstellungsdatum"-Sichten
     # brauchen auch Forward-Bookings (Anreise weit in der Zukunft). ALLE
     # Aufenthalts-Sichten (performance_by_stay, Heatmaps, Tabellen, pace) filtern
-    # `nightly` intern selbst nach stay_date/Stay-Jahr - sie sehen also nie die
-    # Zukunfts-Nächte. So bleibt es EIN Frame im Speicher (kein zweiter Pull).
+    # `nightly` intern selbst nach stay_date/Stay-Jahr 
     nightly = CD.get_timeslices(start=pull_start, end=None, properties=props_pick)
 
 reset_export(PAGE)
@@ -234,12 +233,12 @@ reset_export(PAGE)
 _late_openers = H.properties_without_old_data(props_pick, end_old)
 if _late_openers:
     _lines = "  · ".join(
-        f"**{pc}** ({H.city(pc)}, eröffnet {H.opening_date(pc):%d.%m.%Y})" for pc in _late_openers
+        f"{pc} ({H.city(pc)}, eröffnet {H.opening_date(pc):%d.%m.%Y})" for pc in _late_openers
     )
     _include_late = st.session_state.get("global_include_late_openers", False)
     if _include_late:
         alert_card(
-            f"{_lines}\n\nDiese Standorte sind in **{period_tag_old}** "
+            f"{_lines}\n\nDiese Standorte sind in{period_tag_old} "
             f"noch nicht offen - Spalten zeigen 0 €. Toggle in der Sidebar "
             f'„Späte Öffner einbeziehen" zum Ausschluss.',
             kind="warning",
@@ -248,7 +247,7 @@ if _late_openers:
     else:
         alert_card(
             f"{_lines}\n\nWurden für diese Analyse automatisch ausgeschlossen, "
-            f"weil in **{period_tag_old}** noch nicht offen. Toggle in der "
+            f"weil in {period_tag_old} noch nicht offen. Toggle in der "
             f'Sidebar „Späte Öffner einbeziehen" um sie trotzdem zu zeigen.',
             kind="info",
             title=f"Späte Öffner ausgeschlossen ({period_tag_old})",
@@ -272,7 +271,7 @@ if _late_openers:
 # Warnung: NEW-Periode in der Zukunft.
 if start_new > SNAP_DATE:
     alert_card(
-        f"**NEW-Periode** ({period_tag_new}) liegt ganz in der Zukunft des "
+        f"NEW-Periode ({period_tag_new}) liegt ganz in der Zukunft des "
         f"Snapshots ({SNAP_DATE:%d.%m.%Y}). Realisiertes Revenue = 0, nur "
         f"Forward-Bookings (Sales-Sicht) sind sichtbar.",
         kind="warning",
@@ -285,9 +284,9 @@ if start_new > SNAP_DATE:
 # rechnen (default) oder alle Buchungen reinnehmen.
 _include_cancellations = bool(st.session_state.get("global_include_cancellations", False))
 _scope_caption = (
-    "**Scope:** alle Buchungen (inkl. Storno + No-Show)"
+    "Scope: alle Buchungen (inkl. Storno + No-Show)"
     if _include_cancellations
-    else "**Scope:** realized-only (Storno + No-Show ausgeschlossen)"
+    else "Scope: realized-only (Storno + No-Show ausgeschlossen)"
 )
 st.caption(_scope_caption)
 

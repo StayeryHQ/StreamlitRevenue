@@ -61,39 +61,61 @@ def load_plan_cached(_snapshot_sig: str) -> pd.DataFrame:
     return H.load_plan()
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
-def load_reservations_cached(
-    _snapshot_sig: str,
-    _override_sig: str,
-    start: pd.Timestamp | None = None,
-    end: pd.Timestamp | None = None,
-    properties: tuple[str, ...] | None = None,
-) -> pd.DataFrame:
-    df = H.load_reservations(
-        start=start,
-        end=end,
-        properties=list(properties) if properties else None,
-    )
-    # Promo->Firmencode-Reklassifizierung global anwenden (greift auf jede Page).
-    return OV.apply_code_overrides(df)
+# Großer, unveränderlicher Snapshot: einmal je Snapshot-Signatur via
+# cache_resource in den Speicher (geteilt über ALLE Sessions, KEINE Kopie pro
+# Cache-Hit). Gefiltert wird danach in-memory - kein wiederholter Disk-Read.
+@st.cache_resource(ttl=3600, show_spinner=False)
+def _raw_reservations(_snapshot_sig: str) -> pd.DataFrame:
+    return H.load_reservations()
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
-def load_timeslices_cached(
-    _snapshot_sig: str,
-    _override_sig: str,
-    start: pd.Timestamp | None = None,
-    end: pd.Timestamp | None = None,
-    properties: tuple[str, ...] | None = None,
+@st.cache_resource(ttl=3600, show_spinner=False)
+def _raw_timeslices(_snapshot_sig: str) -> pd.DataFrame:
+    return H.load_timeslices()
+
+
+# Reklassifizierung als BILLIGER Nachschritt auf der geladenen Basis: hängt am
+# Override-Signatur-Key, NICHT am teuren Disk-Read. Eine Reklassifizierung löst
+# damit keinen Parquet-Vollscan mehr aus, sondern nur dieses Re-Mappen.
+@st.cache_resource(ttl=3600, show_spinner=False)
+def _overridden_reservations(_snapshot_sig: str, _override_sig: str) -> pd.DataFrame:
+    return OV.apply_code_overrides(_raw_reservations(_snapshot_sig))
+
+
+@st.cache_resource(ttl=3600, show_spinner=False)
+def _overridden_timeslices(_snapshot_sig: str, _override_sig: str) -> pd.DataFrame:
+    # promoCode landet erst nach dem Refresh in den Timeslices; davor ist
+    # apply_code_overrides hier ein No-op (gibt das Frame unverändert zurück).
+    return OV.apply_code_overrides(_raw_timeslices(_snapshot_sig))
+
+
+def _filter_frame(
+    df: pd.DataFrame,
+    date_col: str,
+    start: pd.Timestamp | None,
+    end: pd.Timestamp | None,
+    properties: tuple[str, ...] | None,
 ) -> pd.DataFrame:
-    df = H.load_timeslices(
-        start=start,
-        end=end,
-        properties=list(properties) if properties else None,
-    )
-    # Greift erst nach dem Refresh, der promoCode in die Timeslices broadcastet;
-    # davor ist promoCode nicht vorhanden und apply_code_overrides ist ein No-op.
-    return OV.apply_code_overrides(df)
+    """In-Memory-Filter (Datum + Standorte) auf dem geteilten Snapshot.
+
+    Identische Semantik wie der Disk-Filter ``helpers._read_parquet_with_filter``
+    (Kalendertag-normalisiert, ``property_code`` per ``isin``), aber OHNE den
+    Snapshot erneut von der Platte zu lesen und OHNE das geteilte (gecachte)
+    Frame zu verändern - zurück kommt nur eine gefilterte Kopie.
+    """
+    mask = pd.Series(True, index=df.index)
+    if (start is not None or end is not None) and date_col in df.columns:
+        col = df[date_col]
+        if not pd.api.types.is_datetime64_any_dtype(col):
+            col = pd.to_datetime(col, errors="coerce")
+        day = col.dt.normalize()
+        if start is not None:
+            mask &= day >= pd.Timestamp(start).normalize()
+        if end is not None:
+            mask &= day <= pd.Timestamp(end).normalize()
+    if properties and "property_code" in df.columns:
+        mask &= df["property_code"].isin(list(properties))
+    return df[mask].copy()
 
 
 # ============================== Convenience wrappers =====================
@@ -120,12 +142,9 @@ def get_reservations(
     end: pd.Timestamp | None = None,
     properties: list[str] | None = None,
 ) -> pd.DataFrame:
-    return load_reservations_cached(
-        _snapshot_signature(),
-        _override_signature(),
-        start=start,
-        end=end,
-        properties=tuple(properties) if properties else None,
+    df = _overridden_reservations(_snapshot_signature(), _override_signature())
+    return _filter_frame(
+        df, "arrival", start, end, tuple(properties) if properties else None
     )
 
 
@@ -134,12 +153,9 @@ def get_timeslices(
     end: pd.Timestamp | None = None,
     properties: list[str] | None = None,
 ) -> pd.DataFrame:
-    return load_timeslices_cached(
-        _snapshot_signature(),
-        _override_signature(),
-        start=start,
-        end=end,
-        properties=tuple(properties) if properties else None,
+    df = _overridden_timeslices(_snapshot_signature(), _override_signature())
+    return _filter_frame(
+        df, "serviceDate", start, end, tuple(properties) if properties else None
     )
 
 
