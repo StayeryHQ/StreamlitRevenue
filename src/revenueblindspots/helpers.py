@@ -729,16 +729,20 @@ def _add_origin(df: pd.DataFrame) -> None:
     df["is_international"] = (~unknown) & clean.ne("DE")
 
 
-def _to_dt(series: pd.Series) -> pd.Series:
-    """Parse to datetime and drop any timezone.
+def _to_dt(series: pd.Series, tz: str = "Europe/Berlin") -> pd.Series:
+    """Parse to datetime, localise to ``tz`` and drop the tz (naive result).
 
-    BigQuery TIMESTAMP columns arrive timezone-aware (UTC). The analysis works
-    in calendar terms, so we convert UTC → Europe/Berlin and then drop the tz,
-    leaving a naive datetime that compares cleanly against plain Timestamps.
+    BigQuery TIMESTAMP columns arrive timezone-aware (UTC). Default konvertiert
+    nach ``Europe/Berlin`` (lokale Kalender-Sicht für Anreise/Aufenthalt).
+
+    ``tz="UTC"`` behält die UTC-Wanduhr - genutzt für ``created``, damit die
+    „nach Erstellungsdatum"-Sichten exakt dem Dashboard entsprechen, das
+    ``DATE(created)`` (= UTC) bucketet. Bei einer Buchung, die nahe Mitternacht
+    erstellt wurde, entscheidet sonst der UTC↔Berlin-Versatz über den Monat.
     """
     s = pd.to_datetime(series, errors="coerce")
     if getattr(s.dt, "tz", None) is not None:
-        s = s.dt.tz_convert("Europe/Berlin").dt.tz_localize(None)
+        s = s.dt.tz_convert(tz).dt.tz_localize(None)
     return s
 
 
@@ -784,8 +788,11 @@ def engineer_timeslices(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
     los_bucket, room_category, stay_year_month, stay_weekday, check_in_weekday.
     """
     df = df.copy()
-    for c in ("arrival", "departure", "created"):
+    for c in ("arrival", "departure"):
         df[c] = _to_dt(df[c])
+    # created in UTC halten (wie Dashboard DATE(created)) - sonst verschiebt der
+    # Berlin-Versatz Grenz-Buchungen in den falschen Erstellungs-Monat.
+    df["created"] = _to_dt(df["created"], tz="UTC")
     # BigQuery DATE columns arrive as datetime.date objects (object dtype) -
     # convert in place so downstream code (Parquet, .dt accessor, .min().date(),
     # date arithmetic) all behaves like the other timestamp columns.
@@ -824,9 +831,13 @@ def engineer_reservations(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
     has_company, calendar fields, adr_per_night, kept_revenue / lost_revenue.
     """
     df = df.copy()
-    for c in ("arrival", "departure", "created", "modified", "cancellationTime"):
+    for c in ("arrival", "departure", "modified", "cancellationTime"):
         if c in df.columns:
             df[c] = _to_dt(df[c])
+    # created in UTC halten (wie Dashboard DATE(created)) - konsistent zur
+    # Timeslice-Engineering, damit „nach Erstellungsdatum" exakt matcht.
+    if "created" in df.columns:
+        df["created"] = _to_dt(df["created"], tz="UTC")
     df["gross_amount"] = pd.to_numeric(df["totalGrossAmount_amount"], errors="coerce").fillna(0.0)
     df["revenue"] = to_net(df["gross_amount"])
     df["adults"] = pd.to_numeric(df["adults"], errors="coerce")
