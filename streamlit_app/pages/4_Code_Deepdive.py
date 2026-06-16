@@ -13,6 +13,7 @@ import pandas as pd
 import streamlit as st
 
 from revenueblindspots import helpers as H
+from revenueblindspots import overrides as OV
 
 from components import (
     section, lazy_section, preload_all_button,
@@ -198,6 +199,16 @@ if res.empty:
     )
     st.stop()
 
+# "Code"-Anzeige robust machen: für reine Promo-Buchungen ist effective_code
+# (= company_code ?? corporateCode) leer -> sonst bleibt die Code-Spalte in den
+# Tabellen unten leer. Fallback auf den promoCode, damit immer ein Code steht.
+if "effective_code" in res.columns and "promoCode" in res.columns:
+    _eff = res["effective_code"].astype("string").str.strip()
+    _empty = _eff.isna() | _eff.str.lower().isin(["", "nan", "none", "<na>", "null"])
+    res.loc[_empty, "effective_code"] = (
+        res.loc[_empty, "promoCode"].astype("string").str.strip()
+    )
+
 reset_export(PAGE)
 
 
@@ -239,6 +250,30 @@ future = res[(res["arrival"] > today) & ~res["is_cancelled"]]
 future_revenue = float(future["revenue"].sum())
 future_bookings = len(future)
 
+# Code-Typ bestimmen: Corporate / Promo / beides / reklassifizierter Promo.
+# corporateCode ist roh (apply_code_overrides setzt es nur für gelistete Codes,
+# die hier zuerst als "reklassifiziert" abgefangen werden).
+_codes_up = {c.upper() for c in codes}
+_reclassified = set(OV.promo_overrides().keys())
+_as_promo = (
+    res["promoCode"].astype("string").str.strip().str.upper().isin(_codes_up).any()
+    if "promoCode" in res.columns else False
+)
+_as_corp = (
+    res["corporateCode"].astype("string").str.strip().str.upper().isin(_codes_up).any()
+    if "corporateCode" in res.columns else False
+)
+if _codes_up & _reclassified:
+    code_type = "Promo → reklass. Firmencode"
+elif _as_corp and _as_promo:
+    code_type = "Corporate & Promo"
+elif _as_corp:
+    code_type = "Corporatecode"
+elif _as_promo:
+    code_type = "Promocode"
+else:
+    code_type = "—"
+
 st.markdown(f"## 1 · {firm_label}")
 st.markdown(
     f"Code(s): **{', '.join(codes)}**  ·  "
@@ -252,17 +287,18 @@ if not prev_has_data:
     warns.append(f"Vorperiode {prev_period_start:%d.%m.%Y}–{prev_period_end:%d.%m.%Y}: keine realisierten Buchungen")
 if warns:
     alert_card(
-        "<br>".join(warns) + "<br>_Periode-spezifische Werte als „-\"; Lifetime + Charts zeigen volle Historie._",
+        "<br>".join(warns) + "<br>Periode-spezifische Werte als „-\"; Lifetime + Charts zeigen volle Historie.",
         kind="warning", title="Hinweis zur Datenabdeckung",
     )
 
-c1, c2, c3, c4 = st.columns(4)
+c1, c2, c3, c4, c_type = st.columns(5)
 c1.metric("Lifetime Revenue", H.fmt_eur(lifetime_revenue),
             delta=f"{n_realized:,} realisiert".replace(",", "."))
 c2.metric("Lifetime Nights", f"{lifetime_nights:,}".replace(",", "."),
             delta=f"ADR ø {H.fmt_eur(adr_lifetime)}")
 c3.metric("Erste Buchung", f"{first_booking:%d.%m.%Y}",
             delta=f"letzte {last_booking:%d.%m.%Y}")
+c_type.metric("Code-Typ", code_type)
 c4.metric("Cancel-Rate", f"{cancel_rate:.1f} %",
             delta=("⚠ über Alert" if cancel_rate > alert_rate else "im Korridor"),
             delta_color=("inverse" if cancel_rate > alert_rate else "normal"))
@@ -440,6 +476,7 @@ if lazy_section(6, "Future Pipeline", subtitle="Offene Buchungen mit Anreise > h
             "property_code":    "Standort",
             "channel_combo":    "Channel",
             "effective_code":   "Code",
+            "promoCode":        "Promocode",
             "ratePlan_name":    "Rate-Plan",
             "status":           "Status",
             "revenue":          "Revenue (€)",
@@ -473,7 +510,7 @@ if lazy_section(7, "Reservations-Tabelle",
     download_cols = [
         "id", "bookingId", "status", "arrival", "departure", "created",
         "property_code", "channel_combo", "effective_code",
-        "corporateCode", "company", "firm_by_effective_fuzzy",
+        "corporateCode", "promoCode", "company", "firm_by_effective_fuzzy",
         "travelPurpose", "ratePlan_code", "ratePlan_name", "unitGroup_name",
         "nights", "adults", "los_bucket", "lead_time_days", "lead_time_bucket",
         "revenue", "kept_revenue", "lost_revenue", "is_realized", "is_cancelled",
@@ -487,7 +524,8 @@ if lazy_section(7, "Reservations-Tabelle",
         "id": "Reservation-ID", "bookingId": "Booking-ID", "status": "Status",
         "arrival": "Anreise", "departure": "Abreise", "created": "Erstellt",
         "property_code": "Standort", "channel_combo": "Channel",
-        "effective_code": "Code (effektiv)", "company": "Firma (Priority)",
+        "effective_code": "Code (effektiv)", "promoCode": "Promocode",
+        "company": "Firma (Priority)",
         "firm_by_effective_fuzzy": "Firma (Fuzzy)", "travelPurpose": "Reisezweck",
         "nights": "Nächte", "adults": "Personen", "revenue": "Revenue (€)",
         "kept_revenue": "Behaltener Revenue (€)", "lost_revenue": "Verlorener Revenue (€)",

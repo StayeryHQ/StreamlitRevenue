@@ -341,32 +341,6 @@ if st.button("Als Firmencodes speichern", key="_promo_save_btn", type="primary")
         )
         st.rerun()
 
-# --- Portabilität (Community-Cloud-Caveat) --------------------------------
-with st.expander("Reklassifizierungs-Liste sichern / importieren (für Community Cloud)"):
-    st.caption(
-        "Auf Streamlit Community Cloud ist das Filesystem flüchtig. Lade die Liste "
-        "hier herunter und committe sie ins Repo (oder importiere sie nach einem Reboot)."
-    )
-    import json as _json
-
-    st.download_button(
-        "Liste als JSON herunterladen",
-        data=_json.dumps(OV.load_overrides(), ensure_ascii=False, indent=2).encode("utf-8"),
-        file_name="code_overrides.json",
-        mime="application/json",
-        key="_promo_ov_dl",
-    )
-    up = st.file_uploader("Liste importieren (JSON)", type=["json"], key="_promo_ov_up")
-    if up is not None and st.button("Importierte Liste übernehmen", key="_promo_ov_import_btn"):
-        try:
-            data = _json.loads(up.getvalue().decode("utf-8"))
-            mapping = data.get("promo_as_firmencode", {})
-            OV.save_overrides(mapping)
-            st.success(f"{len(mapping)} Einträge importiert.")
-            st.rerun()
-        except Exception as e:  # pragma: no cover - defensiv
-            st.error(f"Import fehlgeschlagen: {e}")
-
 
 # ============================== Export =====================================
 st.divider()
