@@ -416,6 +416,7 @@ def storno_view(res_df: pd.DataFrame, firm_label: str, alert_cancel_rate_pct: fl
 def resolve_codes_to_res(
     res_all: pd.DataFrame,
     codes: list[str],
+    include_promo: bool = True,
 ) -> tuple[pd.DataFrame, list[str], list[str]]:
     if not codes:
         return res_all.iloc[0:0].copy(), [], []
@@ -429,6 +430,10 @@ def resolve_codes_to_res(
         return res_all[col].astype(str).str.strip().str.lower().isin(codes_clean)
 
     mask = _norm("company_code") | _norm("corporateCode") | _norm("effective_code")
+    # Optional auch reine Promocodes auflösen (ein zusätzlicher vektorisierter
+    # Treffer) - so findet der Drilldown-Link von der Promo-Page den Code.
+    if include_promo:
+        mask = mask | _norm("promoCode")
     sub = res_all[mask].copy()
     firm_names_raw = []
     if "company" in sub.columns:

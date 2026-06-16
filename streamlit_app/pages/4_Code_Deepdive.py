@@ -62,12 +62,20 @@ with st.sidebar:
         "Code(s)",
         value="",
         placeholder="z.B. GBG10 oder mehrere komma-getrennt",
-        help="Wird gegen `corporateCode` und (falls gepflegt) `company_code` / "
-             "`effective_code` gematcht.",
+        help="Wird gegen `corporateCode`, `company_code`, `effective_code` und "
+             "(wenn aktiviert) `promoCode` gematcht.",
         key="cd_code_input",
     )
     props_pick = st.multiselect("Standorte", options=all_props,
                                    default=all_props, key="cd_props")
+    include_promo = st.checkbox(
+        "Promocodes einbeziehen",
+        value=True,
+        key="cd_include_promo",
+        help="Matcht den/die Code(s) zusätzlich gegen `promoCode` - so lassen sich "
+             "auch reine Promocodes hier ansehen (z.B. via Link aus der Promo-Page). "
+             "Aus = strikt nur Corporate-/Company-/Effective-Code.",
+    )
 
     with st.form("code_dates", clear_on_submit=False, border=False):
         st.caption("Fokus-Periode")
@@ -160,7 +168,9 @@ if not _enriched:
         "Voll-Refresh ziehen (Daten aktualisieren).",
         kind="info",
     )
-res, firm_names_fuzzy, firm_names_raw = CC.resolve_codes_to_res(res_all, codes)
+res, firm_names_fuzzy, firm_names_raw = CC.resolve_codes_to_res(
+    res_all, codes, include_promo=include_promo
+)
 
 if res.empty:
     st.error(
