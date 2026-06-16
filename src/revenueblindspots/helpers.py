@@ -1385,6 +1385,9 @@ _RESERVATION_FIELDS_FOR_TIMESLICES: tuple[str, ...] = (
     "effective_code",
     "has_code",
     "has_promo",
+    # Roher Promocode-String - nötig, damit die Promo-Reklassifizierung
+    # (overrides.apply_code_overrides) auch auf der Nacht-Netto-Basis greift.
+    "promoCode",
     "lead_time_days",
     "lead_time_bucket",
     "cancel_lead_time_days",

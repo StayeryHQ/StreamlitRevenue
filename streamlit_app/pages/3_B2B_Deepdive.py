@@ -18,6 +18,7 @@ import streamlit as st
 
 from components import b2b_tables as B
 from components import cached_data as CD
+from components import drilldown as DD
 from components import (
     download_button,
     inject_brand_css,
@@ -201,12 +202,84 @@ def _summary_caption(t: pd.DataFrame, label: str) -> None:
     )
 
 
+# ============================== Drilldown-Helper ===========================
+def _resolve_corp(code: str):
+    """Buchungen für einen corporateCode + open_code für den Deep-Dive-Button."""
+    sub = res[res["corporateCode"].astype(str).str.strip().str.upper() == code.upper()]
+    return sub, f"`{code}`", code
+
+
+def _resolve_firm(firm: str):
+    """Buchungen für eine Fuzzy-Firma + dominanter corporateCode (open_code)."""
+    sub = res[res["firm_by_effective_fuzzy"].astype(str).str.strip() == firm.strip()]
+    open_code = None
+    if "corporateCode" in sub.columns:
+        cc = sub["corporateCode"].dropna().astype(str).str.strip()
+        cc = cc[cc != ""]
+        if not cc.empty:
+            open_code = str(cc.value_counts().index[0])
+    return sub, firm, open_code
+
+
+def _table_with_drilldown(
+    display_df, *, code_col, table_key, flag_key, section_id, section_title, resolver
+):
+    """Tabelle full-size, bis eine Zeile gewählt ist; dann Split mit Deep-Dive rechts."""
+    st.caption(
+        "Zeile **anklicken** → die Tabelle rückt nach links und rechts erscheint der "
+        "kompakte Deep-Dive (kein Seitenwechsel). Ohne Auswahl bleibt sie full-size."
+    )
+    has_sel = bool(st.session_state.get(flag_key, False))
+    if has_sel:
+        tcol, dcol = st.columns([3, 2], gap="large")
+    else:
+        tcol, dcol = st.container(), None
+    with tcol:
+        ev = st.dataframe(
+            display_df,
+            hide_index=True,
+            use_container_width=True,
+            height=520,
+            key=table_key,
+            on_select="rerun",
+            selection_mode="single-row",
+        )
+    register_section(section_id, section_title, table_df=display_df.head(30), page=PAGE)
+
+    rows = DD.get_selection_rows(ev)
+    sel = (
+        str(display_df.iloc[rows[0]][code_col])
+        if rows and 0 <= rows[0] < len(display_df)
+        else None
+    )
+    new_has = sel is not None
+    if new_has != has_sel:
+        st.session_state[flag_key] = new_has
+        st.rerun()
+    if sel and dcol is not None:
+        sub, label, open_code = resolver(sel)
+        DD.compact_deepdive(
+            dcol,
+            sub,
+            label,
+            period_start=active_ts,
+            period_end=end_ts,
+            cache_salt=f"b2b::{CD.snapshot_tag()}",
+            open_code=open_code,
+            page=PAGE,
+            section_id=f"{section_id}_dd",
+        )
+
+
 # ============================== Tabs =======================================
+# key= verankert die Tab-Auswahl über Reruns (Streamlit ≥ 1.55 stateful tabs),
+# damit der Klick-Drilldown nicht zurück auf Tab 1 springt.
 tab1, tab2 = st.tabs(
     [
         f"1 · Corporate-Codes ({len(cp_table):,})",
         f"2 · Firmen fuzzy ({len(fm_table):,})",
-    ]
+    ],
+    key="_b2b_dd_tabs",
 )
 
 
@@ -222,8 +295,15 @@ with tab1:
     else:
         _summary_caption(cp_table, "Corporate-Codes")
         cp_display = B.format_display(cp_table, "corporate")
-        st.dataframe(cp_display, hide_index=True, use_container_width=True, height=520)
-        register_section("cp", "1 · Corporate-Codes", table_df=cp_display.head(30), page=PAGE)
+        _table_with_drilldown(
+            cp_display,
+            code_col="Corporate-Code",
+            table_key="_b2b_cp_select",
+            flag_key="_b2b_cp_has_sel",
+            section_id="cp",
+            section_title="1 · Corporate-Codes",
+            resolver=_resolve_corp,
+        )
 
 
 with tab2:
@@ -237,8 +317,15 @@ with tab2:
     else:
         _summary_caption(fm_table, "Firmen")
         fm_display = B.format_display(fm_table, "firm")
-        st.dataframe(fm_display, hide_index=True, use_container_width=True, height=520)
-        register_section("fm", "2 · Firmen fuzzy", table_df=fm_display.head(30), page=PAGE)
+        _table_with_drilldown(
+            fm_display,
+            code_col="Firma",
+            table_key="_b2b_fm_select",
+            flag_key="_b2b_fm_has_sel",
+            section_id="fm",
+            section_title="2 · Firmen fuzzy",
+            resolver=_resolve_firm,
+        )
 
 
 # ===== Sammel-Export =======================================================

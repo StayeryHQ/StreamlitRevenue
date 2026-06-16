@@ -112,6 +112,15 @@ with cols[1]:
     )
     st.page_link("pages/4_Code_Deepdive.py", label="→ Code Deep-Dive öffnen")
 
+    st.markdown(
+        """
+        ### Promo-Codes
+        Alle `promoCode` über die Historie mit Firmencode-Verdacht, Split-View-
+        Drilldown je Code und Reklassifizierung von Promo- zu Firmencodes (global).
+        """
+    )
+    st.page_link("pages/5_Promo_Codes.py", label="→ Promo-Codes öffnen")
+
 
 st.divider()
 

@@ -18,6 +18,7 @@ import pandas as pd
 import streamlit as st
 
 from revenueblindspots import helpers as H
+from revenueblindspots import overrides as OV
 
 
 # ============================== Cache key helper ==========================
@@ -38,6 +39,15 @@ def _snapshot_signature() -> str:
     return f"remote={snap_dir}"
 
 
+def _override_signature() -> str:
+    """Signatur des Promo-Reklassifizierungs-Stores (Cache-Invalidierung).
+
+    Ändert sich, sobald eine Reklassifizierung gespeichert/entfernt wird - die
+    Daten-Loader laden dann mit frisch angewandten Overrides neu.
+    """
+    return OV.override_signature()
+
+
 # ============================== Cached loaders ============================
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
 def load_snapshot_metadata_cached(_snapshot_sig: str) -> dict:
@@ -54,29 +64,36 @@ def load_plan_cached(_snapshot_sig: str) -> pd.DataFrame:
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
 def load_reservations_cached(
     _snapshot_sig: str,
+    _override_sig: str,
     start: pd.Timestamp | None = None,
     end: pd.Timestamp | None = None,
     properties: tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
-    return H.load_reservations(
+    df = H.load_reservations(
         start=start,
         end=end,
         properties=list(properties) if properties else None,
     )
+    # Promo->Firmencode-Reklassifizierung global anwenden (greift auf jede Page).
+    return OV.apply_code_overrides(df)
 
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
 def load_timeslices_cached(
     _snapshot_sig: str,
+    _override_sig: str,
     start: pd.Timestamp | None = None,
     end: pd.Timestamp | None = None,
     properties: tuple[str, ...] | None = None,
 ) -> pd.DataFrame:
-    return H.load_timeslices(
+    df = H.load_timeslices(
         start=start,
         end=end,
         properties=list(properties) if properties else None,
     )
+    # Greift erst nach dem Refresh, der promoCode in die Timeslices broadcastet;
+    # davor ist promoCode nicht vorhanden und apply_code_overrides ist ein No-op.
+    return OV.apply_code_overrides(df)
 
 
 # ============================== Convenience wrappers =====================
@@ -105,6 +122,7 @@ def get_reservations(
 ) -> pd.DataFrame:
     return load_reservations_cached(
         _snapshot_signature(),
+        _override_signature(),
         start=start,
         end=end,
         properties=tuple(properties) if properties else None,
@@ -118,6 +136,7 @@ def get_timeslices(
 ) -> pd.DataFrame:
     return load_timeslices_cached(
         _snapshot_signature(),
+        _override_signature(),
         start=start,
         end=end,
         properties=tuple(properties) if properties else None,
@@ -284,6 +303,8 @@ _PERSIST_KEY_PREFIXES: tuple[str, ...] = (
     "b2b_",
     # Code Deep-Dive Sidebar
     "cd_",
+    # Promo-Codes Sidebar
+    "promo_",
     # Notepad-Store (pro Page) - muss den Page-Wechsel überleben. Der Store-Key
     # ist KEIN Widget-Key (das Textfeld notepad_input:: wird je Render frisch aus
     # dem Store geseedet), darum re-touchen wir hier nur den Store.
