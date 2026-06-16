@@ -77,15 +77,20 @@ with st.sidebar:
              "Aus = strikt nur Corporate-/Company-/Effective-Code.",
     )
 
+    # Default-Fokus = aktueller Monat (Anfang bis Ende). Ändert der User die Werte,
+    # bleiben sie über Seitenwechsel erhalten (cd_*-Keys laufen über
+    # keep_session_state_alive); der Default greift nur beim ersten Aufruf.
+    _today = pd.Timestamp.today().normalize()
+    _month_start = _today.replace(day=1).date()
+    _month_end = (_today.replace(day=1) + pd.offsets.MonthEnd(1)).date()
+
     with st.form("code_dates", clear_on_submit=False, border=False):
         st.caption("Fokus-Periode")
         c1, c2 = st.columns(2)
         with c1:
-            ps = st.date_input("Start", value=pd.Timestamp("2026-01-01").date(),
-                                key="cd_ps")
+            ps = st.date_input("Start", value=_month_start, key="cd_ps")
         with c2:
-            pe = st.date_input("Ende",  value=pd.Timestamp("2026-06-30").date(),
-                                key="cd_pe")
+            pe = st.date_input("Ende",  value=_month_end, key="cd_pe")
         lookback_years = st.slider("Lookback-Jahre", min_value=1, max_value=7, value=3,
                                       key="cd_lookback_years")
         alert_rate = st.slider("Alert-Schwelle Storno-Quote (%)",
@@ -163,7 +168,7 @@ if res_all.empty:
     st.stop()
 if not _enriched:
     alert_card(
-        "Code-/Firmen-Revenue läuft noch auf der **services-inklusiven** "
+        "Code-/Firmen-Revenue läuft noch auf der services-inklusiven "
         "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht einmal "
         "Voll-Refresh ziehen (Daten aktualisieren).",
         kind="info",

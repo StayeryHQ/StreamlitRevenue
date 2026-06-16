@@ -22,14 +22,14 @@ import streamlit as st
 
 from components import b2b_tables as B
 from components import cached_data as CD
-from components import drilldown as DD
-from components import promo_tables as P
 from components import (
     download_button,
     inject_brand_css,
     render_notepad,
     sync_snapshot_override,
 )
+from components import drilldown as DD
+from components import promo_tables as P
 from components.alerts import alert_card
 from components.brand import hero
 from components.export import register_section, reset_export
@@ -264,10 +264,6 @@ st.caption(
     "Basis; die Nacht-Netto-Sichten von B2B/Code Deep-Dive ziehen nach dem nächsten "
     "`Daten aktualisieren` nach."
 )
-st.caption(
-    f"📁 Liste gespeichert unter `{OV.store_location()}` — geteilt für alle "
-    "Nutzer, persistent auf dem Volume."
-)
 
 # --- Bestehende Reklassifizierungen ---------------------------------------
 if _override_map:
@@ -389,8 +385,10 @@ if not firmencode_sheet.empty:
     _sheets["firmencodes_aktualisiert"] = firmencode_sheet
 if _override_map:
     _sheets["reklassifizierung"] = pd.DataFrame(
-        [{"Promocode": c, "Firmenname": (p.get("firm") or ""), "seit": p.get("added", "")}
-         for c, p in sorted(_override_map.items())]
+        [
+            {"Promocode": c, "Firmenname": (p.get("firm") or ""), "seit": p.get("added", "")}
+            for c, p in sorted(_override_map.items())
+        ]
     )
 
 buf = io.BytesIO()

@@ -138,7 +138,7 @@ if res.empty:
 
 if not _enriched:
     alert_card(
-        "Firmen-/Code-Revenue läuft noch auf der **services-inklusiven** "
+        "Firmen-/Code-Revenue läuft noch auf der services-inklusiven "
         "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht einmal "
         "Voll-Refresh ziehen (Daten aktualisieren).",
         kind="info",
@@ -153,7 +153,7 @@ if _late_b2b:
     _lines = ", ".join(f"{pc} (eröffnet {H.opening_date(pc):%d.%m.%Y})" for pc in _late_b2b)
     alert_card(
         f"Folgende Standorte waren zu Beginn der Lookback-Periode noch nicht "
-        f"offen: **{_lines}**. Die Tabellen unten enthalten dort nur Daten "
+        f"offen: {_lines}. Die Tabellen unten enthalten dort nur Daten "
         f"ab Eröffnungsdatum.",
         kind="info",
     )
