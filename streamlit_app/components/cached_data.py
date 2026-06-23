@@ -380,6 +380,7 @@ def cache_clear_button() -> None:
         help="Snapshot + Chart-Cache wieder von Disk laden.",
     ):
         st.cache_data.clear()
+        st.cache_resource.clear()  # Snapshot-Lader (cache_resource) mitleeren!
         for k in list(st.session_state.keys()):
             if str(k).startswith("_stayery_style_applied") or str(k).startswith("_chart_"):
                 del st.session_state[k]

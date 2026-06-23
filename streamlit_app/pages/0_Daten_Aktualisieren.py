@@ -63,6 +63,10 @@ st.caption(
 def _clear_caches() -> None:
     """Analyse-Pages sehen sonst noch die alten Daten."""
     st.cache_data.clear()
+    # WICHTIG: die Snapshot-Lader (Reservations/Timeslices) laufen über
+    # @st.cache_resource - das wird von cache_data.clear() NICHT geleert. Ohne
+    # diese Zeile zeigen die Pages nach einem Refresh weiter den alten Snapshot.
+    st.cache_resource.clear()
     for k in list(st.session_state.keys()):
         if str(k).startswith("_stayery_style_applied") or str(k).startswith("_chart_"):
             del st.session_state[k]
