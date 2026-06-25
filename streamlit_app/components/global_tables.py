@@ -411,6 +411,358 @@ def _build_channel_table(
     return disp, raw
 
 
+# ============================== Stay × Creation (As-of) ====================
+# Kombinierte Sicht: Hauptbasis Aufenthaltsdatum (Sidebar), zusätzlich nach
+# Erstellungsdatum gefiltert (Filter über der Tabelle), je Jahr gespiegelt.
+# Der Storno/No-Show-Toggle greift hier POINT-IN-TIME (As-of-Stichtag), nicht
+# über den finalen Status - identisch über alle drei Tabellen + Liniengrafik.
+_SEGMENT_ORDER = ["short_<=6", "mid_7-28", "long_29+"]
+_SEGMENT_LABELS = {
+    "short_<=6": "kurz (≤6)",
+    "mid_7-28": "mittel (7-28)",
+    "long_29+": "lang (29+)",
+}
+
+
+def _segment_label(seg: str) -> str:
+    return _SEGMENT_LABELS.get(str(seg), str(seg))
+
+
+def _signed_eur(value: float) -> str:
+    """Euro-String mit explizitem Vorzeichen für Delta-Spalten ('+1.234 €')."""
+    if pd.isna(value):
+        return "-"
+    return ("+" if value > 0 else "") + H.fmt_eur(value)
+
+
+def _sc_volume_disp(
+    raw: pd.DataFrame,
+    label_src: str,
+    label_header: str,
+    year_old: int,
+    year_new: int,
+) -> pd.DataFrame:
+    """Anzeige-Tabelle für die Stay×Creation-Volumen-Sichten (Channel + Segment).
+
+    Spalten-Reihenfolge (laut Product-Ownerin): Label · Revenue NEW · Revenue
+    OLD · Δ Revenue (€) · Δ Anteil (pp) · Tendenz. Erwartet ein ``raw`` mit den
+    Spalten ``rev_new``, ``rev_old``, ``d_eur``, ``d_share_pp``, ``d_pct`` plus
+    der Label-Spalte ``label_src``.
+    """
+    if raw is None or raw.empty:
+        return raw
+    return pd.DataFrame(
+        {
+            label_header: raw[label_src],
+            f"Revenue {year_new} (€)": raw["rev_new"].map(H.fmt_eur),
+            f"Revenue {year_old} (€)": raw["rev_old"].map(H.fmt_eur),
+            "Δ Revenue (€)": raw["d_eur"].map(_signed_eur),
+            f"Δ Anteil (pp) {year_new}/{year_old}": raw["d_share_pp"].map(
+                lambda v: f"{v:+.2f}"
+            ),
+            "Tendenz": [tendency_icon(p) for p in raw["d_pct"]],
+        }
+    )
+
+
+def stay_created_scope(
+    nightly: pd.DataFrame,
+    start_stay: pd.Timestamp,
+    end_stay: pd.Timestamp,
+    cre_start: pd.Timestamp,
+    cre_end: pd.Timestamp,
+    asof: pd.Timestamp,
+    include_cancellations: bool,
+) -> pd.DataFrame:
+    """Stay-Fenster ∩ Creation-Fenster, As-of am ``asof`` gefiltert.
+
+    Reine pandas-Logik (streamlit-frei, testbar): erst nach ``stay_date`` in
+    [start_stay, end_stay], dann nach ``created`` in [cre_start, cre_end]
+    schneiden, dann die As-of-On-the-books-Maske (``H.asof_on_the_books_mask``)
+    anwenden. Gibt eine gefilterte Kopie zurück.
+
+    Args:
+        nightly: Timeslices (eine Zeile je Stay-Nacht).
+        start_stay: Aufenthalts-Fenster Start (inklusive).
+        end_stay: Aufenthalts-Fenster Ende (inklusive).
+        cre_start: Erstellungs-Fenster Start (inklusive, schon jahr-gespiegelt).
+        cre_end: Erstellungs-Fenster Ende (inklusive, schon jahr-gespiegelt).
+        asof: Point-in-time-Stichtag für die Storno-/No-Show-Logik.
+        include_cancellations: Toggle - False = realized-only (As-of-Storno +
+            No-Show raus), True = alle on-the-books am Stichtag.
+
+    Returns:
+        Gefilterte Kopie von ``nightly``.
+    """
+    stay = H.filter_period(nightly, start_stay, end_stay, "stay_date")
+    sc = H.filter_period(stay, cre_start, cre_end, "created")
+    if sc.empty:
+        return sc
+    mask = H.asof_on_the_books_mask(sc, asof, include_cancellations=include_cancellations)
+    return sc[mask]
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+def performance_by_stay_created(
+    nightly: pd.DataFrame,
+    properties: list[str],
+    start_new: pd.Timestamp,
+    end_new: pd.Timestamp,
+    start_old: pd.Timestamp,
+    end_old: pd.Timestamp,
+    cre_start_new: pd.Timestamp,
+    cre_end_new: pd.Timestamp,
+    cre_start_old: pd.Timestamp,
+    cre_end_old: pd.Timestamp,
+    asof_new: pd.Timestamp,
+    asof_old: pd.Timestamp,
+    year_old: int,
+    year_new: int,
+    include_cancellations: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Standort-Tabelle: Stay-Fenster ∩ Creation-Fenster, As-of, YoY (KEIN PLAN).
+
+    Gleiche Ausgabe-Struktur wie ``performance_by_created`` (Sales-Sicht), nur
+    auf der As-of-gefilterten Stay×Creation-Menge. KEIN PLAN-Vergleich - der
+    Plan ist monatlich auf das Aufenthaltsdatum bezogen und passt nicht auf
+    einen creation-gefilterten Teilausschnitt.
+    """
+    scope_new = stay_created_scope(
+        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new, include_cancellations
+    )
+    scope_old = stay_created_scope(
+        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old, include_cancellations
+    )
+
+    ist_new = scope_new.groupby("property_code", observed=True)["revenue"].sum()
+    ist_old = scope_old.groupby("property_code", observed=True)["revenue"].sum()
+
+    rows = []
+    for pc in properties:
+        ic = float(ist_new.get(pc, 0.0))
+        ily = float(ist_old.get(pc, 0.0))
+        if ic == 0 and ily == 0:
+            continue
+        d_eur = ic - ily
+        d_pct = ((ic / ily - 1) * 100) if ily > 0 else float("nan")
+        rows.append(
+            {
+                "property_code": pc,
+                "Standort": H.city_label(pc),
+                "ist_new": ic,
+                "ist_old": ily,
+                "d_eur": d_eur,
+                "d_pct": d_pct,
+            }
+        )
+    raw = pd.DataFrame(rows)
+    if raw.empty:
+        return raw, raw
+
+    t_new = raw["ist_new"].sum()
+    t_old = raw["ist_old"].sum()
+    total = pd.DataFrame(
+        [
+            {
+                "property_code": "TOTAL",
+                "Standort": "Total",
+                "ist_new": t_new,
+                "ist_old": t_old,
+                "d_eur": t_new - t_old,
+                "d_pct": ((t_new / t_old - 1) * 100) if t_old > 0 else float("nan"),
+            }
+        ]
+    )
+    raw = pd.concat([raw, total], ignore_index=True)
+
+    c_ist = f"IST {year_new} (€)"
+    c_ly = f"IST {year_old} (€)"
+    disp = pd.DataFrame(
+        {
+            "Standort": raw["Standort"],
+            c_ist: raw["ist_new"].map(lambda v: H.fmt_eur(v, 2) if v > 0 else "-"),
+            c_ly: raw["ist_old"].map(lambda v: H.fmt_eur(v, 2) if v > 0 else "-"),
+            f"DIFF {year_new} vs {year_old} (€)": [
+                f"{tendency_icon(p)} {H.fmt_eur(e, 2)}" if pd.notna(p) else "-"
+                for e, p in zip(raw["d_eur"], raw["d_pct"], strict=False)
+            ],
+        }
+    )
+    return disp, raw
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+def channel_volume_by_stay_created(
+    nightly: pd.DataFrame,
+    start_new: pd.Timestamp,
+    end_new: pd.Timestamp,
+    start_old: pd.Timestamp,
+    end_old: pd.Timestamp,
+    cre_start_new: pd.Timestamp,
+    cre_end_new: pd.Timestamp,
+    cre_start_old: pd.Timestamp,
+    cre_end_old: pd.Timestamp,
+    asof_new: pd.Timestamp,
+    asof_old: pd.Timestamp,
+    year_old: int,
+    year_new: int,
+    include_cancellations: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Channel-Tabelle auf der As-of-gefilterten Stay×Creation-Menge.
+
+    Die Storno-/No-Show-Logik passiert bereits in ``stay_created_scope``
+    (point-in-time), daher ``realized_only=False`` an ``_build_channel_table``:
+    KEIN zweiter, finaler ``is_realized``-Filter - sonst stimmen die Totals
+    nicht mehr mit der Standort-/Segment-Tabelle überein.
+    """
+    scope_new = stay_created_scope(
+        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new, include_cancellations
+    )
+    scope_old = stay_created_scope(
+        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old, include_cancellations
+    )
+    _, raw = _build_channel_table(scope_new, scope_old, year_old, year_new, realized_only=False)
+    return _sc_volume_disp(raw, "Channel", "Channel", year_old, year_new), raw
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+def segment_volume_by_stay_created(
+    nightly: pd.DataFrame,
+    start_new: pd.Timestamp,
+    end_new: pd.Timestamp,
+    start_old: pd.Timestamp,
+    end_old: pd.Timestamp,
+    cre_start_new: pd.Timestamp,
+    cre_end_new: pd.Timestamp,
+    cre_start_old: pd.Timestamp,
+    cre_end_old: pd.Timestamp,
+    asof_new: pd.Timestamp,
+    asof_old: pd.Timestamp,
+    year_old: int,
+    year_new: int,
+    include_cancellations: bool = False,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Stay-Segment-Tabelle (``los_bucket``) auf der As-of-Stay×Creation-Menge.
+
+    kurz ``short_<=6`` / mittel ``mid_7-28`` / lang ``long_29+`` - feste
+    Reihenfolge, YoY mit Revenue-Anteil. Gleicher Scope + As-of-Filter wie die
+    Standort- und Channel-Tabelle (Reconciliation).
+    """
+    scope_new = stay_created_scope(
+        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new, include_cancellations
+    )
+    scope_old = stay_created_scope(
+        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old, include_cancellations
+    )
+
+    def agg(df: pd.DataFrame) -> pd.Series:
+        if df.empty:
+            return pd.Series(dtype="float64")
+        return df.groupby("los_bucket", observed=True)["revenue"].sum()
+
+    a_new = agg(scope_new)
+    a_old = agg(scope_old)
+    sum_new = float(a_new.sum()) or 1
+    sum_old = float(a_old.sum()) or 1
+
+    rows = []
+    for seg in _SEGMENT_ORDER:
+        rn = float(a_new.get(seg, 0.0))
+        ro = float(a_old.get(seg, 0.0))
+        if rn == 0 and ro == 0:
+            continue
+        rows.append(
+            {
+                "Segment": _segment_label(seg),
+                "rev_new": rn,
+                "share_new": rn / sum_new * 100,
+                "rev_old": ro,
+                "share_old": ro / sum_old * 100,
+                "d_eur": rn - ro,
+                "d_pct": ((rn / ro - 1) * 100) if ro > 0 else float("nan"),
+                "d_share_pp": (rn / sum_new * 100) - (ro / sum_old * 100),
+            }
+        )
+    raw = pd.DataFrame(rows)
+    if raw.empty:
+        return raw, raw
+
+    total = pd.DataFrame(
+        [
+            {
+                "Segment": "Total",
+                "rev_new": float(a_new.sum()),
+                "share_new": 100.0,
+                "rev_old": float(a_old.sum()),
+                "share_old": 100.0,
+                "d_eur": float(a_new.sum() - a_old.sum()),
+                "d_pct": ((float(a_new.sum()) / float(a_old.sum()) - 1) * 100)
+                if a_old.sum() > 0
+                else float("nan"),
+                "d_share_pp": 0.0,
+            }
+        ]
+    )
+    raw = pd.concat([raw, total], ignore_index=True)
+    return _sc_volume_disp(raw, "Segment", "Stay-Segment", year_old, year_new), raw
+
+
+def daily_created_line_data(
+    scope_new: pd.DataFrame,
+    scope_old: pd.DataFrame,
+    cre_start_new: pd.Timestamp,
+    cre_start_old: pd.Timestamp,
+) -> pd.DataFrame:
+    """Revenue je Erstellungs-Tag für NEW und OLD, ausgerichtet am Fenster-Offset.
+
+    X-Achse = Tag im Creation-Fenster (Offset ab ``cre_start``); so liegen NEW
+    und OLD trotz Jahres-Spiegelung deckungsgleich übereinander. Beide Reihen
+    sind auf die übergebenen (bereits As-of-gefilterten) Scopes berechnet -
+    ``sum(rev_new)`` == Total der Standort-/Channel-/Segment-Tabelle (NEW).
+
+    Args:
+        scope_new: As-of-gefilterte NEW-Menge (aus ``stay_created_scope``).
+        scope_old: As-of-gefilterte OLD-Menge.
+        cre_start_new: Creation-Fenster-Start NEW (Offset-Nullpunkt).
+        cre_start_old: Creation-Fenster-Start OLD (gespiegelt).
+
+    Returns:
+        DataFrame mit ``offset``, ``date_new`` (Kalendertag NEW), ``rev_new``,
+        ``rev_old``. Leer (mit Spalten) wenn beide Scopes leer sind.
+    """
+    cols = ["offset", "date_new", "rev_new", "rev_old"]
+
+    def by_offset(df: pd.DataFrame, cre_start: pd.Timestamp) -> pd.Series:
+        if df is None or df.empty:
+            return pd.Series(dtype="float64")
+        off = (
+            pd.to_datetime(df["created"]).dt.normalize() - pd.Timestamp(cre_start).normalize()
+        ).dt.days
+        s = df.assign(_off=off).groupby("_off")["revenue"].sum()
+        return s[s.index >= 0]
+
+    sn = by_offset(scope_new, cre_start_new)
+    so = by_offset(scope_old, cre_start_old)
+    max_off = int(
+        max(
+            sn.index.max() if len(sn) else -1,
+            so.index.max() if len(so) else -1,
+        )
+    )
+    if max_off < 0:
+        return pd.DataFrame(columns=cols)
+    offsets = list(range(0, max_off + 1))
+    start_new_ts = pd.Timestamp(cre_start_new).normalize()
+    return pd.DataFrame(
+        {
+            "offset": offsets,
+            "date_new": [start_new_ts + pd.Timedelta(days=o) for o in offsets],
+            "rev_new": [float(sn.get(o, 0.0)) for o in offsets],
+            "rev_old": [float(so.get(o, 0.0)) for o in offsets],
+        }
+    )
+
+
 # ============================== Automatische Alerts ========================
 def auto_alerts(
     raw_stay: pd.DataFrame,

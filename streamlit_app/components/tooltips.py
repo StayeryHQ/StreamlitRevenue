@@ -224,6 +224,33 @@ CHART_TOOLTIPS: dict[str, str] = {
         "**Rechts:** Revenue-Anteil je Zelle, OLD vs NEW nebeneinander - "
         "wo wandert Volumen zwischen Channels und Aufenthaltsdauern."
     ),
+    "stay_created": (
+        "**Doppelt gefilterte Sicht.** Hauptbasis = **Aufenthaltsdatum** "
+        "(Stay-Fenster aus der Sidebar). Zusätzlich wird über den Filter direkt "
+        "über der Tabelle nach **Erstellungsdatum** eingeschränkt - also "
+        "Buchungen, die *im gewählten Buchungs-Fenster angelegt* wurden und "
+        "*ihren Aufenthalt im Stay-Fenster* haben.\n\n"
+        "**Jahres-Spiegelung:** Das Creation-Fenster wird pro Vergleichsjahr "
+        "verschoben (z.B. 1.–25.06.2026 ↔ 1.–25.06.2025), damit beide Jahre "
+        "vergleichbar sind.\n\n"
+        "**Storno/No-Show — As-of (point-in-time):** Der Sidebar-Toggle greift "
+        "hier wie beim Pace-Chart als **Stichtags-Sicht**, nicht über den "
+        "finalen Status. Stichtag = **min(Fensterende, Snapshot)**, je Jahr "
+        "gespiegelt.\n"
+        "- Toggle **aus** (Default): nur was am Stichtag on-the-books war - "
+        "Buchung mit `created ≤ Stichtag` und (nicht storniert *oder* Storno "
+        "erst *nach* dem Stichtag). Finale No-Shows raus. So zählen Stornos, die "
+        "erst nach dem Stichtag passierten, korrekt noch mit.\n"
+        "- Toggle **an**: alle am Stichtag erzeugten Buchungen, inkl. später "
+        "stornierter und No-Shows.\n\n"
+        "**Hinweis (Zukunfts-Stays):** Liegt das Stay-Fenster in der Zukunft des "
+        "Snapshots, sind **No-Shows noch nicht bekannt** (der Aufenthalt war noch "
+        "nicht). **Stornierungen bis zum Stichtag zählen aber sehr wohl** - der "
+        "Toggle verändert die Zahl also um das Volumen der bis dahin schon "
+        "stornierten Buchungen; spätere Stornos bleiben in der As-of-Sicht außen "
+        "vor. Alle vier Sichten (Standort, Channel, Stay-Segment, Linien-Summe) "
+        "sind auf dieselbe Menge gerechnet und stimmen je Jahr aufsummiert überein."
+    ),
 }
 
 

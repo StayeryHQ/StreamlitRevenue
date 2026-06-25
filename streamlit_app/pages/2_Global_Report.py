@@ -84,7 +84,6 @@ with st.sidebar:
         "Standorte",
         options=all_props,
         default=all_props,
-        help="Welche Standorte in den Recap einfließen sollen.",
         key="global_props_pick",
     )
     mode = st.radio("Periode", ["Quartal", "Freie Periode"], horizontal=True, key="global_mode")
@@ -351,6 +350,7 @@ _TOC = [
     ("7.B", "Channel-Mix je Standort"),
     ("7.C", "Top-Movers"),
     ("7.D", "Channel × LOS (granular)"),
+    (8, "Stay × Creation (As-of)"),
 ]
 render_toc(_TOC)
 
@@ -731,6 +731,238 @@ if lazy_section(
         page=PAGE,
     )
     chart_help("heat_ch_los_granular")
+
+
+# ===== 8 · Stay × Creation (As-of) ========================================
+# Hauptbasis = Aufenthaltsdatum (Sidebar). Zusätzlicher Erstellungsdatum-Filter
+# DIREKT ÜBER der Tabelle (nicht Sidebar), je Jahr gespiegelt. Storno/No-Show =
+# derselbe Sidebar-Toggle, aber POINT-IN-TIME (As-of) wie der Pace-Chart.
+YEAR_DELTA = YEAR_NEW - YEAR_OLD
+
+# Default-Creation-Fenster: der Kalendermonat unmittelbar vor dem NEW-Stay-Start
+# (z.B. Stay Juli → gebucht im Juni). Nur Vorbelegung - der User passt an.
+_def_cre_end_new = (start_new - pd.Timedelta(days=1)).normalize()
+_def_cre_start_new = _def_cre_end_new.replace(day=1)
+
+with section(
+    8,
+    "Stay × Creation (As-of)",
+    subtitle=f"Aufenthalt {period_tag_new} vs {period_tag_old}, zusätzlich nach "
+    f"Erstellungsdatum gefiltert · {YEAR_NEW} vs {YEAR_OLD}",
+    description=(
+        "**Doppelt gefiltert:** Hauptmenge sind die Buchungen mit **Aufenthalt im "
+        "Stay-Fenster** (Sidebar). Der Filter unten schränkt zusätzlich auf ein "
+        "**Erstellungs-Fenster** ein - je Vergleichsjahr gespiegelt, damit beide "
+        "Jahre vergleichbar sind. Der Sidebar-Toggle **Storno + No-Show** wirkt "
+        "hier **point-in-time** (Stand Stichtag), nicht über den finalen Status."
+    ),
+):
+    with st.form("glb_sc_form", clear_on_submit=False, border=True):
+        st.markdown("**Erstellungsdatum-Filter** (gilt zusätzlich zum Stay-Fenster)")
+        _cc1, _cc2, _cc3 = st.columns([2, 2, 3])
+        with _cc1:
+            _sc_start = st.date_input(
+                "Erstellung von",
+                value=_def_cre_start_new.date(),
+                key="global_sc_cre_start",
+                help="Untere Grenze des Buchungs-Fensters für das aktuelle Jahr "
+                "(NEW). Wird für das Vorjahr automatisch um den Jahres-Offset "
+                "gespiegelt.",
+            )
+        with _cc2:
+            _sc_end = st.date_input(
+                "Erstellung bis",
+                value=_def_cre_end_new.date(),
+                key="global_sc_cre_end",
+                help="Obere Grenze des Buchungs-Fensters (NEW). Der wirksame "
+                "As-of-Stichtag ist min(dieses Datum, Snapshot-Datum) - es wird "
+                "nie in die Zukunft des Snapshots geschaut.",
+            )
+        with _cc3:
+            st.caption(
+                "ℹ️ **Storno/No-Show** steuerst du über den Sidebar-Toggle "
+                "**„Storno + No-Show einbeziehen\"** - hier greift er als "
+                "**As-of-Sicht**: „war die Buchung **Stand Stichtag** schon "
+                "storniert?\". Stornos *nach* dem Stichtag zählen noch mit."
+            )
+        st.form_submit_button("Analyse aktualisieren", use_container_width=True)
+
+    cre_start_new = pd.Timestamp(_sc_start).normalize()
+    cre_end_new = pd.Timestamp(_sc_end).normalize()
+
+    if cre_end_new < cre_start_new:
+        alert_card(
+            "Das Erstellungs-Fenster ist leer: „von\" liegt nach „bis\". "
+            "Bitte Datumsgrenzen korrigieren.",
+            kind="warning",
+            title="Ungültiges Erstellungs-Fenster",
+        )
+    else:
+        cre_start_old = H.mirror_years(cre_start_new, YEAR_DELTA)
+        cre_end_old = H.mirror_years(cre_end_new, YEAR_DELTA)
+        snap_old = H.mirror_years(SNAP_DATE, YEAR_DELTA)
+        # Stichtag = min(Fensterende, Snapshot), je Jahr gespiegelt (PO-Entscheid).
+        asof_new = min(cre_end_new, SNAP_DATE)
+        asof_old = min(cre_end_old, snap_old)
+
+        _sc_scope_txt = (
+            "alle Buchungen (inkl. Storno + No-Show)"
+            if _include_cancellations
+            else "realized-only (Storno + No-Show point-in-time raus)"
+        )
+        st.caption(
+            f"**Stay-Fenster:** {period_tag_new} vs {period_tag_old}  ·  "
+            f"**Erstellungs-Fenster:** {cre_start_new:%d.%m.%Y}–{cre_end_new:%d.%m.%Y} "
+            f"(NEW) ↔ {cre_start_old:%d.%m.%Y}–{cre_end_old:%d.%m.%Y} (OLD)  ·  "
+            f"**As-of-Stichtag:** {asof_new:%d.%m.%Y} (NEW) · {asof_old:%d.%m.%Y} (OLD)  ·  "
+            f"**Scope:** {_sc_scope_txt}."
+        )
+
+        disp_sc_loc, raw_sc_loc = GT.performance_by_stay_created(
+            nightly, props_pick, start_new, end_new, start_old, end_old,
+            cre_start_new, cre_end_new, cre_start_old, cre_end_old,
+            asof_new, asof_old, YEAR_OLD, YEAR_NEW,
+            include_cancellations=_include_cancellations,
+        )
+        disp_sc_chan, raw_sc_chan = GT.channel_volume_by_stay_created(
+            nightly, start_new, end_new, start_old, end_old,
+            cre_start_new, cre_end_new, cre_start_old, cre_end_old,
+            asof_new, asof_old, YEAR_OLD, YEAR_NEW,
+            include_cancellations=_include_cancellations,
+        )
+        disp_sc_seg, raw_sc_seg = GT.segment_volume_by_stay_created(
+            nightly, start_new, end_new, start_old, end_old,
+            cre_start_new, cre_end_new, cre_start_old, cre_end_old,
+            asof_new, asof_old, YEAR_OLD, YEAR_NEW,
+            include_cancellations=_include_cancellations,
+        )
+
+        if raw_sc_loc.empty:
+            alert_card(
+                "Keine Buchungen mit Aufenthalt im Stay-Fenster, die im gewählten "
+                "Erstellungs-Fenster (bis zum Stichtag) angelegt wurden.",
+                kind="info",
+            )
+        else:
+            st.markdown("**8.A · nach Standort** (YoY, ohne PLAN)")
+            st.dataframe(disp_sc_loc, hide_index=True, use_container_width=True)
+
+            st.markdown("**8.B · nach Buchungskanal**")
+            if disp_sc_chan.empty:
+                alert_card("Keine Channel-Daten im gewählten Fenster.", kind="info")
+            else:
+                st.dataframe(disp_sc_chan, hide_index=True, use_container_width=True)
+
+            st.markdown("**8.C · nach Stay-Segment** (kurz ≤6 / mittel 7-28 / lang 29+)")
+            if disp_sc_seg.empty:
+                alert_card("Keine Segment-Daten im gewählten Fenster.", kind="info")
+            else:
+                st.dataframe(disp_sc_seg, hide_index=True, use_container_width=True)
+
+            # 8.D · Liniengrafik: Revenue je Erstellungs-Tag, NEW vs OLD.
+            scope_new = GT.stay_created_scope(
+                nightly, start_new, end_new, cre_start_new, cre_end_new,
+                asof_new, _include_cancellations,
+            )
+            scope_old = GT.stay_created_scope(
+                nightly, start_old, end_old, cre_start_old, cre_end_old,
+                asof_old, _include_cancellations,
+            )
+
+            st.markdown(
+                f"**8.D · Revenue je Erstellungs-Tag** (NEW vs OLD) — nur Buchungen "
+                f"mit **Aufenthalt im Stay-Fenster** ({period_tag_new} vs {period_tag_old})"
+            )
+
+            _sc_ck_base = _ck(
+                f"stay_created::{cre_start_new.date()}::{cre_end_new.date()}"
+                f"::{asof_new.date()}::{asof_old.date()}::c{int(_include_cancellations)}"
+            )
+
+            # Liniengrafik als @st.fragment: der Channel-/OTA-Filter aktualisiert
+            # NUR diesen Block - sofort und ohne Ganzseiten-Rerun (kein Hochspringen,
+            # kein Sidebar-Knopf nötig). Die Tabellen 8.A-8.C bleiben unberührt.
+            # Use-Case: Wirkung von Marketing-Maßnahmen je OTA über die Buchungstage.
+            # Daten werden als Default-Argumente „eingefroren", damit der Fragment-
+            # Rerun mit exakt den Werten des letzten Voll-Runs läuft.
+            @st.fragment
+            def _sc_line_fragment(
+                scope_new=scope_new,
+                scope_old=scope_old,
+                cre_start_new=cre_start_new,
+                cre_start_old=cre_start_old,
+                ck_base=_sc_ck_base,
+                year_old=YEAR_OLD,
+                year_new=YEAR_NEW,
+                label_dates=f"{cre_start_new:%d.%m.}–{cre_end_new:%d.%m.%Y}",
+            ):
+                ch_pool = pd.concat(
+                    [scope_new["channel_combo"], scope_old["channel_combo"]],
+                    ignore_index=True,
+                ).dropna()
+                ota_options = sorted({GT._channel_label(c) for c in ch_pool.unique()})
+                ota_pick = st.multiselect(
+                    "Channel-Filter – nur für die Liniengrafik (z.B. einzelne OTAs)",
+                    options=ota_options,
+                    default=[],
+                    key="global_sc_ota_pick",
+                    help="Aktualisiert NUR die Liniengrafik - sofort, ohne die Seite "
+                    "neu zu laden. Die Tabellen 8.A–8.C bleiben unverändert. Leer = "
+                    "alle Channels (Gesamt-Linie). Praktisch, um nach einer "
+                    "Marketing-Maßnahme die Entwicklung einzelner OTAs zu vergleichen.",
+                )
+                if ota_pick:
+                    m_new = scope_new["channel_combo"].map(GT._channel_label).isin(ota_pick)
+                    m_old = scope_old["channel_combo"].map(GT._channel_label).isin(ota_pick)
+                    ln_new, ln_old = scope_new[m_new], scope_old[m_old]
+                    ota_tag = ", ".join(ota_pick)
+                else:
+                    ln_new, ln_old = scope_new, scope_old
+                    ota_tag = "alle Channels"
+
+                ldf = GT.daily_created_line_data(ln_new, ln_old, cre_start_new, cre_start_old)
+                if ldf.empty:
+                    alert_card(
+                        "Keine Tages-Daten für die Liniengrafik (ggf. Channel-Filter "
+                        "zu eng gewählt).",
+                        kind="info",
+                    )
+                    st.session_state.pop("_sc_line_export", None)
+                    return
+                key = f"{ck_base}::ota={'+'.join(sorted(ota_pick)) if ota_pick else 'all'}"
+                png = CD.chart_png(
+                    key, GC.stay_created_daily_chart, ldf, year_old, year_new,
+                    f"{label_dates} · {ota_tag}",
+                )
+                st.image(png, use_container_width=False)
+                CD.data_table_expander(ldf, filename=f"global_stay_created_daily_{year_new}")
+                # Für den Markdown-Export zwischenspeichern; die Registrierung
+                # passiert im Haupt-Run außerhalb des Fragments (keine Duplikate).
+                st.session_state["_sc_line_export"] = {"png": png, "table": ldf}
+
+            _sc_line_fragment()
+
+            register_section(
+                "stay_created_loc", "8.A · Stay × Creation (Standort)",
+                table_df=disp_sc_loc, page=PAGE,
+            )
+            register_section(
+                "stay_created_chan", "8.B · Stay × Creation (Channel)",
+                table_df=disp_sc_chan, page=PAGE,
+            )
+            register_section(
+                "stay_created_seg", "8.C · Stay × Creation (Stay-Segment)",
+                table_df=disp_sc_seg, page=PAGE,
+            )
+            _sc_line_exp = st.session_state.get("_sc_line_export")
+            if _sc_line_exp:
+                register_section(
+                    "stay_created_daily", "8.D · Revenue je Erstellungs-Tag",
+                    chart_png=_sc_line_exp["png"], table_df=_sc_line_exp["table"],
+                    page=PAGE,
+                )
+
+    chart_help("stay_created")
 
 
 # ===== Export ==============================================================

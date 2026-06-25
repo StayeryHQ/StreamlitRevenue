@@ -582,6 +582,73 @@ def top_movers(raw_stay: pd.DataFrame, year_old: int, year_new: int):
 
 
 # =============================================================================
+# Stay × Creation - Revenue je Erstellungs-Tag (As-of, YoY)
+# =============================================================================
+def stay_created_daily_chart(
+    line_df: pd.DataFrame,
+    year_old: int,
+    year_new: int,
+    period_label: str = "",
+):
+    """Liniengrafik: an jedem Erstellungs-Tag erzeugtes Revenue, NEW vs OLD.
+
+    Erwartet ``line_df`` aus ``global_tables.daily_created_line_data`` mit den
+    Spalten ``offset``, ``date_new``, ``rev_new``, ``rev_old``. X-Achse =
+    Kalendertag des Creation-Fensters (NEW-Datierung, OLD liegt per
+    Jahres-Offset deckungsgleich darüber). Nur Buchungen, deren Aufenthalt im
+    Stay-Fenster liegt; Storno-/No-Show-Logik steckt bereits im Scope.
+    """
+    if line_df is None or line_df.empty:
+        fig, ax = plt.subplots(figsize=(11, 3.4))
+        ax.text(0.5, 0.5, "Keine Buchungen im gewählten Fenster", ha="center", va="center")
+        ax.set_axis_off()
+        return fig
+
+    x = line_df["offset"].to_numpy()
+    rev_new = line_df["rev_new"].to_numpy()
+    rev_old = line_df["rev_old"].to_numpy()
+    day_labels = [pd.Timestamp(d).strftime("%d.%m.") for d in line_df["date_new"]]
+
+    pal = _pal()
+    fig, ax = plt.subplots(figsize=(13, 4.6))
+    ax.plot(
+        x, rev_old, marker="o", markersize=3.5, linewidth=1.6,
+        color="#666666", label=str(year_old),
+    )
+    ax.plot(
+        x, rev_new, marker="o", markersize=3.5, linewidth=2.0,
+        color=pal[0], label=str(year_new),
+    )
+    ax.fill_between(x, rev_new, rev_old, where=(rev_new >= rev_old),
+                    color=pal[0], alpha=0.10, interpolate=True)
+
+    # X-Ticks ausdünnen, damit lange Fenster lesbar bleiben.
+    n = len(x)
+    step = max(1, n // 12)
+    tick_pos = list(range(0, n, step))
+    ax.set_xticks([x[i] for i in tick_pos])
+    ax.set_xticklabels([day_labels[i] for i in tick_pos], rotation=45, ha="right", fontsize=9)
+    ax.set_xlabel("Erstellungs-Tag (Buchungsdatum)")
+    ax.set_ylabel("Revenue (€, netto)")
+    ax.set_title(
+        f"Revenue je Erstellungs-Tag (Aufenthalt im Stay-Fenster) · {year_new} vs {year_old}"
+        + (f" · {period_label}" if period_label else ""),
+        fontsize=12,
+        weight="bold",
+    )
+    # Summen in die Legende (= Total der Tabellen, As-of).
+    handles = [
+        Line2D([0], [0], color=pal[0], linewidth=2.0, marker="o", markersize=4,
+               label=f"{year_new} · Σ {H.fmt_eur(float(rev_new.sum()))}"),
+        Line2D([0], [0], color="#666666", linewidth=1.6, marker="o", markersize=4,
+               label=f"{year_old} · Σ {H.fmt_eur(float(rev_old.sum()))}"),
+    ]
+    ax.legend(handles=handles, frameon=False, fontsize=9, loc="upper left")
+    fig.tight_layout()
+    return fig
+
+
+# =============================================================================
 # Pace-to-Plan helper
 # =============================================================================
 def build_pace_table(

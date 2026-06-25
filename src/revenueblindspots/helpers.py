@@ -1815,6 +1815,87 @@ def period_days(start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> int:
     return int((end_ts - start_ts).days) + 1
 
 
+def mirror_years(ts: pd.Timestamp, years: int) -> pd.Timestamp:
+    """Shift a timestamp back by ``years`` whole calendar years.
+
+    Keeps month and day so a comparison window lands on the same calendar
+    position in the earlier year (e.g. ``2026-06-25`` minus 1 year is
+    ``2025-06-25``). A ``29 February`` source clamps to ``28 February`` in a
+    non-leap target year. ``years`` may be zero (no shift) or negative (shift
+    forward).
+
+    Args:
+        ts: Source timestamp.
+        years: Number of years to subtract (negative adds years).
+
+    Returns:
+        The year-shifted, midnight-normalised timestamp.
+    """
+    ts = pd.Timestamp(ts).normalize()
+    target_year = ts.year - int(years)
+    try:
+        return ts.replace(year=target_year)
+    except ValueError:
+        # 29 Feb -> 28 Feb in a non-leap target year.
+        return ts.replace(year=target_year, day=28)
+
+
+def asof_on_the_books_mask(
+    df: pd.DataFrame,
+    asof: pd.Timestamp,
+    *,
+    include_cancellations: bool,
+) -> pd.Series:
+    """Boolean mask of rows that were on the books at ``asof`` (point-in-time).
+
+    Same convention as :func:`pace_by_month`: a row counts as on the books at
+    the cutoff when it was already created (``created <= asof``) and - unless
+    cancellations are included - was not yet cancelled at that date. "Not yet
+    cancelled" means either never cancelled, or cancelled strictly after
+    ``asof`` (``cancel_time > asof``). A cancelled row whose ``cancel_time`` is
+    missing is treated as cancelled and dropped (identical to
+    :func:`pace_by_month`). No-shows are removed in the realized-only view and
+    kept when cancellations are included - mirroring the Global-Report
+    Storno/No-Show toggle, applied here point-in-time.
+
+    Args:
+        df: Nightly/timeslices frame with ``created``, ``is_cancelled``,
+            ``is_no_show`` and ``cancel_time`` columns.
+        asof: Point-in-time cutoff, inclusive on ``created``.
+        include_cancellations: When ``True`` every row created on or before
+            ``asof`` counts (cancellations + no-shows included); when ``False``
+            the as-of cancellation filter and the final no-show filter apply.
+
+    Returns:
+        Boolean ``pd.Series`` aligned to ``df.index``. Empty input yields an
+        empty boolean Series.
+    """
+    if df is None or len(df) == 0:
+        return pd.Series([], dtype=bool)
+    asof = pd.Timestamp(asof).normalize()
+    created = pd.to_datetime(df["created"]).dt.normalize()
+    created_ok = created <= asof
+    if include_cancellations:
+        return created_ok
+
+    cancelled = (
+        df["is_cancelled"].astype(bool)
+        if "is_cancelled" in df.columns
+        else pd.Series(False, index=df.index)
+    )
+    if "cancel_time" in df.columns:
+        cancel_ts = pd.to_datetime(df["cancel_time"], errors="coerce").dt.normalize()
+        still_on = (~cancelled) | (cancelled & cancel_ts.notna() & (cancel_ts > asof))
+    else:
+        still_on = ~cancelled
+    no_show = (
+        df["is_no_show"].astype(bool)
+        if "is_no_show" in df.columns
+        else pd.Series(False, index=df.index)
+    )
+    return created_ok & still_on & ~no_show
+
+
 def fmt_eur(value: float, decimals: int = 0) -> str:
     """Format a number as a German-style euro string, e.g. '1.234 €'."""
     if value is None or (isinstance(value, float) and np.isnan(value)):
