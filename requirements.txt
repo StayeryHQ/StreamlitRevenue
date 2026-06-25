@@ -3,7 +3,7 @@
 # die [project.dependencies] Sektion für den Cloud-Build. Bei lokalen
 # Setups: `uv sync` ignoriert diese Datei und nutzt pyproject + uv.lock.
 
-streamlit>=1.36
+streamlit>=1.37
 pandas>=2.2
 numpy>=1.26
 matplotlib>=3.8

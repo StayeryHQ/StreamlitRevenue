@@ -12,7 +12,7 @@ license = { text = "Proprietary" }
 keywords = ["hospitality", "revenue-analytics", "apaleo", "stayery", "bigquery"]
 
 dependencies = [
-    "streamlit>=1.36",
+    "streamlit>=1.37",                  # st.fragment (stabil ab 1.37)
     "pandas>=2.2",
     "numpy>=1.26",
     "matplotlib>=3.8",
