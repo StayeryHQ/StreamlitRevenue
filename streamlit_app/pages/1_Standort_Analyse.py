@@ -287,28 +287,31 @@ _opening = H.opening_date(property_code)
 _open_old = H.is_open_in_period(property_code, start_old, end_old)
 _open_new = H.is_open_in_period(property_code, start_new, end_new)
 
+_open_str = f"{_opening:%d.%m.%Y}" if _opening else "(kein Eröffnungsdatum hinterlegt)"
+
 if not _open_old and not _open_new:
-    open_str = f"{_opening:%d.%m.%Y}" if _opening else "(kein Eröffnungsdatum hinterlegt)"
     alert_card(
-        f"{LABEL} war in keiner der beiden Perioden offen - "
-        f"Eröffnung: {open_str}. Bitte beide Perioden so wählen, dass sie "
-        f"nach dem Eröffnungsdatum liegen, dann kann die Analyse laufen.",
-        kind="alert",
-        title="Beide Perioden vor Eröffnung - Analyse abgebrochen",
+        f"**{LABEL}** wurde erst am **{_open_str}** eröffnet und war in **keiner** "
+        f"der beiden gewählten Perioden offen - für diesen Zeitraum gibt es noch "
+        f"keine Daten. Wähle in der Sidebar Perioden **nach** dem Eröffnungsdatum, "
+        f"dann läuft die Analyse.",
+        kind="warning",
+        title=f"{H.city(property_code)} war im gewählten Zeitraum noch nicht offen",
     )
     st.stop()
 
 # Warnung wenn der Standort in der OLD-Periode noch nicht offen war,
-# in der NEW-Periode aber schon.
+# in der NEW-Periode aber schon (später Öffner - YoY nicht aussagekräftig).
 if not _open_old and _open_new:
     alert_card(
-        f"{LABEL} wurde erst am {_opening:%d.%m.%Y} eröffnet - die "
-        f"Vergleichs-Periode ({PERIOD_TAG_OLD}) liegt davor. OLD-Werte sind "
-        f"0; YoY-Vergleiche entsprechend nicht aussagekräftig. "
-        f"Empfehlung: Setze OLD auf einen Zeitraum nach Eröffnung, oder "
-        f"vergleiche standortübergreifend im Global Report.",
+        f"**{LABEL}** wurde erst am **{_open_str}** eröffnet - die Vergleichs-"
+        f"Periode (**{PERIOD_TAG_OLD}**) liegt davor. Die OLD-Werte sind daher 0 "
+        f"und alle YoY-Vergleiche (Δ, Trend-Linien) sind für diesen Standort nicht "
+        f"aussagekräftig. Die NEW-Periode (**{PERIOD_TAG_NEW}**) wird normal "
+        f"ausgewertet. Tipp: OLD auf einen Zeitraum nach Eröffnung setzen für einen "
+        f"echten Vergleich - oder standortübergreifend im Global Report schauen.",
         kind="warning",
-        title="Standort war in OLD-Periode noch nicht offen",
+        title="Vergleichs-Periode liegt vor der Eröffnung - YoY nicht aussagekräftig",
     )
 # Warnung wenn die NEW-Periode in der Zukunft liegt (Snapshot kann nicht in
 # die Zukunft schauen - Stay-Daten sind 0, Created-Daten nur bis snapshot_date).

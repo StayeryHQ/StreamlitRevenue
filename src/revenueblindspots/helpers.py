@@ -1132,7 +1132,18 @@ def monthly_landscape(
                 "room_nights": rn,
             }
         )
-    return pd.DataFrame(rows).sort_values("stay_year_month").reset_index(drop=True)
+    out = pd.DataFrame(rows)
+    if out.empty:
+        # Leerer Slice (z.B. später Öffner ohne Daten in der Periode): leeres
+        # Frame mit den erwarteten Spalten zurückgeben, statt bei .sort_values
+        # auf eine nicht existierende Spalte zu crashen (KeyError).
+        return pd.DataFrame(
+            columns=[
+                "stay_year_month", "days_in_month", "revenue_eur", "adr_eur",
+                "occupancy_pct", "alos_nights", "n_bookings", "room_nights",
+            ]
+        )
+    return out.sort_values("stay_year_month").reset_index(drop=True)
 
 
 def pace_to_plan(
