@@ -1,8 +1,10 @@
 """Code Deep-Dive - eine Firma im 360°-Blick."""
+
 from __future__ import annotations
+
+import io
 import sys
 from pathlib import Path
-import io
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_REPO_ROOT / "src"))
@@ -12,19 +14,22 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
+from components import cached_data as CD
+from components import code_deepdive_charts as CC
+from components import (
+    download_button,
+    inject_brand_css,
+    lazy_section,
+    preload_all_button,
+    render_notepad,
+    section,
+    sync_snapshot_override,
+)
+from components.alerts import alert_card
+from components.brand import hero
+from components.export import register_section, reset_export
 from revenueblindspots import helpers as H
 from revenueblindspots import overrides as OV
-
-from components import (
-    section, lazy_section, preload_all_button,
-    download_button, inject_brand_css, sync_snapshot_override, render_notepad,
-)
-from components.brand import hero
-from components.alerts import alert_card
-from components.export import reset_export, register_section
-from components import code_deepdive_charts as CC
-from components import cached_data as CD
-
 
 st.set_page_config(
     page_title="Code Deep-Dive · Stayery",
@@ -43,8 +48,8 @@ hero(
     eyebrow="Firma · 360°-Blick",
     title="Code Deep-Dive",
     subtitle="Code(s) eingeben - Revenue-Verlauf, Channel-Evolution, "
-              "Stay-Pattern, Storno-Verhalten, Future Pipeline, "
-              "Reservations-Excel-Export.",
+    "Stay-Pattern, Storno-Verhalten, Future Pipeline, "
+    "Reservations-Excel-Export.",
 )
 
 
@@ -64,18 +69,17 @@ with st.sidebar:
         value="",
         placeholder="z.B. GBG10 oder mehrere komma-getrennt",
         help="Wird gegen `corporateCode`, `company_code`, `effective_code` und "
-             "(wenn aktiviert) `promoCode` gematcht.",
+        "(wenn aktiviert) `promoCode` gematcht.",
         key="cd_code_input",
     )
-    props_pick = st.multiselect("Standorte", options=all_props,
-                                   default=all_props, key="cd_props")
+    props_pick = st.multiselect("Standorte", options=all_props, default=all_props, key="cd_props")
     include_promo = st.checkbox(
         "Promocodes einbeziehen",
         value=True,
         key="cd_include_promo",
         help="Matcht den/die Code(s) zusätzlich gegen `promoCode` - so lassen sich "
-             "auch reine Promocodes hier ansehen (z.B. via Link aus der Promo-Page). "
-             "Aus = strikt nur Corporate-/Company-/Effective-Code.",
+        "auch reine Promocodes hier ansehen (z.B. via Link aus der Promo-Page). "
+        "Aus = strikt nur Corporate-/Company-/Effective-Code.",
     )
 
     # Default-Fokus = aktueller Monat (Anfang bis Ende). Ändert der User die Werte,
@@ -91,12 +95,18 @@ with st.sidebar:
         with c1:
             ps = st.date_input("Start", value=_month_start, key="cd_ps")
         with c2:
-            pe = st.date_input("Ende",  value=_month_end, key="cd_pe")
-        lookback_years = st.slider("Lookback-Jahre", min_value=1, max_value=7, value=3,
-                                      key="cd_lookback_years")
-        alert_rate = st.slider("Alert-Schwelle Storno-Quote (%)",
-                                  min_value=10.0, max_value=50.0, value=25.0, step=5.0,
-                                  key="cd_alert_rate")
+            pe = st.date_input("Ende", value=_month_end, key="cd_pe")
+        lookback_years = st.slider(
+            "Lookback-Jahre", min_value=1, max_value=7, value=3, key="cd_lookback_years"
+        )
+        alert_rate = st.slider(
+            "Alert-Schwelle Storno-Quote (%)",
+            min_value=10.0,
+            max_value=50.0,
+            value=25.0,
+            step=5.0,
+            key="cd_alert_rate",
+        )
         st.form_submit_button("Periode anwenden", use_container_width=True)
 
     st.caption("Sektionen 3-7 laden erst auf Klick.")
@@ -114,7 +124,7 @@ with st.sidebar:
 
     st.divider()
     CD.cache_clear_button()
-    st.caption(f"Snapshot vom **{str(meta.get('refreshed_at','?'))[:10]}**")
+    st.caption(f"Snapshot vom **{str(meta.get('refreshed_at', '?'))[:10]}**")
 
 render_notepad(PAGE)
 
@@ -123,20 +133,21 @@ window_days = (period_end - period_start).days + 1
 prev_period_end = period_start - pd.Timedelta(days=1)
 prev_period_start = prev_period_end - pd.Timedelta(days=window_days - 1)
 lookback_start = (period_start - pd.DateOffset(years=lookback_years)).normalize()
-lookback_end = max(pd.Timestamp.today().normalize(),
-                    period_end + pd.Timedelta(days=180))
+lookback_end = max(pd.Timestamp.today().normalize(), period_end + pd.Timedelta(days=180))
 
 codes_tag = "+".join(sorted(codes))
 
 
 def _ck(section: str) -> str:
-    return (f"code::{codes_tag}::{period_start.date()}::{period_end.date()}"
-            f"::{lookback_years}::{section}")
+    return (
+        f"code::{codes_tag}::{period_start.date()}::{period_end.date()}"
+        f"::{lookback_years}::{section}"
+    )
 
 
 st.markdown(f"""
 **Analyse-Setup:**
-- Code(s): **{', '.join(f'`{c}`' for c in codes)}**
+- Code(s): **{", ".join(f"`{c}`" for c in codes)}**
 - Fokus-Periode: **{period_start:%d.%m.%Y} – {period_end:%d.%m.%Y}** ({window_days} Tage)
 - Vorperiode (auto): **{prev_period_start:%d.%m.%Y} – {prev_period_end:%d.%m.%Y}**
 - Lookback: **{lookback_start:%d.%m.%Y} – {lookback_end:%d.%m.%Y}**
@@ -162,8 +173,7 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     if _enriched:
         res_all = H.reservations_from_timeslices(nightly)
     else:
-        res_all = CD.get_reservations(start=lookback_start, end=lookback_end,
-                                      properties=props_pick)
+        res_all = CD.get_reservations(start=lookback_start, end=lookback_end, properties=props_pick)
 if res_all.empty:
     st.warning("Keine Reservierungen im Lookback-Zeitraum.")
     st.stop()
@@ -181,9 +191,7 @@ if not _enriched:
 # Nach dem Refresh trägt der Timeslices-Snapshot promoCode selbst -> die Spalte
 # ist dann schon da und dieser Schritt entfällt automatisch.
 if include_promo and "promoCode" not in res_all.columns and "id" in res_all.columns:
-    _pmap = CD.get_reservations(
-        start=lookback_start, end=lookback_end, properties=props_pick
-    )
+    _pmap = CD.get_reservations(start=lookback_start, end=lookback_end, properties=props_pick)
     if {"id", "promoCode"}.issubset(_pmap.columns):
         res_all = res_all.merge(
             _pmap[["id", "promoCode"]].drop_duplicates("id"), on="id", how="left"
@@ -194,9 +202,7 @@ res, firm_names_fuzzy, firm_names_raw = CC.resolve_codes_to_res(
 )
 
 if res.empty:
-    st.error(
-        f"Keine Buchungen für Code(s) **{', '.join(codes)}** im Lookback gefunden."
-    )
+    st.error(f"Keine Buchungen für Code(s) **{', '.join(codes)}** im Lookback gefunden.")
     st.stop()
 
 # "Code"-Anzeige robust machen: für reine Promo-Buchungen ist effective_code
@@ -205,9 +211,7 @@ if res.empty:
 if "effective_code" in res.columns and "promoCode" in res.columns:
     _eff = res["effective_code"].astype("string").str.strip()
     _empty = _eff.isna() | _eff.str.lower().isin(["", "nan", "none", "<na>", "null"])
-    res.loc[_empty, "effective_code"] = (
-        res.loc[_empty, "promoCode"].astype("string").str.strip()
-    )
+    res.loc[_empty, "effective_code"] = res.loc[_empty, "promoCode"].astype("string").str.strip()
 
 reset_export(PAGE)
 
@@ -257,11 +261,13 @@ _codes_up = {c.upper() for c in codes}
 _reclassified = set(OV.promo_overrides().keys())
 _as_promo = (
     res["promoCode"].astype("string").str.strip().str.upper().isin(_codes_up).any()
-    if "promoCode" in res.columns else False
+    if "promoCode" in res.columns
+    else False
 )
 _as_corp = (
     res["corporateCode"].astype("string").str.strip().str.upper().isin(_codes_up).any()
-    if "corporateCode" in res.columns else False
+    if "corporateCode" in res.columns
+    else False
 )
 if _codes_up & _reclassified:
     code_type = "Promo → reklass. Firmencode"
@@ -276,32 +282,45 @@ else:
 
 st.markdown(f"## 1 · {firm_label}")
 st.markdown(
-    f"Code(s): **{', '.join(codes)}**  ·  "
-    f"Firmennamen-Varianten (raw): {all_variants or '-'}"
+    f"Code(s): **{', '.join(codes)}**  ·  Firmennamen-Varianten (raw): {all_variants or '-'}"
 )
 
 warns = []
 if not period_has_data:
-    warns.append(f"Fokus-Periode {period_start:%d.%m.%Y}–{period_end:%d.%m.%Y}: keine realisierten Buchungen")
+    warns.append(
+        f"Fokus-Periode {period_start:%d.%m.%Y}–{period_end:%d.%m.%Y}: keine realisierten Buchungen"
+    )
 if not prev_has_data:
-    warns.append(f"Vorperiode {prev_period_start:%d.%m.%Y}–{prev_period_end:%d.%m.%Y}: keine realisierten Buchungen")
+    warns.append(
+        f"Vorperiode {prev_period_start:%d.%m.%Y}–{prev_period_end:%d.%m.%Y}: keine realisierten Buchungen"
+    )
 if warns:
     alert_card(
-        "<br>".join(warns) + "<br>Periode-spezifische Werte als „-\"; Lifetime + Charts zeigen volle Historie.",
-        kind="warning", title="Hinweis zur Datenabdeckung",
+        "<br>".join(warns)
+        + '<br>Periode-spezifische Werte als „-"; Lifetime + Charts zeigen volle Historie.',
+        kind="warning",
+        title="Hinweis zur Datenabdeckung",
     )
 
 c1, c2, c3, c4, c_type = st.columns(5)
-c1.metric("Lifetime Revenue", H.fmt_eur(lifetime_revenue),
-            delta=f"{n_realized:,} realisiert".replace(",", "."))
-c2.metric("Lifetime Nights", f"{lifetime_nights:,}".replace(",", "."),
-            delta=f"ADR ø {H.fmt_eur(adr_lifetime)}")
-c3.metric("Erste Buchung", f"{first_booking:%d.%m.%Y}",
-            delta=f"letzte {last_booking:%d.%m.%Y}")
+c1.metric(
+    "Lifetime Revenue",
+    H.fmt_eur(lifetime_revenue),
+    delta=f"{n_realized:,} realisiert".replace(",", "."),
+)
+c2.metric(
+    "Lifetime Nights",
+    f"{lifetime_nights:,}".replace(",", "."),
+    delta=f"ADR ø {H.fmt_eur(adr_lifetime)}",
+)
+c3.metric("Erste Buchung", f"{first_booking:%d.%m.%Y}", delta=f"letzte {last_booking:%d.%m.%Y}")
 c_type.metric("Code-Typ", code_type)
-c4.metric("Cancel-Rate", f"{cancel_rate:.1f} %",
-            delta=("⚠ über Alert" if cancel_rate > alert_rate else "im Korridor"),
-            delta_color=("inverse" if cancel_rate > alert_rate else "normal"))
+c4.metric(
+    "Cancel-Rate",
+    f"{cancel_rate:.1f} %",
+    delta=("⚠ über Alert" if cancel_rate > alert_rate else "im Korridor"),
+    delta_color=("inverse" if cancel_rate > alert_rate else "normal"),
+)
 
 st.markdown(" ")
 
@@ -314,8 +333,7 @@ c5.metric(
 c6.metric(
     "vs. Vorperiode",
     f"{period_yoy_pct:+.1f} %" if pd.notna(period_yoy_pct) else "-",
-    delta=(f"Vorperiode {H.fmt_eur(prev_revenue)} · {prev_bookings} B."
-            if prev_has_data else None),
+    delta=(f"Vorperiode {H.fmt_eur(prev_revenue)} · {prev_bookings} B." if prev_has_data else None),
 )
 c7.metric(
     "Future Pipeline",
@@ -324,7 +342,8 @@ c7.metric(
 )
 
 register_section(
-    "identity", f"1 · {firm_label}",
+    "identity",
+    f"1 · {firm_label}",
     body_markdown=(
         f"**Code(s):** {', '.join(codes)}  \n"
         f"**Firmennamen-Varianten:** {all_variants or '-'}  \n"
@@ -342,88 +361,122 @@ st.divider()
 
 
 # ===== 2 · Revenue-Verlauf ================================================
-with section(2, "Revenue-Verlauf",
-              subtitle="Monatlich · 3M-Rolling · Kumulativ · Fokus-Periode markiert"):
-    png, extras = CD.chart_png(_ck("rev_tl"), CC.revenue_timeline,
-                                 res, firm_label, period_start, period_end)
+with section(
+    2, "Revenue-Verlauf", subtitle="Monatlich · 3M-Rolling · Kumulativ · Fokus-Periode markiert"
+):
+    png, extras = CD.chart_png(
+        _ck("rev_tl"), CC.revenue_timeline, res, firm_label, period_start, period_end
+    )
     st.image(png, use_container_width=False)
     monthly, cum = extras if extras else (None, None)
     if monthly is not None and len(monthly):
-        monthly_tbl = pd.DataFrame({
-            "Monat":              monthly.index.strftime("%Y-%m"),
-            "Revenue (€)":        monthly.values.round(2),
-            "Kumulativ (€)":      cum.values.round(2),
-            "Δ vs. Vormonat (€)": monthly.diff().fillna(0).values.round(2),
-        }).sort_values("Monat", ascending=False).reset_index(drop=True)
+        monthly_tbl = (
+            pd.DataFrame(
+                {
+                    "Monat": monthly.index.strftime("%Y-%m"),
+                    "Revenue (€)": monthly.values.round(2),
+                    "Kumulativ (€)": cum.values.round(2),
+                    "Δ vs. Vormonat (€)": monthly.diff().fillna(0).values.round(2),
+                }
+            )
+            .sort_values("Monat", ascending=False)
+            .reset_index(drop=True)
+        )
         with st.expander(f"Monats-Tabelle ({len(monthly_tbl)} Monate)"):
             st.dataframe(monthly_tbl, hide_index=True, use_container_width=True, height=320)
-        register_section("revenue_timeline", "2 · Revenue-Verlauf",
-                          chart_png=png, table_df=monthly_tbl.head(24), page=PAGE)
+        register_section(
+            "revenue_timeline",
+            "2 · Revenue-Verlauf",
+            chart_png=png,
+            table_df=monthly_tbl.head(24),
+            page=PAGE,
+        )
     else:
-        register_section("revenue_timeline", "2 · Revenue-Verlauf",
-                          chart_png=png, page=PAGE)
+        register_section("revenue_timeline", "2 · Revenue-Verlauf", chart_png=png, page=PAGE)
 
 
 # ===== 3 · Channel-Evolution ==============================================
 if lazy_section(3, "Channel-Evolution"):
-    png, extras = CD.chart_png(_ck("ch_evo"), CC.channel_evolution,
-                                 res, firm_label, period_start, period_end,
-                                 prev_period_start, prev_period_end)
+    png, extras = CD.chart_png(
+        _ck("ch_evo"),
+        CC.channel_evolution,
+        res,
+        firm_label,
+        period_start,
+        period_end,
+        prev_period_start,
+        prev_period_end,
+    )
     st.image(png, use_container_width=False)
     cur_ch, prev_ch = extras if extras else (None, None)
 
     if cur_ch is not None and prev_ch is not None:
-        shift = pd.DataFrame({
-            "Channel":            cur_ch.index,
-            "Vorperiode (€)":     prev_ch.values.round(2),
-            "Fokus-Periode (€)":  cur_ch.values.round(2),
-            "Δ (€)":              (cur_ch.values - prev_ch.values).round(2),
-            "Anteil vor (%)":     (prev_ch / max(prev_ch.sum(), 1) * 100).round(1).values,
-            "Anteil aktuell (%)": (cur_ch  / max(cur_ch.sum(),  1) * 100).round(1).values,
-        })
+        shift = pd.DataFrame(
+            {
+                "Channel": cur_ch.index,
+                "Vorperiode (€)": prev_ch.values.round(2),
+                "Fokus-Periode (€)": cur_ch.values.round(2),
+                "Δ (€)": (cur_ch.values - prev_ch.values).round(2),
+                "Anteil vor (%)": (prev_ch / max(prev_ch.sum(), 1) * 100).round(1).values,
+                "Anteil aktuell (%)": (cur_ch / max(cur_ch.sum(), 1) * 100).round(1).values,
+            }
+        )
         st.markdown("**Channel-Tabelle · Periode-Vergleich**")
         st.dataframe(shift, hide_index=True, use_container_width=True)
-        register_section("channel_evo", "3 · Channel-Evolution",
-                          chart_png=png, table_df=shift, page=PAGE)
+        register_section(
+            "channel_evo", "3 · Channel-Evolution", chart_png=png, table_df=shift, page=PAGE
+        )
     else:
-        alert_card("Channel-Vergleich übersprungen - mindestens eine Periode hat keine "
-                   "realisierten Buchungen.", kind="info")
+        alert_card(
+            "Channel-Vergleich übersprungen - mindestens eine Periode hat keine "
+            "realisierten Buchungen.",
+            kind="info",
+        )
         register_section("channel_evo", "3 · Channel-Evolution", chart_png=png, page=PAGE)
 
 
 # ===== 4 · Stay-Pattern ===================================================
-if lazy_section(4, "Stay-Pattern",
-              subtitle="6 Panels: LOS · Standort · Wochentag · Zimmerkategorie · Vorlauf · Gruppen-Größe"):
+if lazy_section(
+    4,
+    "Stay-Pattern",
+    subtitle="6 Panels: LOS · Standort · Wochentag · Zimmerkategorie · Vorlauf · Gruppen-Größe",
+):
     png = CD.chart_png(_ck("stay_pat"), CC.stay_patterns, res, firm_label)
     st.image(png, use_container_width=False)
 
     realized_for_loc = res[res["is_realized"]]
     if not realized_for_loc.empty:
         loc_tbl = (
-            realized_for_loc.groupby("property_code").agg(
+            realized_for_loc.groupby("property_code")
+            .agg(
                 Buchungen=("id", "nunique"),
                 Nächte=("nights", "sum"),
                 Revenue=("revenue", "sum"),
-            ).reset_index().rename(columns={"property_code": "Standort",
-                                              "Revenue": "Revenue (€)"})
+            )
+            .reset_index()
+            .rename(columns={"property_code": "Standort", "Revenue": "Revenue (€)"})
         )
-        loc_tbl["ADR (€)"] = (loc_tbl["Revenue (€)"]
-                                / loc_tbl["Nächte"].replace(0, np.nan)).round(2)
+        loc_tbl["ADR (€)"] = (loc_tbl["Revenue (€)"] / loc_tbl["Nächte"].replace(0, np.nan)).round(
+            2
+        )
         loc_tbl["Revenue (€)"] = loc_tbl["Revenue (€)"].round(2)
         loc_tbl = loc_tbl.sort_values("Revenue (€)", ascending=False).reset_index(drop=True)
         st.markdown(f"**Standort-Aufteilung · {firm_label}**")
         st.dataframe(loc_tbl, hide_index=True, use_container_width=True)
-        register_section("stay_pattern", "4 · Stay-Pattern",
-                          chart_png=png, table_df=loc_tbl, page=PAGE)
+        register_section(
+            "stay_pattern", "4 · Stay-Pattern", chart_png=png, table_df=loc_tbl, page=PAGE
+        )
     else:
         register_section("stay_pattern", "4 · Stay-Pattern", chart_png=png, page=PAGE)
 
 
 # ===== 5 · Storno-View ====================================================
-if lazy_section(5, "Storno-Verhalten",
-              subtitle="Storno-Timing vor Anreise + monatliche Storno-Quote"):
-    png = CD.chart_png(_ck("storno"), CC.storno_view,
-                        res, firm_label, alert_cancel_rate_pct=alert_rate)
+if lazy_section(
+    5, "Storno-Verhalten", subtitle="Storno-Timing vor Anreise + monatliche Storno-Quote"
+):
+    png = CD.chart_png(
+        _ck("storno"), CC.storno_view, res, firm_label, alert_cancel_rate_pct=alert_rate
+    )
     st.image(png, use_container_width=False)
 
     lost_revenue_total = float(res["lost_revenue"].sum()) if "lost_revenue" in res.columns else 0.0
@@ -441,21 +494,27 @@ if lazy_section(5, "Storno-Verhalten",
     # Datentabelle: monatliche Storno-Quote
     _stor = res.copy()
     _stor["ym"] = _stor["arrival"].dt.to_period("M").astype(str)
-    _stor_tbl = _stor.groupby("ym").agg(
-        Buchungen=("id", "count"),
-        Storniert=("is_cancelled", "sum"),
-        No_Show=("is_no_show", "sum"),
-        Realisiert=("is_realized", "sum"),
-        Revenue=("revenue", "sum"),
-    ).reset_index()
-    _stor_tbl["Storno-Quote (%)"] = (_stor_tbl["Storniert"]
-                                       / _stor_tbl["Buchungen"].replace(0, np.nan) * 100).round(1)
+    _stor_tbl = (
+        _stor.groupby("ym")
+        .agg(
+            Buchungen=("id", "count"),
+            Storniert=("is_cancelled", "sum"),
+            No_Show=("is_no_show", "sum"),
+            Realisiert=("is_realized", "sum"),
+            Revenue=("revenue", "sum"),
+        )
+        .reset_index()
+    )
+    _stor_tbl["Storno-Quote (%)"] = (
+        _stor_tbl["Storniert"] / _stor_tbl["Buchungen"].replace(0, np.nan) * 100
+    ).round(1)
     _stor_tbl["Revenue"] = _stor_tbl["Revenue"].round(2)
     _stor_tbl = _stor_tbl.rename(columns={"ym": "Monat", "Revenue": "Revenue (€)"})
     _stor_tbl = _stor_tbl.sort_values("Monat", ascending=False)
     CD.data_table_expander(_stor_tbl, filename=f"code_{codes[0]}_storno_monthly")
-    register_section("storno", "5 · Storno-Verhalten",
-                      chart_png=png, table_df=_stor_tbl.head(24), page=PAGE)
+    register_section(
+        "storno", "5 · Storno-Verhalten", chart_png=png, table_df=_stor_tbl.head(24), page=PAGE
+    )
 
 
 # ===== 6 · Future Pipeline ================================================
@@ -464,22 +523,23 @@ if lazy_section(6, "Future Pipeline", subtitle="Offene Buchungen mit Anreise > h
     future_table = res[(res["arrival"] > today) & ~res["is_cancelled"]].copy()
     if future_table.empty:
         alert_card("Keine offenen Buchungen mit Anreise in der Zukunft.", kind="info")
-        register_section("pipeline", "6 · Future Pipeline",
-                          body_markdown="Keine offenen Buchungen.", page=PAGE)
+        register_section(
+            "pipeline", "6 · Future Pipeline", body_markdown="Keine offenen Buchungen.", page=PAGE
+        )
     else:
         pipe_cols = {
-            "id":               "Buchungs-ID",
-            "arrival":          "Anreise",
-            "departure":        "Abreise",
-            "nights":           "Nächte",
-            "adults":           "Personen",
-            "property_code":    "Standort",
-            "channel_combo":    "Channel",
-            "effective_code":   "Code",
-            "promoCode":        "Promocode",
-            "ratePlan_name":    "Rate-Plan",
-            "status":           "Status",
-            "revenue":          "Revenue (€)",
+            "id": "Buchungs-ID",
+            "arrival": "Anreise",
+            "departure": "Abreise",
+            "nights": "Nächte",
+            "adults": "Personen",
+            "property_code": "Standort",
+            "channel_combo": "Channel",
+            "effective_code": "Code",
+            "promoCode": "Promocode",
+            "ratePlan_name": "Rate-Plan",
+            "status": "Status",
+            "revenue": "Revenue (€)",
         }
         present = {k: v for k, v in pipe_cols.items() if k in future_table.columns}
         pipe = future_table[list(present.keys())].copy().rename(columns=present)
@@ -499,46 +559,86 @@ if lazy_section(6, "Future Pipeline", subtitle="Offene Buchungen mit Anreise > h
             f"**{H.fmt_eur(float(pipe['Revenue (€)'].sum())) if 'Revenue (€)' in pipe.columns else '-'}**"
         )
         st.dataframe(pipe, hide_index=True, use_container_width=True, height=420)
-        register_section("pipeline", "6 · Future Pipeline",
-                          table_df=pipe.head(50), page=PAGE)
+        register_section("pipeline", "6 · Future Pipeline", table_df=pipe.head(50), page=PAGE)
 
 
 # ===== 7 · Reservations-Download ==========================================
 reservations_df: pd.DataFrame | None = None
-if lazy_section(7, "Reservations-Tabelle",
-              subtitle="Alle Buchungen für diese Code(s) - Lifetime"):
+if lazy_section(7, "Reservations-Tabelle", subtitle="Alle Buchungen für diese Code(s) - Lifetime"):
     download_cols = [
-        "id", "bookingId", "status", "arrival", "departure", "created",
-        "property_code", "channel_combo", "effective_code",
-        "corporateCode", "promoCode", "company", "firm_by_effective_fuzzy",
-        "travelPurpose", "ratePlan_code", "ratePlan_name", "unitGroup_name",
-        "nights", "adults", "los_bucket", "lead_time_days", "lead_time_bucket",
-        "revenue", "kept_revenue", "lost_revenue", "is_realized", "is_cancelled",
-        "is_no_show", "cancel_lead_time_days",
+        "id",
+        "bookingId",
+        "status",
+        "arrival",
+        "departure",
+        "created",
+        "property_code",
+        "channel_combo",
+        "effective_code",
+        "corporateCode",
+        "promoCode",
+        "company",
+        "firm_by_effective_fuzzy",
+        "travelPurpose",
+        "ratePlan_code",
+        "ratePlan_name",
+        "unitGroup_name",
+        "nights",
+        "adults",
+        "los_bucket",
+        "lead_time_days",
+        "lead_time_bucket",
+        "revenue",
+        "kept_revenue",
+        "lost_revenue",
+        "is_realized",
+        "is_cancelled",
+        "is_no_show",
+        "cancel_lead_time_days",
     ]
     present = [c for c in download_cols if c in res.columns]
-    res_dl = res[present].copy().sort_values(
-        ["arrival", "id"] if "id" in present else ["arrival"]
-    ).reset_index(drop=True)
+    res_dl = (
+        res[present]
+        .copy()
+        .sort_values(["arrival", "id"] if "id" in present else ["arrival"])
+        .reset_index(drop=True)
+    )
     rename = {
-        "id": "Reservation-ID", "bookingId": "Booking-ID", "status": "Status",
-        "arrival": "Anreise", "departure": "Abreise", "created": "Erstellt",
-        "property_code": "Standort", "channel_combo": "Channel",
-        "effective_code": "Code (effektiv)", "promoCode": "Promocode",
+        "id": "Reservation-ID",
+        "bookingId": "Booking-ID",
+        "status": "Status",
+        "arrival": "Anreise",
+        "departure": "Abreise",
+        "created": "Erstellt",
+        "property_code": "Standort",
+        "channel_combo": "Channel",
+        "effective_code": "Code (effektiv)",
+        "promoCode": "Promocode",
         "company": "Firma (Priority)",
-        "firm_by_effective_fuzzy": "Firma (Fuzzy)", "travelPurpose": "Reisezweck",
-        "nights": "Nächte", "adults": "Personen", "revenue": "Revenue (€)",
-        "kept_revenue": "Behaltener Revenue (€)", "lost_revenue": "Verlorener Revenue (€)",
-        "is_realized": "Realisiert?", "is_cancelled": "Storniert?",
-        "is_no_show": "No-Show?", "cancel_lead_time_days": "Cancel-Vorlauf (Tage)",
-        "lead_time_days": "Vorlaufzeit (Tage)", "lead_time_bucket": "Vorlauf-Bucket",
-        "los_bucket": "LOS-Bucket", "ratePlan_code": "Rate-Plan-Code",
-        "ratePlan_name": "Rate-Plan", "unitGroup_name": "Zimmerkategorie",
+        "firm_by_effective_fuzzy": "Firma (Fuzzy)",
+        "travelPurpose": "Reisezweck",
+        "nights": "Nächte",
+        "adults": "Personen",
+        "revenue": "Revenue (€)",
+        "kept_revenue": "Behaltener Revenue (€)",
+        "lost_revenue": "Verlorener Revenue (€)",
+        "is_realized": "Realisiert?",
+        "is_cancelled": "Storniert?",
+        "is_no_show": "No-Show?",
+        "cancel_lead_time_days": "Cancel-Vorlauf (Tage)",
+        "lead_time_days": "Vorlaufzeit (Tage)",
+        "lead_time_bucket": "Vorlauf-Bucket",
+        "los_bucket": "LOS-Bucket",
+        "ratePlan_code": "Rate-Plan-Code",
+        "ratePlan_name": "Rate-Plan",
+        "unitGroup_name": "Zimmerkategorie",
     }
     res_dl = res_dl.rename(columns={k: v for k, v in rename.items() if k in res_dl.columns})
     reservations_df = res_dl
 
-    st.markdown(f"**{len(res_dl):,} Reservierungen** - Lifetime-Schnitt für die Codes.".replace(",", "."))
+    st.markdown(
+        f"**{len(res_dl):,} Reservierungen** - Lifetime-Schnitt für die Codes.".replace(",", ".")
+    )
     st.dataframe(res_dl.head(10), hide_index=True, use_container_width=True)
 
 
