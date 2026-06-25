@@ -319,7 +319,10 @@ def channel_volume_by_created(
     """
     nig_new = H.filter_period(nightly, start_new, end_new, "created")
     nig_old = H.filter_period(nightly, start_old, end_old, "created")
-    return _build_channel_table(nig_new, nig_old, year_old, year_new, realized_only=False)
+    return _build_channel_table(
+        nig_new, nig_old, year_old, year_new,
+        realized_only=not include_cancellations,
+    )
 
 
 # ============================== Helper - channel table builder =============
