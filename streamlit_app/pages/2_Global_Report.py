@@ -221,7 +221,7 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     # OHNE oberes serviceDate-Limit laden: die „nach Erstellungsdatum"-Sichten
     # brauchen auch Forward-Bookings (Anreise weit in der Zukunft). ALLE
     # Aufenthalts-Sichten (performance_by_stay, Heatmaps, Tabellen, pace) filtern
-    # `nightly` intern selbst nach stay_date/Stay-Jahr 
+    # `nightly` intern selbst nach stay_date/Stay-Jahr
     nightly = CD.get_timeslices(start=pull_start, end=None, properties=props_pick)
 
 reset_export(PAGE)
@@ -408,7 +408,10 @@ c4.metric(
 )
 
 alerts = GT.auto_alerts(
-    raw_stay, raw_created, YEAR_OLD, YEAR_NEW,
+    raw_stay,
+    raw_created,
+    YEAR_OLD,
+    YEAR_NEW,
     include_cancellations=_include_cancellations,
 )
 st.markdown("**Automatische Alerts & Highlights**")
@@ -572,8 +575,7 @@ with section("4.B", "Buchungskanäle nach Aufenthaltsdatum"):
 if lazy_section(
     5,
     "IST vs PLAN · Pace-Fortschritt",
-    subtitle="Was ist bisher reingekommen vs Plan, und wie weit ist die Periode "
-              "schon durch.",
+    subtitle="Was ist bisher reingekommen vs Plan, und wie weit ist die Periode schon durch.",
 ):
     pace_df = GC.build_pace_table(raw_stay, start_new, end_new)
     if pace_df.empty:
@@ -597,8 +599,11 @@ if lazy_section(
         )
         st.image(png, use_container_width=False)
         register_section(
-            "pace_plan", "5 · IST vs PLAN · Pace-Fortschritt",
-            chart_png=png, table_df=pace_df, page=PAGE,
+            "pace_plan",
+            "5 · IST vs PLAN · Pace-Fortschritt",
+            chart_png=png,
+            table_df=pace_df,
+            page=PAGE,
         )
         chart_help("pace_plan")
 # ===== 6 · Channel-Mix Detail =============================================
@@ -624,7 +629,7 @@ if lazy_section(6, "Channel-Mix Detail", subtitle="Donut + horizontale Top-Bars 
         chart_help("channel_detail")
 # ===== 7 · Supporting Insights ============================================
 st.markdown("# 7 · Supporting Insights")
-st.caption("Heatmaps und Top-Movers. Alle realized-only.")
+st.caption("Heatmaps und Top-Movers. Realized-only.")
 
 
 if lazy_section("7.A", "Revenue-Heatmap Standort × Monat"):
@@ -781,9 +786,9 @@ with section(
         with _cc3:
             st.caption(
                 "ℹ️ **Storno/No-Show** steuerst du über den Sidebar-Toggle "
-                "**„Storno + No-Show einbeziehen\"** - hier greift er als "
+                '**„Storno + No-Show einbeziehen"** - hier greift er als '
                 "**As-of-Sicht**: „war die Buchung **Stand Stichtag** schon "
-                "storniert?\". Stornos *nach* dem Stichtag zählen noch mit."
+                'storniert?". Stornos *nach* dem Stichtag zählen noch mit.'
             )
         st.form_submit_button("Analyse aktualisieren", use_container_width=True)
 
@@ -792,7 +797,7 @@ with section(
 
     if cre_end_new < cre_start_new:
         alert_card(
-            "Das Erstellungs-Fenster ist leer: „von\" liegt nach „bis\". "
+            'Das Erstellungs-Fenster ist leer: „von" liegt nach „bis". '
             "Bitte Datumsgrenzen korrigieren.",
             kind="warning",
             title="Ungültiges Erstellungs-Fenster",
@@ -819,21 +824,52 @@ with section(
         )
 
         disp_sc_loc, raw_sc_loc = GT.performance_by_stay_created(
-            nightly, props_pick, start_new, end_new, start_old, end_old,
-            cre_start_new, cre_end_new, cre_start_old, cre_end_old,
-            asof_new, asof_old, YEAR_OLD, YEAR_NEW,
+            nightly,
+            props_pick,
+            start_new,
+            end_new,
+            start_old,
+            end_old,
+            cre_start_new,
+            cre_end_new,
+            cre_start_old,
+            cre_end_old,
+            asof_new,
+            asof_old,
+            YEAR_OLD,
+            YEAR_NEW,
             include_cancellations=_include_cancellations,
         )
         disp_sc_chan, raw_sc_chan = GT.channel_volume_by_stay_created(
-            nightly, start_new, end_new, start_old, end_old,
-            cre_start_new, cre_end_new, cre_start_old, cre_end_old,
-            asof_new, asof_old, YEAR_OLD, YEAR_NEW,
+            nightly,
+            start_new,
+            end_new,
+            start_old,
+            end_old,
+            cre_start_new,
+            cre_end_new,
+            cre_start_old,
+            cre_end_old,
+            asof_new,
+            asof_old,
+            YEAR_OLD,
+            YEAR_NEW,
             include_cancellations=_include_cancellations,
         )
         disp_sc_seg, raw_sc_seg = GT.segment_volume_by_stay_created(
-            nightly, start_new, end_new, start_old, end_old,
-            cre_start_new, cre_end_new, cre_start_old, cre_end_old,
-            asof_new, asof_old, YEAR_OLD, YEAR_NEW,
+            nightly,
+            start_new,
+            end_new,
+            start_old,
+            end_old,
+            cre_start_new,
+            cre_end_new,
+            cre_start_old,
+            cre_end_old,
+            asof_new,
+            asof_old,
+            YEAR_OLD,
+            YEAR_NEW,
             include_cancellations=_include_cancellations,
         )
 
@@ -861,12 +897,22 @@ with section(
 
             # 8.D · Liniengrafik: Revenue je Erstellungs-Tag, NEW vs OLD.
             scope_new = GT.stay_created_scope(
-                nightly, start_new, end_new, cre_start_new, cre_end_new,
-                asof_new, _include_cancellations,
+                nightly,
+                start_new,
+                end_new,
+                cre_start_new,
+                cre_end_new,
+                asof_new,
+                _include_cancellations,
             )
             scope_old = GT.stay_created_scope(
-                nightly, start_old, end_old, cre_start_old, cre_end_old,
-                asof_old, _include_cancellations,
+                nightly,
+                start_old,
+                end_old,
+                cre_start_old,
+                cre_end_old,
+                asof_old,
+                _include_cancellations,
             )
 
             st.markdown(
@@ -931,7 +977,11 @@ with section(
                     return
                 key = f"{ck_base}::ota={'+'.join(sorted(ota_pick)) if ota_pick else 'all'}"
                 png = CD.chart_png(
-                    key, GC.stay_created_daily_chart, ldf, year_old, year_new,
+                    key,
+                    GC.stay_created_daily_chart,
+                    ldf,
+                    year_old,
+                    year_new,
                     f"{label_dates} · {ota_tag}",
                 )
                 st.image(png, use_container_width=False)
@@ -943,22 +993,30 @@ with section(
             _sc_line_fragment()
 
             register_section(
-                "stay_created_loc", "8.A · Stay × Creation (Standort)",
-                table_df=disp_sc_loc, page=PAGE,
+                "stay_created_loc",
+                "8.A · Stay × Creation (Standort)",
+                table_df=disp_sc_loc,
+                page=PAGE,
             )
             register_section(
-                "stay_created_chan", "8.B · Stay × Creation (Channel)",
-                table_df=disp_sc_chan, page=PAGE,
+                "stay_created_chan",
+                "8.B · Stay × Creation (Channel)",
+                table_df=disp_sc_chan,
+                page=PAGE,
             )
             register_section(
-                "stay_created_seg", "8.C · Stay × Creation (Stay-Segment)",
-                table_df=disp_sc_seg, page=PAGE,
+                "stay_created_seg",
+                "8.C · Stay × Creation (Stay-Segment)",
+                table_df=disp_sc_seg,
+                page=PAGE,
             )
             _sc_line_exp = st.session_state.get("_sc_line_export")
             if _sc_line_exp:
                 register_section(
-                    "stay_created_daily", "8.D · Revenue je Erstellungs-Tag",
-                    chart_png=_sc_line_exp["png"], table_df=_sc_line_exp["table"],
+                    "stay_created_daily",
+                    "8.D · Revenue je Erstellungs-Tag",
+                    chart_png=_sc_line_exp["png"],
+                    table_df=_sc_line_exp["table"],
                     page=PAGE,
                 )
 
