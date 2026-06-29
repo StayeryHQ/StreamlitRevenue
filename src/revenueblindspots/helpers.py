@@ -732,13 +732,18 @@ def _add_origin(df: pd.DataFrame) -> None:
 def _to_dt(series: pd.Series, tz: str = "Europe/Berlin") -> pd.Series:
     """Parse to datetime, localise to ``tz`` and drop the tz (naive result).
 
-    BigQuery TIMESTAMP columns arrive timezone-aware (UTC). Default konvertiert
-    nach ``Europe/Berlin`` (lokale Kalender-Sicht für Anreise/Aufenthalt).
+    BigQuery TIMESTAMP columns arrive timezone-aware (UTC). Standardmäßig wird
+    nach ``Europe/Berlin`` konvertiert (lokale Kalender-Sicht). ALLE
+    Zeitstempel-Spalten - inkl. ``created`` - laufen über diesen Default, damit
+    die Tag-/Monatszuordnung über sämtliche Datumsspalten konsistent ist.
 
-    ``tz="UTC"`` behält die UTC-Wanduhr - genutzt für ``created``, damit die
-    „nach Erstellungsdatum"-Sichten exakt dem Dashboard entsprechen, das
-    ``DATE(created)`` (= UTC) bucketet. Bei einer Buchung, die nahe Mitternacht
-    erstellt wurde, entscheidet sonst der UTC↔Berlin-Versatz über den Monat.
+    Historie: ``created`` wurde früher bewusst in UTC gehalten (``tz="UTC"``), um
+    dem BigQuery-Dashboard mit ``DATE(created)`` (= UTC) zu entsprechen. Das
+    erzeugte aber einen Sonderfall - nahe Mitternacht erstellte Buchungen fielen
+    in einen anderen Kalendertag als alle anderen Spalten (Anreise/Aufenthalt/
+    Storno). Seit der Vereinheitlichung nutzt ``created`` denselben
+    ``Europe/Berlin``-Default; der ``tz``-Parameter bleibt erhalten, wird aktuell
+    aber nicht mehr für eine UTC-Sonderbehandlung gebraucht.
     """
     s = pd.to_datetime(series, errors="coerce")
     if getattr(s.dt, "tz", None) is not None:
@@ -790,9 +795,11 @@ def engineer_timeslices(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
     df = df.copy()
     for c in ("arrival", "departure"):
         df[c] = _to_dt(df[c])
-    # created in UTC halten (wie Dashboard DATE(created)) - sonst verschiebt der
-    # Berlin-Versatz Grenz-Buchungen in den falschen Erstellungs-Monat.
-    df["created"] = _to_dt(df["created"], tz="UTC")
+    # created nach Europe/Berlin - wie ALLE anderen Zeitstempel (arrival,
+    # departure, serviceDate, Storno). Einheitliche Kalendertag-Zuordnung über
+    # alle Spalten; kein UTC-Sonderfall mehr, der Grenz-Buchungen am Tagesrand in
+    # einen anderen Erstellungs-Tag/-Monat schob.
+    df["created"] = _to_dt(df["created"])
     # BigQuery DATE columns arrive as datetime.date objects (object dtype) -
     # convert in place so downstream code (Parquet, .dt accessor, .min().date(),
     # date arithmetic) all behaves like the other timestamp columns.
@@ -834,10 +841,10 @@ def engineer_reservations(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
     for c in ("arrival", "departure", "modified", "cancellationTime"):
         if c in df.columns:
             df[c] = _to_dt(df[c])
-    # created in UTC halten (wie Dashboard DATE(created)) - konsistent zur
-    # Timeslice-Engineering, damit „nach Erstellungsdatum" exakt matcht.
+    # created nach Europe/Berlin - konsistent zu allen anderen Zeitstempeln und
+    # zur Timeslice-Engineering (kein UTC-Sonderfall mehr).
     if "created" in df.columns:
-        df["created"] = _to_dt(df["created"], tz="UTC")
+        df["created"] = _to_dt(df["created"])
     df["gross_amount"] = pd.to_numeric(df["totalGrossAmount_amount"], errors="coerce").fillna(0.0)
     df["revenue"] = to_net(df["gross_amount"])
     df["adults"] = pd.to_numeric(df["adults"], errors="coerce")
@@ -1840,6 +1847,37 @@ def mirror_years(ts: pd.Timestamp, years: int) -> pd.Timestamp:
         return ts.replace(year=target_year, day=28)
 
 
+# Deutsche Monats-Kurzlabels (Index 0 = Januar) - genutzt von den
+# Monat+Tag-Filtern im Global Report (jahr-unabhängige Erstellungs-Fenster).
+MONTH_ABBR_DE: tuple[str, ...] = (
+    "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+    "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
+)
+
+
+def clamp_day(year: int, month: int, day: int) -> pd.Timestamp:
+    """Build a midnight ``Timestamp`` for (year, month, day), clamping the day.
+
+    A day beyond the month's length is clamped to the last valid day (e.g. day
+    31 in a 30-day month becomes 30, 29/30/31 Feb become 28/29). Lets the
+    month+day creation-date filters accept any day 1-31 without raising for
+    short months.
+
+    Args:
+        year: Calendar year the month/day is anchored to.
+        month: Month 1-12.
+        day: Desired day 1-31 (clamped to the month length).
+
+    Returns:
+        Midnight-normalised ``pd.Timestamp``.
+    """
+    first = pd.Timestamp(year=int(year), month=int(month), day=1)
+    last_day = (first + pd.offsets.MonthEnd(0)).day
+    return pd.Timestamp(
+        year=int(year), month=int(month), day=min(int(day), int(last_day))
+    ).normalize()
+
+
 def asof_on_the_books_mask(
     df: pd.DataFrame,
     asof: pd.Timestamp,
@@ -1848,23 +1886,39 @@ def asof_on_the_books_mask(
 ) -> pd.Series:
     """Boolean mask of rows that were on the books at ``asof`` (point-in-time).
 
-    Same convention as :func:`pace_by_month`: a row counts as on the books at
-    the cutoff when it was already created (``created <= asof``) and - unless
-    cancellations are included - was not yet cancelled at that date. "Not yet
-    cancelled" means either never cancelled, or cancelled strictly after
-    ``asof`` (``cancel_time > asof``). A cancelled row whose ``cancel_time`` is
-    missing is treated as cancelled and dropped (identical to
-    :func:`pace_by_month`). No-shows are removed in the realized-only view and
-    kept when cancellations are included - mirroring the Global-Report
-    Storno/No-Show toggle, applied here point-in-time.
+    A row counts as on the books at the cutoff when it was already created
+    (``created <= asof``) and - unless cancellations are included - had at that
+    date neither been cancelled nor resolved as a no-show. BOTH the cancellation
+    and the no-show test are applied **point-in-time**, each with its own
+    resolution date:
+
+    * Storno: the row is still on the books if it was never cancelled, or
+      cancelled strictly after ``asof`` (``cancel_time > asof``). A cancelled row
+      whose ``cancel_time`` is missing is treated as cancelled and dropped.
+    * No-show: a no-show only becomes *known* on the arrival day - until then the
+      guest could still check in. The resolution date is therefore ``arrival``:
+      the row stays on the books while ``arrival > asof`` and only drops once the
+      cutoff has reached the arrival day (``asof >= arrival``). A no-show row
+      whose ``arrival`` is missing is treated as resolved and dropped.
+
+    Konsequenz (so gewollt): liegt das Erstellungs-Fenster komplett VOR dem
+    Aufenthalts-Fenster (z.B. gebucht im Juni, Aufenthalt im Juli), ist
+    ``asof < arrival`` für alle Zeilen - No-Shows zählen dann per Default mit,
+    weil am Stichtag noch nicht bekannt war, dass der Gast nicht kommt.
+    Überschneiden sich Erstellungs- und Aufenthalts-Fenster (z.B. beides im
+    Juli), werden früh gebuchte, mittlerweile abgereiste No-Shows als
+    aufgelöst erkannt und fallen - wie Stornos - aus der realized-Sicht.
+
+    Same convention as the Global-Report Storno/No-Show toggle, applied here
+    point-in-time for both event types.
 
     Args:
         df: Nightly/timeslices frame with ``created``, ``is_cancelled``,
-            ``is_no_show`` and ``cancel_time`` columns.
+            ``is_no_show``, ``cancel_time`` and ``arrival`` columns.
         asof: Point-in-time cutoff, inclusive on ``created``.
         include_cancellations: When ``True`` every row created on or before
             ``asof`` counts (cancellations + no-shows included); when ``False``
-            the as-of cancellation filter and the final no-show filter apply.
+            the point-in-time cancellation AND no-show filters apply.
 
     Returns:
         Boolean ``pd.Series`` aligned to ``df.index``. Empty input yields an
@@ -1878,6 +1932,7 @@ def asof_on_the_books_mask(
     if include_cancellations:
         return created_ok
 
+    # --- Storno point-in-time: aufgelöst am cancel_time ---
     cancelled = (
         df["is_cancelled"].astype(bool)
         if "is_cancelled" in df.columns
@@ -1885,15 +1940,25 @@ def asof_on_the_books_mask(
     )
     if "cancel_time" in df.columns:
         cancel_ts = pd.to_datetime(df["cancel_time"], errors="coerce").dt.normalize()
-        still_on = (~cancelled) | (cancelled & cancel_ts.notna() & (cancel_ts > asof))
+        cancel_still_on = (~cancelled) | (cancelled & cancel_ts.notna() & (cancel_ts > asof))
     else:
-        still_on = ~cancelled
+        cancel_still_on = ~cancelled
+
+    # --- No-Show point-in-time: aufgelöst am arrival (erst dort wird ein
+    # Nicht-Erscheinen bekannt). Bis arrival > asof bleibt die Buchung on-the-
+    # books, danach gilt sie als aufgelöster No-Show und fällt raus. ---
     no_show = (
         df["is_no_show"].astype(bool)
         if "is_no_show" in df.columns
         else pd.Series(False, index=df.index)
     )
-    return created_ok & still_on & ~no_show
+    if "arrival" in df.columns:
+        arrival_ts = pd.to_datetime(df["arrival"], errors="coerce").dt.normalize()
+        no_show_still_on = (~no_show) | (no_show & arrival_ts.notna() & (arrival_ts > asof))
+    else:
+        no_show_still_on = ~no_show
+
+    return created_ok & cancel_still_on & no_show_still_on
 
 
 def fmt_eur(value: float, decimals: int = 0) -> str:

@@ -164,7 +164,10 @@ with st.sidebar:
             help="Default: aus - alle KPIs/Tabellen sind realized-only "
             "(Storno und No-Show fallen raus, sowohl in der Stay- als auch "
             "in der Created-Sicht). Aktivieren → alle Buchungen zählen, "
-            "auch später stornierte und nicht-erschienene.",
+            "auch später stornierte und nicht-erschienene. Hinweis: in der "
+            "As-of-Sicht (§8) wirken BEIDE point-in-time - ein Storno zählt bis "
+            "zum cancel_time, ein No-Show bis zur Anreise (erst dort wird das "
+            "Nicht-Erscheinen bekannt).",
         )
 
         st.form_submit_button("Recap aktualisieren", use_container_width=True)
@@ -759,41 +762,65 @@ with section(
         "Stay-Fenster** (Sidebar). Der Filter unten schränkt zusätzlich auf ein "
         "**Erstellungs-Fenster** ein - je Vergleichsjahr gespiegelt, damit beide "
         "Jahre vergleichbar sind. Der Sidebar-Toggle **Storno + No-Show** wirkt "
-        "hier **point-in-time** (Stand Stichtag), nicht über den finalen Status."
+        "hier **point-in-time** (Stand Stichtag), nicht über den finalen Status. "
+        "**Storno** zählt bis zum cancel_time, **No-Show** bis zur **Anreise** - "
+        "erst am Anreisetag ist das Nicht-Erscheinen bekannt. Praktische Folge: "
+        "liegt das Erstellungs-Fenster ganz VOR dem Aufenthalt (z.B. gebucht im "
+        "Juni, Aufenthalt im Juli), zählen No-Shows per Default mit; überschneiden "
+        "sich beide Fenster, fallen bereits abgereiste No-Shows wie Stornos raus."
     ),
 ):
     with st.form("glb_sc_form", clear_on_submit=False, border=True):
-        st.markdown("**Erstellungsdatum-Filter** (gilt zusätzlich zum Stay-Fenster)")
-        _cc1, _cc2, _cc3 = st.columns([2, 2, 3])
+        st.markdown("**Erstellungsdatum-Filter** — nur **Monat + Tag** (gilt für BEIDE Jahre)")
+        st.caption(
+            "Bewusst **ohne Jahr**: das Fenster wird auf das aktuelle Jahr UND das "
+            "Vorjahr gespiegelt angewandt - ein fixes Jahr wäre beim Jahr-zu-Jahr-"
+            "Vergleich irreführend. Es gilt zusätzlich zum Stay-Fenster aus der "
+            "Sidebar. ⚠️ Die Liniengrafik **8.D** ist ausschließlich für "
+            "**Jahr-zu-Jahr-Vergleiche** gedacht."
+        )
+        _cc1, _cc2, _cc3, _cc4 = st.columns(4)
         with _cc1:
-            _sc_start = st.date_input(
-                "Erstellung von",
-                value=_def_cre_start_new.date(),
-                key="global_sc_cre_start",
-                help="Untere Grenze des Buchungs-Fensters für das aktuelle Jahr "
-                "(NEW). Wird für das Vorjahr automatisch um den Jahres-Offset "
-                "gespiegelt.",
+            _vm = st.selectbox(
+                "von · Monat",
+                list(range(1, 13)),
+                index=int(_def_cre_start_new.month) - 1,
+                format_func=lambda m: f"{m:02d} · " + H.MONTH_ABBR_DE[m - 1],
+                key="global_sc_cre_vm",
             )
         with _cc2:
-            _sc_end = st.date_input(
-                "Erstellung bis",
-                value=_def_cre_end_new.date(),
-                key="global_sc_cre_end",
-                help="Obere Grenze des Buchungs-Fensters (NEW). Der wirksame "
-                "As-of-Stichtag ist min(dieses Datum, Snapshot-Datum) - es wird "
-                "nie in die Zukunft des Snapshots geschaut.",
+            _vd = st.number_input(
+                "von · Tag", min_value=1, max_value=31,
+                value=int(_def_cre_start_new.day), step=1, key="global_sc_cre_vd",
             )
         with _cc3:
-            st.caption(
-                "ℹ️ **Storno/No-Show** steuerst du über den Sidebar-Toggle "
-                '**„Storno + No-Show einbeziehen"** - hier greift er als '
-                "**As-of-Sicht**: „war die Buchung **Stand Stichtag** schon "
-                'storniert?". Stornos *nach* dem Stichtag zählen noch mit.'
+            _bm = st.selectbox(
+                "bis · Monat",
+                list(range(1, 13)),
+                index=int(_def_cre_end_new.month) - 1,
+                format_func=lambda m: f"{m:02d} · " + H.MONTH_ABBR_DE[m - 1],
+                key="global_sc_cre_bm",
             )
+        with _cc4:
+            _bd = st.number_input(
+                "bis · Tag", min_value=1, max_value=31,
+                value=int(_def_cre_end_new.day), step=1, key="global_sc_cre_bd",
+            )
+        st.caption(
+            "ℹ️ **Storno/No-Show** steuerst du über den Sidebar-Toggle "
+            '**„Storno + No-Show einbeziehen"** - hier greift er als **As-of-Sicht**: '
+            "Stornos *nach* dem Stichtag zählen noch mit; ein No-Show gilt erst ab "
+            "der **Anreise** als aufgelöst (davor zählt er mit). Der wirksame "
+            "As-of-Stichtag ist min(Fensterende, Snapshot) - es wird nie in die "
+            "Zukunft des Snapshots geschaut."
+        )
         st.form_submit_button("Analyse aktualisieren", use_container_width=True)
 
-    cre_start_new = pd.Timestamp(_sc_start).normalize()
-    cre_end_new = pd.Timestamp(_sc_end).normalize()
+    # Monat+Tag auf das jeweilige Jahr setzen: NEW = Stay-Jahr (Sidebar). Der Tag
+    # wird defensiv auf die Monatslänge geclampt (z.B. 31 in einem 30-Tage-Monat
+    # → 30). Das OLD-Fenster wird weiter unten über mirror_years gespiegelt.
+    cre_start_new = H.clamp_day(YEAR_NEW, int(_vm), int(_vd))
+    cre_end_new = H.clamp_day(YEAR_NEW, int(_bm), int(_bd))
 
     if cre_end_new < cre_start_new:
         alert_card(
@@ -918,6 +945,13 @@ with section(
             st.markdown(
                 f"**8.D · Revenue je Erstellungs-Tag** (NEW vs OLD) — nur Buchungen "
                 f"mit **Aufenthalt im Stay-Fenster** ({period_tag_new} vs {period_tag_old})"
+            )
+            st.caption(
+                "⚠️ Diese Grafik richtet NEW und OLD am Tages-Offset des "
+                "Erstellungs-Fensters aus und ist deshalb **nur für "
+                "Jahr-zu-Jahr-Vergleiche** sinnvoll (gleicher Monat/Tag, ein Jahr "
+                "versetzt). Für Vergleiche mit anderem Periodenzuschnitt ist sie "
+                "nicht aussagekräftig."
             )
 
             _sc_ck_base = _ck(
