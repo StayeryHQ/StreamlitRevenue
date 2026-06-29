@@ -648,6 +648,86 @@ def stay_created_daily_chart(
     return fig
 
 
+def purpose_composition_area_chart(
+    area_df: pd.DataFrame,
+    year_old: int,
+    year_new: int,
+    period_label: str = "",
+):
+    """Gestapelte Flächen: Business vs Privat je Erstellungs-Tag, OLD vs NEW.
+
+    Zwei Panels nebeneinander (links OLD, rechts NEW) mit **gemeinsamer
+    Y-Achse**, damit die absoluten Revenue-Niveaus direkt vergleichbar sind.
+    In jedem Panel ist das Revenue je Erstellungs-Tag in Business (unten) und
+    Privat (oben) gestapelt - die Flächenhöhe zeigt die absolute Entwicklung,
+    der Titel je Panel nennt Σ-Total und den Business/Privat-Anteil (in %).
+
+    Erwartet ``area_df`` aus ``global_tables.purpose_daily_area_data`` mit den
+    Spalten ``offset``, ``date_new``, ``biz_new``, ``priv_new``, ``biz_old``,
+    ``priv_old``. X-Achse = Kalendertag des Creation-Fensters (NEW-Datierung,
+    OLD liegt per Jahres-Offset deckungsgleich darüber).
+    """
+    if area_df is None or area_df.empty:
+        fig, ax = plt.subplots(figsize=(11, 3.4))
+        ax.text(0.5, 0.5, "Keine Buchungen im gewählten Fenster", ha="center", va="center")
+        ax.set_axis_off()
+        return fig
+
+    x = area_df["offset"].to_numpy()
+    day_labels = [pd.Timestamp(d).strftime("%d.%m.") for d in area_df["date_new"]]
+
+    c_biz = color("blue")
+    c_priv = color("orange")
+
+    fig, axes = plt.subplots(1, 2, figsize=(13, 4.6), sharey=True)
+    panels = [
+        (axes[0], area_df["biz_old"].to_numpy(), area_df["priv_old"].to_numpy(), year_old),
+        (axes[1], area_df["biz_new"].to_numpy(), area_df["priv_new"].to_numpy(), year_new),
+    ]
+    for ax, biz, priv, yr in panels:
+        ax.stackplot(
+            x, biz, priv,
+            colors=[c_biz, c_priv],
+            labels=["Business", "Privat"],
+            edgecolor="white", linewidth=0.3, alpha=0.92,
+        )
+        tot = float(biz.sum() + priv.sum())
+        biz_sum, priv_sum = float(biz.sum()), float(priv.sum())
+        sh_biz = (biz_sum / tot * 100) if tot > 0 else 0.0
+        sh_priv = (priv_sum / tot * 100) if tot > 0 else 0.0
+        ax.set_title(
+            f"{yr} · Σ {H.fmt_eur(tot)}\n"
+            f"Business {sh_biz:.0f}% ({H.fmt_eur(biz_sum)}) · "
+            f"Privat {sh_priv:.0f}% ({H.fmt_eur(priv_sum)})",
+            fontsize=10.5, weight="bold",
+        )
+        n = len(x)
+        step = max(1, n // 10)
+        tick_pos = list(range(0, n, step))
+        ax.set_xticks([x[i] for i in tick_pos])
+        ax.set_xticklabels(
+            [day_labels[i] for i in tick_pos], rotation=45, ha="right", fontsize=8
+        )
+        ax.set_xlabel("Erstellungs-Tag (Buchungsdatum)")
+    axes[0].set_ylabel("Revenue (€, netto)")
+
+    handles = [
+        Patch(facecolor=c_biz, label="Business"),
+        Patch(facecolor=c_priv, label="Privat (inkl. unbekannter Reisezweck)"),
+    ]
+    fig.legend(
+        handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.02),
+        frameon=False, ncol=2, fontsize=9,
+    )
+    fig.suptitle(
+        f"Composition Business vs Privat je Erstellungs-Tag · {year_new} vs {year_old}"
+        + (f" · {period_label}" if period_label else ""),
+        fontsize=12, weight="bold", y=1.02,
+    )
+    fig.tight_layout(rect=[0, 0.04, 1, 0.99])
+    return fig
+
+
 # =============================================================================
 # Pace-to-Plan helper
 # =============================================================================

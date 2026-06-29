@@ -7,6 +7,7 @@ Timeslices-/Nightly-Basis (Netto-Revenue pro Nacht, ``baseAmount_netAmount``).
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import streamlit as st
 
@@ -759,6 +760,84 @@ def daily_created_line_data(
             "date_new": [start_new_ts + pd.Timedelta(days=o) for o in offsets],
             "rev_new": [float(sn.get(o, 0.0)) for o in offsets],
             "rev_old": [float(so.get(o, 0.0)) for o in offsets],
+        }
+    )
+
+
+def purpose_daily_area_data(
+    scope_new: pd.DataFrame,
+    scope_old: pd.DataFrame,
+    cre_start_new: pd.Timestamp,
+    cre_start_old: pd.Timestamp,
+) -> pd.DataFrame:
+    """Revenue je Erstellungs-Tag, aufgesplittet Business vs Privat, NEW & OLD.
+
+    Gleiche Offset-Logik wie ``daily_created_line_data`` (X = Tag im
+    Creation-Fenster ab ``cre_start``), zusätzlich nach Reisezweck getrennt:
+    ``travelPurpose == "business"`` → Business, alles andere (inkl. leer/None)
+    → Privat. Damit ist ``biz_* + priv_*`` deckungsgleich mit der
+    Gesamt-Linie aus ``daily_created_line_data`` und mit den Tabellen-Totals.
+
+    HINWEIS für die Interpretation: Der Reisezweck ist oft erst nach Check-in
+    sicher bekannt - je nach OTA ist es ein Pflichtfeld oder nicht. Unbekannte
+    Reisezwecke landen hier (wie im restlichen Report) in ``Privat`` und können
+    den Privat-Anteil leicht überzeichnen.
+
+    Args:
+        scope_new: As-of-gefilterte NEW-Menge (aus ``stay_created_scope``),
+            ggf. bereits auf einzelne Channels/OTAs vorgefiltert.
+        scope_old: As-of-gefilterte OLD-Menge (analog).
+        cre_start_new: Creation-Fenster-Start NEW (Offset-Nullpunkt).
+        cre_start_old: Creation-Fenster-Start OLD (gespiegelt).
+
+    Returns:
+        DataFrame mit ``offset``, ``date_new``, ``biz_new``, ``priv_new``,
+        ``biz_old``, ``priv_old``. Leer (mit Spalten) wenn beide Scopes leer.
+    """
+    cols = ["offset", "date_new", "biz_new", "priv_new", "biz_old", "priv_old"]
+
+    def by_offset_purpose(df: pd.DataFrame, cre_start: pd.Timestamp) -> pd.DataFrame:
+        """-> DataFrame indexiert auf offset mit Spalten ``biz`` / ``priv``."""
+        if df is None or df.empty:
+            return pd.DataFrame(columns=["biz", "priv"])
+        off = (
+            pd.to_datetime(df["created"]).dt.normalize() - pd.Timestamp(cre_start).normalize()
+        ).dt.days
+        is_biz = df["travelPurpose"].astype(str).str.lower().eq("business")
+        tmp = df.assign(_off=off, _purpose=np.where(is_biz, "biz", "priv"))
+        tmp = tmp[tmp["_off"] >= 0]
+        if tmp.empty:
+            return pd.DataFrame(columns=["biz", "priv"])
+        piv = (
+            tmp.groupby(["_off", "_purpose"], observed=True)["revenue"]
+            .sum()
+            .unstack("_purpose", fill_value=0.0)
+        )
+        for c in ("biz", "priv"):
+            if c not in piv.columns:
+                piv[c] = 0.0
+        return piv[["biz", "priv"]]
+
+    pn = by_offset_purpose(scope_new, cre_start_new)
+    po = by_offset_purpose(scope_old, cre_start_old)
+    max_off = int(
+        max(
+            pn.index.max() if len(pn) else -1,
+            po.index.max() if len(po) else -1,
+        )
+    )
+    if max_off < 0:
+        return pd.DataFrame(columns=cols)
+    offsets = list(range(0, max_off + 1))
+    start_new_ts = pd.Timestamp(cre_start_new).normalize()
+    return pd.DataFrame(
+        {
+            "offset": offsets,
+            "date_new": [start_new_ts + pd.Timedelta(days=o) for o in offsets],
+            "biz_new": [float(pn["biz"].get(o, 0.0)) if len(pn) else 0.0 for o in offsets],
+            "priv_new": [float(pn["priv"].get(o, 0.0)) if len(pn) else 0.0 for o in offsets],
+            "biz_old": [float(po["biz"].get(o, 0.0)) if len(po) else 0.0 for o in offsets],
+            "priv_old": [float(po["priv"].get(o, 0.0)) if len(po) else 0.0 for o in offsets],
         }
     )
 

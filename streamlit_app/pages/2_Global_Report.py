@@ -916,7 +916,7 @@ with section(
             )
 
             st.markdown(
-                f"**8.D · Revenue je Erstellungs-Tag** (NEW vs OLD) — nur Buchungen "
+                f"**8.D · Revenue je Erstellungs-Tag** (NEW vs OLD)  nur Buchungen "
                 f"mit **Aufenthalt im Stay-Fenster** ({period_tag_new} vs {period_tag_old})"
             )
 
@@ -974,6 +974,7 @@ with section(
                         kind="info",
                     )
                     st.session_state.pop("_sc_line_export", None)
+                    st.session_state.pop("_sc_purpose_export", None)
                     return
                 key = f"{ck_base}::ota={'+'.join(sorted(ota_pick)) if ota_pick else 'all'}"
                 png = CD.chart_png(
@@ -989,6 +990,50 @@ with section(
                 # Für den Markdown-Export zwischenspeichern; die Registrierung
                 # passiert im Haupt-Run außerhalb des Fragments (keine Duplikate).
                 st.session_state["_sc_line_export"] = {"png": png, "table": ldf}
+
+                # 8.E · Deep-Dive Channel: Composition Business vs Privat.
+                # Reagiert auf DENSELBEN OTA-/Channel-Filter wie die Liniengrafik
+                # (läuft auf ln_new/ln_old), zeigt die Reisezweck-Zusammensetzung
+                # je Erstellungs-Tag - absolutes Revenue (Flächenhöhe) + Anteile
+                # (Panel-Titel), OLD vs NEW deckungsgleich nebeneinander.
+                st.markdown(
+                    f"**8.E · Composition Business vs Privat je Erstellungs-Tag** "
+                    f"(NEW vs OLD)  {ota_tag}"
+                )
+                alert_card(
+                    "Der **Reisezweck** (Business/Privat) ist oft erst **nach "
+                    "Check-in** verlässlich bekannt - je nach OTA ist das Feld ein "
+                    "Pflichtfeld oder eben nicht. Buchungen **ohne** Reisezweck "
+                    "(sowie alles Nicht-Business) zählen hier zu **Privat** und "
+                    "können den Privat-Anteil überzeichnen - vor allem bei jungen "
+                    "Buchungstagen am rechten Rand. Anteile daher mit Vorsicht "
+                    "interpretieren.",
+                    kind="info",
+                    title="TravelPurpose oft erst nach Check-in bekannt",
+                )
+                adf = GT.purpose_daily_area_data(ln_new, ln_old, cre_start_new, cre_start_old)
+                if adf.empty:
+                    alert_card(
+                        "Keine Tages-Daten für die Composition-Grafik (ggf. "
+                        "Channel-Filter zu eng gewählt).",
+                        kind="info",
+                    )
+                    st.session_state.pop("_sc_purpose_export", None)
+                else:
+                    png_purpose = CD.chart_png(
+                        f"{key}::purpose",
+                        GC.purpose_composition_area_chart,
+                        adf,
+                        year_old,
+                        year_new,
+                        f"{label_dates} · {ota_tag}",
+                    )
+                    st.image(png_purpose, use_container_width=False)
+                    CD.data_table_expander(adf, filename=f"global_stay_created_purpose_{year_new}")
+                    st.session_state["_sc_purpose_export"] = {
+                        "png": png_purpose,
+                        "table": adf,
+                    }
 
             _sc_line_fragment()
 
@@ -1017,6 +1062,15 @@ with section(
                     "8.D · Revenue je Erstellungs-Tag",
                     chart_png=_sc_line_exp["png"],
                     table_df=_sc_line_exp["table"],
+                    page=PAGE,
+                )
+            _sc_purpose_exp = st.session_state.get("_sc_purpose_export")
+            if _sc_purpose_exp:
+                register_section(
+                    "stay_created_purpose",
+                    "8.E · Composition Business vs Privat",
+                    chart_png=_sc_purpose_exp["png"],
+                    table_df=_sc_purpose_exp["table"],
                     page=PAGE,
                 )
 
