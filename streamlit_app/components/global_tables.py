@@ -482,6 +482,12 @@ def stay_created_scope(
     schneiden, dann die As-of-On-the-books-Maske (``H.asof_on_the_books_mask``)
     anwenden. Gibt eine gefilterte Kopie zurück.
 
+    Die As-of-Maske behandelt Storno UND No-Show point-in-time, je mit eigenem
+    Auflösungsdatum: Storno bis ``cancel_time``, No-Show bis ``arrival`` (erst am
+    Anreisetag ist das Nicht-Erscheinen bekannt). Ein No-Show mit Anreise NACH
+    dem Stichtag zählt also wie eine noch lebende Buchung mit; liegt die Anreise
+    am/vor dem Stichtag, fällt er - wie ein Storno - aus der realized-Sicht.
+
     Args:
         nightly: Timeslices (eine Zeile je Stay-Nacht).
         start_stay: Aufenthalts-Fenster Start (inklusive).
@@ -489,8 +495,9 @@ def stay_created_scope(
         cre_start: Erstellungs-Fenster Start (inklusive, schon jahr-gespiegelt).
         cre_end: Erstellungs-Fenster Ende (inklusive, schon jahr-gespiegelt).
         asof: Point-in-time-Stichtag für die Storno-/No-Show-Logik.
-        include_cancellations: Toggle - False = realized-only (As-of-Storno +
-            No-Show raus), True = alle on-the-books am Stichtag.
+        include_cancellations: Toggle - False = realized-only (As-of-Storno raus
+            + am Stichtag bereits aufgelöste No-Shows raus), True = alle
+            on-the-books am Stichtag.
 
     Returns:
         Gefilterte Kopie von ``nightly``.
