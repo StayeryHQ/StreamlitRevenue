@@ -728,6 +728,73 @@ def purpose_composition_area_chart(
     return fig
 
 
+def purpose_booking_count_chart(
+    count_df: pd.DataFrame,
+    year_old: int,
+    year_new: int,
+    period_label: str = "",
+):
+    """Gruppierte Balken: Anzahl Buchungen je Reisezweck, OLD vs NEW.
+
+    Anders als 8.E (Revenue) zählt diese Grafik **Buchungen** (eindeutige
+    Reservierungen). X-Achse = Reisezweck (Business / Privat), je Gruppe zwei
+    Balken (OLD vs NEW) - damit beide Jahre direkt vergleichbar sind. Über
+    jedem Balken: absolute Anzahl + Anteil (%) am jeweiligen Jahr.
+
+    Erwartet ``count_df`` aus ``global_tables.purpose_booking_counts`` mit den
+    Spalten ``Reisezweck``, ``n_new``, ``n_old``, ``share_new``, ``share_old``.
+    """
+    if count_df is None or count_df.empty:
+        fig, ax = plt.subplots(figsize=(11, 3.4))
+        ax.text(0.5, 0.5, "Keine Buchungen im gewählten Fenster", ha="center", va="center")
+        ax.set_axis_off()
+        return fig
+
+    purposes = count_df["Reisezweck"].tolist()
+    n_old = count_df["n_old"].to_numpy()
+    n_new = count_df["n_new"].to_numpy()
+    sh_old = count_df["share_old"].to_numpy()
+    sh_new = count_df["share_new"].to_numpy()
+
+    x = np.arange(len(purposes))
+    w = 0.38
+    c_old, c_new = "#666666", _pal()[0]
+
+    fig, ax = plt.subplots(figsize=(9, 4.6))
+    bars_old = ax.bar(x - w / 2, n_old, w, color=c_old, label=str(year_old))
+    bars_new = ax.bar(x + w / 2, n_new, w, color=c_new, label=str(year_new))
+
+    def _annotate(bars, counts, shares):
+        for rect, cnt, sh in zip(bars, counts, shares, strict=False):
+            ax.annotate(
+                f"{int(cnt):,}".replace(",", ".") + f"\n{sh:.0f}%",
+                xy=(rect.get_x() + rect.get_width() / 2, rect.get_height()),
+                xytext=(0, 3), textcoords="offset points",
+                ha="center", va="bottom", fontsize=9,
+            )
+
+    _annotate(bars_old, n_old, sh_old)
+    _annotate(bars_new, n_new, sh_new)
+
+    ax.set_xticks(x)
+    ax.set_xticklabels(purposes)
+    ax.set_ylabel("Anzahl Buchungen")
+    ax.set_ylim(0, max(float(n_old.max(initial=0)), float(n_new.max(initial=0))) * 1.18 + 1)
+    tot_old, tot_new = int(n_old.sum()), int(n_new.sum())
+    handles = [
+        Patch(facecolor=c_new, label=f"{year_new} · Σ {tot_new:,}".replace(",", ".")),
+        Patch(facecolor=c_old, label=f"{year_old} · Σ {tot_old:,}".replace(",", ".")),
+    ]
+    ax.legend(handles=handles, frameon=False, fontsize=9, loc="upper left")
+    ax.set_title(
+        f"Anzahl Buchungen je Reisezweck · {year_new} vs {year_old}"
+        + (f" · {period_label}" if period_label else ""),
+        fontsize=12, weight="bold",
+    )
+    fig.tight_layout()
+    return fig
+
+
 # =============================================================================
 # Pace-to-Plan helper
 # =============================================================================

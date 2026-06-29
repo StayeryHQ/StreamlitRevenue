@@ -842,6 +842,60 @@ def purpose_daily_area_data(
     )
 
 
+def purpose_booking_counts(
+    scope_new: pd.DataFrame,
+    scope_old: pd.DataFrame,
+) -> pd.DataFrame:
+    """Anzahl **Buchungen** (eindeutige ``id``) je Reisezweck, NEW vs OLD.
+
+    Zählt - anders als die Revenue-Charts - nicht das Nacht-Netto, sondern
+    eindeutige Reservierungen (``id.nunique()``, gleiche Konvention wie die
+    übrigen Counts im Report). Reisezweck-Split: ``travelPurpose == "business"``
+    → Business, alles andere (inkl. leer/None) → Privat. Da der Reisezweck je
+    ``id`` konstant ist, ist ``Business + Privat`` == Gesamtzahl der Buchungen
+    (kein Doppelzählen über die Nächte hinweg).
+
+    Args:
+        scope_new: As-of-gefilterte NEW-Menge (aus ``stay_created_scope``),
+            ggf. bereits auf einzelne Channels/OTAs vorgefiltert.
+        scope_old: As-of-gefilterte OLD-Menge (analog).
+
+    Returns:
+        DataFrame mit Spalten ``Reisezweck`` (Business/Privat), ``n_new``,
+        ``n_old``, ``share_new`` (%), ``share_old`` (%). Leer (mit Spalten),
+        wenn beide Scopes leer sind.
+    """
+    cols = ["Reisezweck", "n_new", "n_old", "share_new", "share_old"]
+
+    def counts(df: pd.DataFrame) -> dict[str, int]:
+        if df is None or df.empty:
+            return {"Business": 0, "Privat": 0}
+        is_biz = df["travelPurpose"].astype(str).str.lower().eq("business")
+        purpose = np.where(is_biz, "Business", "Privat")
+        g = df.assign(_p=purpose).groupby("_p", observed=True)["id"].nunique()
+        return {"Business": int(g.get("Business", 0)), "Privat": int(g.get("Privat", 0))}
+
+    cn = counts(scope_new)
+    co = counts(scope_old)
+    tot_new = cn["Business"] + cn["Privat"]
+    tot_old = co["Business"] + co["Privat"]
+    if tot_new == 0 and tot_old == 0:
+        return pd.DataFrame(columns=cols)
+
+    rows = []
+    for p in ("Business", "Privat"):
+        rows.append(
+            {
+                "Reisezweck": p,
+                "n_new": cn[p],
+                "n_old": co[p],
+                "share_new": (cn[p] / tot_new * 100) if tot_new else 0.0,
+                "share_old": (co[p] / tot_old * 100) if tot_old else 0.0,
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 # ============================== Automatische Alerts ========================
 def auto_alerts(
     raw_stay: pd.DataFrame,

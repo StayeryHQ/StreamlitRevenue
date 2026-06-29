@@ -975,6 +975,7 @@ with section(
                     )
                     st.session_state.pop("_sc_line_export", None)
                     st.session_state.pop("_sc_purpose_export", None)
+                    st.session_state.pop("_sc_count_export", None)
                     return
                 key = f"{ck_base}::ota={'+'.join(sorted(ota_pick)) if ota_pick else 'all'}"
                 png = CD.chart_png(
@@ -1035,6 +1036,35 @@ with section(
                         "table": adf,
                     }
 
+                # 8.F · gleiche Aufteilung, aber nach ANZAHL Buchungen statt
+                # Revenue (eindeutige Reservierungen). Gleicher OTA-/Channel-
+                # Filter wie 8.D/8.E; beide Jahre als gruppierte Balken vergleichbar.
+                st.markdown(
+                    f"**8.F · Anzahl Buchungen je Reisezweck** (NEW vs OLD) — {ota_tag}"
+                )
+                cdf = GT.purpose_booking_counts(ln_new, ln_old)
+                if cdf.empty:
+                    alert_card(
+                        "Keine Buchungen für die Count-Grafik (ggf. Channel-Filter "
+                        "zu eng gewählt).",
+                        kind="info",
+                    )
+                    st.session_state.pop("_sc_count_export", None)
+                else:
+                    png_count = CD.chart_png(
+                        f"{key}::count",
+                        GC.purpose_booking_count_chart,
+                        cdf,
+                        year_old,
+                        year_new,
+                        f"{label_dates} · {ota_tag}",
+                    )
+                    st.image(png_count, use_container_width=False)
+                    CD.data_table_expander(
+                        cdf, filename=f"global_stay_created_counts_{year_new}"
+                    )
+                    st.session_state["_sc_count_export"] = {"png": png_count, "table": cdf}
+
             _sc_line_fragment()
 
             register_section(
@@ -1071,6 +1101,15 @@ with section(
                     "8.E · Composition Business vs Privat",
                     chart_png=_sc_purpose_exp["png"],
                     table_df=_sc_purpose_exp["table"],
+                    page=PAGE,
+                )
+            _sc_count_exp = st.session_state.get("_sc_count_export")
+            if _sc_count_exp:
+                register_section(
+                    "stay_created_counts",
+                    "8.F · Anzahl Buchungen je Reisezweck",
+                    chart_png=_sc_count_exp["png"],
+                    table_df=_sc_count_exp["table"],
                     page=PAGE,
                 )
 
