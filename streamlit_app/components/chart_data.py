@@ -20,12 +20,12 @@ from revenueblindspots import helpers as H
 # =========================================================================
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def channel_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                       year_old: int, year_new: int) -> pd.DataFrame:
+                       year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 3 - Channel × LOS-Bucket Pivot (Revenue + YoY-%)."""
     cols = ["short_<=6", "mid_7-28", "long_29+"]
 
     def piv(df):
-        r = df[df["is_realized"]]
+        r = df[df["is_realized"]] if realized_only else df
         if r.empty:
             return pd.DataFrame(0.0, index=["Direct", "OTA"], columns=cols)
         ch = np.where(r["channel_combo"].str.startswith("Direct"), "Direct", "OTA")
@@ -54,14 +54,14 @@ def channel_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def channel_purpose_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                                year_old: int, year_new: int) -> pd.DataFrame:
+                                year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 4 - Channel × Reisezweck (Business / Leisure) × LOS-Bucket"""
     channels = ["Direct_Website", "Direct_Offline", "OTA"]
     purposes = ["Business", "Leisure"]
     cols = ["short_<=6", "mid_7-28", "long_29+"]
 
     def agg(nig):
-        d = nig[nig["is_realized"]].copy()
+        d = (nig[nig["is_realized"]] if realized_only else nig).copy()
         if d.empty:
             return {}
         d["ch"] = d["channel_combo"].where(
@@ -94,12 +94,12 @@ def channel_purpose_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def los_yoy_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                    year_old: int, year_new: int) -> pd.DataFrame:
+                    year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 5 - LOS-Bucket × Revenue YoY."""
     order = ["short_<=6", "mid_7-28", "long_29+"]
 
     def agg(df):
-        r = df[df["is_realized"]]
+        r = df[df["is_realized"]] if realized_only else df
         if r.empty:
             return pd.Series(0.0, index=order)
         return r.groupby("los_bucket", observed=True)["revenue"].sum().reindex(order, fill_value=0.0)
@@ -121,11 +121,11 @@ def los_yoy_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def channel_mix_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                       year_old: int, year_new: int) -> pd.DataFrame:
+                       year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 6 - Channel × Total-Revenue YoY (realized)."""
 
     def agg(df):
-        r = df[df["is_realized"]]
+        r = df[df["is_realized"]] if realized_only else df
         if r.empty:
             return pd.Series(dtype=float)
         return r.groupby("channel_combo", observed=True)["revenue"].sum()
@@ -152,11 +152,11 @@ def channel_mix_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def alos_channel_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                        year_old: int, year_new: int) -> pd.DataFrame:
+                        year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 7 - ⌀ Nächte / Buchung pro Channel."""
 
     def agg(df):
-        r = df[df["is_realized"]]
+        r = df[df["is_realized"]] if realized_only else df
         if r.empty:
             return pd.Series(dtype=float)
         per_booking = r.groupby(["channel_combo", "id"], observed=True)["nights"].count()
@@ -179,14 +179,14 @@ def alos_channel_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def weekday_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                    weekday_col: str, year_old: int, year_new: int) -> pd.DataFrame:
+                    weekday_col: str, year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektionen 8 / 9 - Revenue je Wochentag (Stay oder Anreise)."""
     order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     de = {"Monday": "Mo", "Tuesday": "Di", "Wednesday": "Mi", "Thursday": "Do",
           "Friday": "Fr", "Saturday": "Sa", "Sunday": "So"}
 
     def agg(df):
-        r = df[df["is_realized"]]
+        r = df[df["is_realized"]] if realized_only else df
         if r.empty or weekday_col not in r.columns:
             return pd.Series(0.0, index=order)
         return r.groupby(weekday_col, observed=True)["revenue"].sum().reindex(order, fill_value=0.0)
@@ -205,12 +205,12 @@ def weekday_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def group_size_table(res_old: pd.DataFrame, res_new: pd.DataFrame,
-                      year_old: int, year_new: int) -> pd.DataFrame:
+                      year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 10 - Revenue nach Gruppen-Größe."""
     order = ["single", "2_rooms", "3-4_rooms", "5+_rooms"]
 
     def agg(df):
-        r = df[df["is_realized"]] if "is_realized" in df.columns else df
+        r = df[df["is_realized"]] if (realized_only and "is_realized" in df.columns) else df
         if r.empty or "group_size_bucket" not in r.columns:
             return pd.Series(0.0, index=order)
         return r.groupby("group_size_bucket", observed=True)["revenue"].sum().reindex(order, fill_value=0.0)
@@ -229,11 +229,11 @@ def group_size_table(res_old: pd.DataFrame, res_new: pd.DataFrame,
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def de_international_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                            year_old: int, year_new: int) -> pd.DataFrame:
+                            year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 11 - DE vs International (Revenue + Nights + ADR)."""
 
     def agg(df):
-        r = df[df["is_realized"]]
+        r = df[df["is_realized"]] if realized_only else df
         if r.empty or "country_code" not in r.columns:
             return pd.DataFrame()
         r = r.copy()
@@ -268,11 +268,11 @@ def de_international_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def top_countries_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                          year_old: int, year_new: int, top_n: int = 12) -> pd.DataFrame:
+                          year_old: int, year_new: int, top_n: int = 12, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 12 - Top-Herkunftsländer Revenue YoY."""
 
     def agg(df):
-        r = df[df["is_realized"]]
+        r = df[df["is_realized"]] if realized_only else df
         if r.empty or "country_code" not in r.columns:
             return pd.Series(dtype=float)
         return r.groupby("country_code", observed=True)["revenue"].sum()
@@ -384,8 +384,13 @@ def channel_los_granular_table(nightly: pd.DataFrame,
                                  start_old: pd.Timestamp, end_old: pd.Timestamp,
                                  start_new: pd.Timestamp, end_new: pd.Timestamp,
                                  year_old: int, year_new: int,
-                                 top_n_channels: int = 8) -> pd.DataFrame:
-    """Sektion 7.D - Channel × LOS YoY (granulare Channel-Liste)."""
+                                 top_n_channels: int = 8,
+                                 realized_only: bool = True) -> pd.DataFrame:
+    """Sektion 7.D - Channel × LOS YoY (granulare Channel-Liste).
+
+    realized_only=True (default) → Storno + No-Show raus; False → alle Buchungen
+    (folgt dem Sidebar-Toggle „Storno + No-Show einbeziehen").
+    """
     try:
         from .global_tables import _channel_label
     except ImportError:
@@ -394,7 +399,8 @@ def channel_los_granular_table(nightly: pd.DataFrame,
 
     def agg(start, end):
         d = nightly[(nightly["stay_date"] >= start) & (nightly["stay_date"] <= end)]
-        d = d[d["is_realized"]]
+        if realized_only:
+            d = d[d["is_realized"]]
         if d.empty:
             return pd.DataFrame(columns=cols)
         d = d.assign(_ch=d["channel_combo"].map(_channel_label))

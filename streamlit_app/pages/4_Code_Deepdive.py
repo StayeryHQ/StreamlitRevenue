@@ -154,16 +154,16 @@ st.markdown(f"""
 """)
 
 st.caption(
-    "**Datenbasis & Filter:** Nacht-Netto (Counts = Buchungen). Lookback-Fenster "
+    "**Datenbasis & Filter:** Stay-Netto (Counts = Buchungen). Lookback-Fenster "
     "über **Aufenthalt** (serviceDate); Fokus-/Vorperiode & **Future-Pipeline** nach "
     "**Anreise** (arrival). Revenue-Charts (Verlauf, Channel, Storno) nach "
-    "Anreise-Monat. Lost-Revenue = einbehaltene Netto-Fee, gedeckelt aufs Nacht-Netto."
+    "Anreise-Monat. Lost-Revenue = einbehaltene Netto-Fee, gedeckelt aufs Stay-Netto."
 )
 
 
 # ============================== Data load ==================================
-# Revenue-Konsistenz: Code-/Firmen-Revenue läuft auf der Nacht-Netto-Basis -
-# nightly auf Buchungs-Ebene zurückfalten (revenue = Summe der Nacht-Netto je
+# Revenue-Konsistenz: Code-/Firmen-Revenue läuft auf der Stay-Netto-Basis -
+# nightly auf Buchungs-Ebene zurückfalten (revenue = Summe der Stay-Netto je
 # Buchung, inkl. kept/lost). Perioden/Future bleiben arrival-basiert. Solange
 # der Snapshot die gebroadcasteten Felder noch nicht trägt Fallback auf die
 # services-inklusive Reservations + Hinweis-Banner.
@@ -180,14 +180,14 @@ if res_all.empty:
 if not _enriched:
     alert_card(
         "Code-/Firmen-Revenue läuft noch auf der services-inklusiven "
-        "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht einmal "
+        "Reservations-Basis. Für die konsistente Stay-Netto-Sicht einmal "
         "Voll-Refresh ziehen (Daten aktualisieren).",
         kind="info",
     )
 
 # promoCode lebt (vor dem Foundation-Refresh) nur in den Reservations - im
 # Timeslices-Snapshot fehlt die Spalte noch. Damit reine Promocodes auch auf der
-# Nacht-Netto-Basis auflösbar sind, joinen wir promoCode hier per `id` nach.
+# Stay-Netto-Basis auflösbar sind, joinen wir promoCode hier per `id` nach.
 # Nach dem Refresh trägt der Timeslices-Snapshot promoCode selbst -> die Spalte
 # ist dann schon da und dieser Schritt entfällt automatisch.
 if include_promo and "promoCode" not in res_all.columns and "id" in res_all.columns:
@@ -487,7 +487,7 @@ if lazy_section(
         f"- verlorener Revenue: **{H.fmt_eur(lost_revenue_total)}**"
     )
     st.caption(
-        "Verlorener Revenue = Nacht-Netto der Stornos/No-Shows MINUS einbehaltene "
+        "Verlorener Revenue = Stay-Netto der Stornos/No-Shows MINUS einbehaltene "
         "Netto-Fee (nicht die volle Buchung). Storno-Timing über `cancellationTime` "
         "(Fallback `modified` als Proxy)."
     )

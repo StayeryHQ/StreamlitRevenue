@@ -111,17 +111,17 @@ st.markdown(f"""
 """)
 
 st.caption(
-    "**Datenbasis & Filter:** Nacht-Netto je Firma/Code (1 Zeile = 1 Buchung, "
+    "**Datenbasis & Filter:** Stay-Netto je Firma/Code (1 Zeile = 1 Buchung, "
     "Counts = Buchungen). Lade-Fenster + Revenue über **Aufenthalt** (serviceDate); "
     "Erste/Letzte Buchung und die Aktiv-seit-Schwelle nach **Anreise** (arrival). "
     "Roster über die ganze Historie inkl. Storno + No-Show; Revenue verloren = "
-    "einbehaltene Netto-Fee, gedeckelt aufs Nacht-Netto."
+    "einbehaltene Netto-Fee, gedeckelt aufs Stay-Netto."
 )
 
 
 # ============================== Data load ==================================
-# Revenue-Konsistenz: Firmen-/Code-Revenue läuft auf der Nacht-Netto-Basis -
-# nightly auf Buchungs-Ebene zurückfalten (revenue = Summe der Nacht-Netto je
+# Revenue-Konsistenz: Firmen-/Code-Revenue läuft auf der Stay-Netto-Basis -
+# nightly auf Buchungs-Ebene zurückfalten (revenue = Summe der Stay-Netto je
 # Buchung, inkl. kept/lost). Solange der Snapshot die gebroadcasteten Felder
 # noch nicht trägt (vor dem Foundation-Voll-Refresh) Fallback auf die
 # services-inklusive Reservations + Hinweis-Banner.
@@ -139,7 +139,7 @@ if res.empty:
 if not _enriched:
     alert_card(
         "Firmen-/Code-Revenue läuft noch auf der services-inklusiven "
-        "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht einmal "
+        "Reservations-Basis. Für die konsistente Stay-Netto-Sicht einmal "
         "Voll-Refresh ziehen (Daten aktualisieren).",
         kind="info",
     )
@@ -227,7 +227,7 @@ def _table_with_drilldown(
     """Tabelle full-size, bis eine Zeile gewählt ist; dann Split mit Deep-Dive rechts."""
     st.caption(
         "Zeile **anklicken** → die Tabelle rückt nach links und rechts erscheint der "
-        "kompakte Deep-Dive (kein Seitenwechsel). Ohne Auswahl bleibt sie full-size."
+        "kompakte Deep-Dive."
     )
     has_sel = bool(st.session_state.get(flag_key, False))
     if has_sel:
@@ -286,8 +286,8 @@ tab1, tab2 = st.tabs(
 with tab1:
     st.markdown(f"## 1 · Alle `corporateCode` seit {start_ts:%Y}")
     st.caption(
-        "Bei Stayery wird i.d.R. `corporateCode` gepflegt (Corporate-Rate / OTA-Code), "
-        "nicht der harte apaleo-`company_code`. Diese Tabelle ist daher die "
+        "Es wird i.d.R. `corporateCode` gepflegt (Corporate-Rate / OTA-Code), "
+        "nicht der harte apaleo-`company_code`. Diese Tabelle ist die "
         "primäre Code-Sicht."
     )
     if cp_table.empty:
@@ -309,8 +309,8 @@ with tab1:
 with tab2:
     st.markdown(f"## 2 · Alle Firmen (Fuzzy-Cluster) seit {start_ts:%Y}")
     st.caption(
-        "Fuzzy-Cluster - `company_name` + `booker_name` + `guest_name`-Varianten "
-        "werden zu einer kanonischen Firma zusammengezogen."
+        "Fuzzy-Cluster - `company_name` + `booker_company_name` + `primary_guest_company_name`-Varianten "
+        "werden zu einer Firma zusammengezogen."
     )
     if fm_table.empty:
         alert_card("Keine Firmennamen im Lookback gefunden.", kind="info")

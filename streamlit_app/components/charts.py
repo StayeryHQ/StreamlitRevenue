@@ -180,13 +180,13 @@ def landscape_kpis_chart(kpi_o, kpi_n, monthly_o, monthly_n, year_old, year_new,
 # =============================================================================
 # 2 · Heatmap Channel × Aufenthaltsdauer
 # =============================================================================
-def channel_los_heatmap(nig_a, nig_b, year_old, year_new, label):
+def channel_los_heatmap(nig_a, nig_b, year_old, year_new, label, realized_only: bool = True):
     pal = palette()
     rows = ["Direct_Website", "Direct_Offline", "OTA"]
     cols = ["short_<=6", "mid_7-28", "long_29+"]
 
     def agg(nig):
-        d = nig[nig["is_realized"]].copy()
+        d = (nig[nig["is_realized"]] if realized_only else nig).copy()
         d["row"] = d["channel_combo"].where(
             d["channel_combo"].isin(["Direct_Website", "Direct_Offline"]), "OTA"
         )
@@ -271,7 +271,7 @@ def channel_los_heatmap(nig_a, nig_b, year_old, year_new, label):
 # =============================================================================
 # 3 · Heatmap Channel × Reisezweck × LOS
 # =============================================================================
-def channel_purpose_los_heatmap(nig_a, nig_b, year_old, year_new, label):
+def channel_purpose_los_heatmap(nig_a, nig_b, year_old, year_new, label, realized_only: bool = True):
     pal = palette()
     channels = ["Direct_Website", "Direct_Offline", "OTA"]
     purposes = ["Business", "Leisure"]
@@ -279,7 +279,7 @@ def channel_purpose_los_heatmap(nig_a, nig_b, year_old, year_new, label):
     rows = [(c, p) for c in channels for p in purposes]
 
     def agg(nig):
-        d = nig[nig["is_realized"]].copy()
+        d = (nig[nig["is_realized"]] if realized_only else nig).copy()
         d["ch"] = d["channel_combo"].where(
             d["channel_combo"].isin(["Direct_Website", "Direct_Offline"]), "OTA"
         )
@@ -371,7 +371,10 @@ def channel_purpose_los_heatmap(nig_a, nig_b, year_old, year_new, label):
 # =============================================================================
 # 4 · LOS Revenue YoY - Two-Panel
 # =============================================================================
-def los_yoy(nig_a, nig_b, year_old, year_new, label):
+def los_yoy(nig_a, nig_b, year_old, year_new, label, realized_only: bool = True):
+    if not realized_only:
+        nig_a = nig_a.assign(is_realized=True)
+        nig_b = nig_b.assign(is_realized=True)
     return H.yoy_two_panel(
         nig_a, nig_b, "los_bucket", f"{label} - Aufenthaltsdauer (LOS)", year_old, year_new
     )
@@ -380,13 +383,13 @@ def los_yoy(nig_a, nig_b, year_old, year_new, label):
 # =============================================================================
 # 5 · Channel-Mix - Stacked-Bar (Monatlich) + horizontal YoY-Bars (Top-N)
 # =============================================================================
-def channel_mix(nig_a, nig_b, full_nightly, year_old, year_new, label, top_n=6):
+def channel_mix(nig_a, nig_b, full_nightly, year_old, year_new, label, top_n=6, realized_only: bool = True):
     pal = palette()
     fig, axes = plt.subplots(1, 2, figsize=(15, 5.0), gridspec_kw={"width_ratios": [1.4, 1.6]})
 
     # Links: Monatlicher Channel-Anteil (stacked bar, Direct vs OTA)
     share = (
-        full_nightly[full_nightly["is_realized"]]
+        (full_nightly[full_nightly["is_realized"]] if realized_only else full_nightly)
         .groupby(["stay_year_month", "channel_group"])["revenue"]
         .sum()
         .unstack(fill_value=0)
@@ -417,8 +420,8 @@ def channel_mix(nig_a, nig_b, full_nightly, year_old, year_new, label, top_n=6):
         ax.legend(frameon=False, loc="upper right", fontsize=9)
 
     # Rechts: horizontaler Top-N YoY-Vergleich pro channel_combo
-    a = nig_a[nig_a["is_realized"]].groupby("channel_combo", observed=True)["revenue"].sum()
-    b = nig_b[nig_b["is_realized"]].groupby("channel_combo", observed=True)["revenue"].sum()
+    a = (nig_a[nig_a["is_realized"]] if realized_only else nig_a).groupby("channel_combo", observed=True)["revenue"].sum()
+    b = (nig_b[nig_b["is_realized"]] if realized_only else nig_b).groupby("channel_combo", observed=True)["revenue"].sum()
     union = a.index.union(b.index)
     df = pd.DataFrame({"o": a.reindex(union, fill_value=0), "n": b.reindex(union, fill_value=0)})
     df = df.sort_values("n").tail(top_n)
@@ -468,11 +471,11 @@ channel_mix_monthly = channel_mix
 # =============================================================================
 # 6 · ALOS pro Channel - granular über alle channel_combo
 # =============================================================================
-def alos_per_channel(nig_a, nig_b, year_old, year_new, label):
+def alos_per_channel(nig_a, nig_b, year_old, year_new, label, realized_only: bool = True):
     pal = palette()
 
     def alos(nig):
-        d = nig[nig["is_realized"]]
+        d = nig[nig["is_realized"]] if realized_only else nig
         nights = d.groupby("channel_combo", observed=True)["revenue"].size()
         books = d.groupby("channel_combo", observed=True)["id"].nunique()
         return nights / books
@@ -518,7 +521,7 @@ def alos_per_channel(nig_a, nig_b, year_old, year_new, label):
 # =============================================================================
 # 7 / 8 · Wochentag-Pattern - zwei Stacked-Bar-Charts nebeneinander
 # =============================================================================
-def weekday_pattern(nig_a, nig_b, weekday_col, year_old, year_new, label, title):
+def weekday_pattern(nig_a, nig_b, weekday_col, year_old, year_new, label, title, realized_only: bool = True):
     pal = palette()
     order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
     de = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"]
@@ -526,7 +529,7 @@ def weekday_pattern(nig_a, nig_b, weekday_col, year_old, year_new, label, title)
 
     def pivot(nig):
         return (
-            nig[nig["is_realized"]]
+            (nig[nig["is_realized"]] if realized_only else nig)
             .groupby([weekday_col, "channel_group"], observed=True)["revenue"]
             .sum()
             .unstack(fill_value=0)
@@ -567,7 +570,10 @@ def weekday_pattern(nig_a, nig_b, weekday_col, year_old, year_new, label, title)
 # =============================================================================
 # 9 · Gruppen-Größe
 # =============================================================================
-def group_size_yoy(res_a, res_b, year_old, year_new, label):
+def group_size_yoy(res_a, res_b, year_old, year_new, label, realized_only: bool = True):
+    if not realized_only:
+        res_a = res_a.assign(is_realized=True)
+        res_b = res_b.assign(is_realized=True)
     return H.yoy_two_panel(
         res_a,
         res_b,
@@ -581,7 +587,7 @@ def group_size_yoy(res_a, res_b, year_old, year_new, label):
 # =============================================================================
 # 10 · Inland vs. Ausland - 3-Panel: Revenue abs · Anteil · Room-Nights (ADR)
 # =============================================================================
-def de_vs_international(nig_a, nig_b, year_old, year_new, label):
+def de_vs_international(nig_a, nig_b, year_old, year_new, label, realized_only: bool = True):
     pal = palette()
     cats = ["DE", "International"]
     x = np.arange(2)
@@ -589,11 +595,11 @@ def de_vs_international(nig_a, nig_b, year_old, year_new, label):
     fig, axes = plt.subplots(1, 3, figsize=(17, 4.4))
 
     def rev(nig):
-        g = nig[nig["is_realized"]].groupby("is_international")["revenue"].sum()
+        g = (nig[nig["is_realized"]] if realized_only else nig).groupby("is_international")["revenue"].sum()
         return [float(g.get(False, 0)), float(g.get(True, 0))]
 
     def nights(nig):
-        g = nig[nig["is_realized"]].groupby("is_international")["revenue"].size()
+        g = (nig[nig["is_realized"]] if realized_only else nig).groupby("is_international")["revenue"].size()
         return [int(g.get(False, 0)), int(g.get(True, 0))]
 
     ra, rb = rev(nig_a), rev(nig_b)
@@ -688,11 +694,11 @@ def de_vs_international(nig_a, nig_b, year_old, year_new, label):
 # =============================================================================
 # 12 · Top-Herkunftsländer - zwei Panels (OLD / NEW)
 # =============================================================================
-def top_countries(nig_a, nig_b, year_old, year_new, label, top_n=10):
+def top_countries(nig_a, nig_b, year_old, year_new, label, top_n=10, realized_only: bool = True):
     fig, axes = plt.subplots(1, 2, figsize=(15, max(3.5, top_n * 0.35 + 1)))
     for ax, nig, yr in [(axes[0], nig_a, year_old), (axes[1], nig_b, year_new)]:
         counts = (
-            nig[nig["is_realized"]]
+            (nig[nig["is_realized"]] if realized_only else nig)
             .groupby("origin", observed=True)["revenue"]
             .sum()
             .sort_values(ascending=False)
@@ -882,12 +888,12 @@ def daily_occupancy_los(full_nightly, units, start_ts, end_ts, label):
 # =============================================================================
 # 20 · Firmenkunden - Überblick + Channel-Split
 # =============================================================================
-def corporate_overview(res_a, res_b, year_old, year_new, label):
+def corporate_overview(res_a, res_b, year_old, year_new, label, realized_only: bool = True):
     pal = palette()
     fig, axes = plt.subplots(1, 2, figsize=(14, 4.6))
 
     def split(df):
-        d = df[df["is_realized"]]
+        d = df[df["is_realized"]] if realized_only else df
         return (
             float(d[d["has_company"]]["revenue"].sum()),
             float(d[~d["has_company"]]["revenue"].sum()),
@@ -938,7 +944,10 @@ def corporate_overview(res_a, res_b, year_old, year_new, label):
     ax.legend(frameon=False, fontsize=9)
 
     def by_channel(df):
-        d = df[df["is_realized"] & df["has_company"]].copy()
+        mask = df["has_company"].copy()
+        if realized_only:
+            mask &= df["is_realized"]
+        d = df[mask].copy()
         d["ch"] = d["channel_combo"].where(
             d["channel_combo"].isin(["Direct_Website", "Direct_Offline"]), "OTA"
         )
@@ -1025,9 +1034,12 @@ def _company_code_lookup(*res_dfs) -> dict[str, str]:
     return out
 
 
-def top_companies_table(res_a, res_b, year_old, year_new) -> pd.DataFrame:
+def top_companies_table(res_a, res_b, year_old, year_new, realized_only: bool = True) -> pd.DataFrame:
     def by_firm(df):
-        d = df[df["is_realized"] & df["has_company"]]
+        mask = df["has_company"].copy()
+        if realized_only:
+            mask &= df["is_realized"]
+        d = df[mask]
         return d.groupby("company").agg(
             revenue=("revenue", "sum"),
             n_bookings=("id", "nunique"),
@@ -1063,8 +1075,11 @@ def top_companies_table(res_a, res_b, year_old, year_new) -> pd.DataFrame:
 # =============================================================================
 # Direct-Offline Waterfall + Detail-Segmente
 # =============================================================================
-def _per_channel_revenue(res_df):
-    d = res_df[res_df["is_realized"] & res_df["has_company"]].copy()
+def _per_channel_revenue(res_df, realized_only: bool = True):
+    mask = res_df["has_company"].copy()
+    if realized_only:
+        mask &= res_df["is_realized"]
+    d = res_df[mask].copy()
     if d.empty:
         return pd.DataFrame(columns=["company", "ch", "revenue"]).set_index(["company", "ch"])[
             "revenue"
@@ -1077,9 +1092,9 @@ def _per_channel_revenue(res_df):
     return d.groupby(["company", "ch"])["revenue"].sum()
 
 
-def build_channel_table(companies, res_a, res_b) -> pd.DataFrame:
-    rev_a = _per_channel_revenue(res_a).unstack(fill_value=0.0)
-    rev_b = _per_channel_revenue(res_b).unstack(fill_value=0.0)
+def build_channel_table(companies, res_a, res_b, realized_only: bool = True) -> pd.DataFrame:
+    rev_a = _per_channel_revenue(res_a, realized_only=realized_only).unstack(fill_value=0.0)
+    rev_b = _per_channel_revenue(res_b, realized_only=realized_only).unstack(fill_value=0.0)
     for col in ("Direct_Offline", "Direct_Website", "OTA"):
         for src in (rev_a, rev_b):
             if col not in src.columns:
@@ -1121,11 +1136,14 @@ def build_channel_table(companies, res_a, res_b) -> pd.DataFrame:
     return out
 
 
-def directoffline_waterfall(res_a, res_b, year_old, year_new, label):
+def directoffline_waterfall(res_a, res_b, year_old, year_new, label, realized_only: bool = True):
     pal = palette()
 
     def by_company(df):
-        d = df[(df["channel_combo"] == "Direct_Offline") & df["has_company"] & df["is_realized"]]
+        mask = (df["channel_combo"] == "Direct_Offline") & df["has_company"]
+        if realized_only:
+            mask &= df["is_realized"]
+        d = df[mask]
         return d.groupby("company")["revenue"].sum()
 
     comp = pd.DataFrame({"old": by_company(res_a), "new": by_company(res_b)}).fillna(0.0)
@@ -1175,10 +1193,15 @@ def directoffline_waterfall(res_a, res_b, year_old, year_new, label):
     return fig, {"lost": lost, "gained": gained, "shrunk": shrunk, "grown": grown, "all": comp}
 
 
-def directoffline_segments(res_a, res_b, year_old, year_new, label):
+def directoffline_segments(res_a, res_b, year_old, year_new, label, realized_only: bool = True):
     pal = palette()
-    do_a = res_a[(res_a["channel_combo"] == "Direct_Offline") & res_a["is_realized"]]
-    do_b = res_b[(res_b["channel_combo"] == "Direct_Offline") & res_b["is_realized"]]
+    mask_a = res_a["channel_combo"] == "Direct_Offline"
+    mask_b = res_b["channel_combo"] == "Direct_Offline"
+    if realized_only:
+        mask_a = mask_a & res_a["is_realized"]
+        mask_b = mask_b & res_b["is_realized"]
+    do_a = res_a[mask_a]
+    do_b = res_b[mask_b]
     w = 0.35
     fig, axes = plt.subplots(1, 2, figsize=(14, 4.4))
 
@@ -1273,10 +1296,13 @@ def directoffline_segments(res_a, res_b, year_old, year_new, label):
 # =============================================================================
 # 22 · Top Vertragscodes (effective_code)
 # =============================================================================
-def top_codes_in_period(res_period) -> pd.DataFrame:
+def top_codes_in_period(res_period, realized_only: bool = True) -> pd.DataFrame:
     if "effective_code" not in res_period.columns:
         return pd.DataFrame()
-    d = res_period[res_period["is_realized"] & res_period["effective_code"].notna()].copy()
+    mask = res_period["effective_code"].notna()
+    if realized_only:
+        mask &= res_period["is_realized"]
+    d = res_period[mask].copy()
     d["effective_code"] = d["effective_code"].astype(str).str.strip()
     d = d[d["effective_code"] != ""]
     if d.empty:

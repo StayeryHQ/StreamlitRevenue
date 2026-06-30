@@ -117,13 +117,13 @@ st.markdown(f"""
 
 # ============================== Data load ==================================
 # promoCode lebt primär in den Reservations. Sobald der Refresh promoCode auch in
-# die Timeslices broadcastet, läuft die Promo-Sicht auf der Nacht-Netto-Basis;
+# die Timeslices broadcastet, läuft die Promo-Sicht auf der Stay-Netto-Basis;
 # davor wird die services-inklusive Reservations-Basis verwendet.
 with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     nightly = CD.get_timeslices(start=start_ts, end=end_ts, properties=props_pick)
     if H.timeslices_are_enriched(nightly) and "promoCode" in nightly.columns:
         res = H.reservations_from_timeslices(nightly)
-        revenue_basis = "Nacht-Netto (Timeslices)"
+        revenue_basis = "Stay-Netto (Timeslices)"
     else:
         res = CD.get_reservations(start=start_ts, end=end_ts, properties=props_pick)
         revenue_basis = "services-inklusive Reservations"
@@ -261,7 +261,7 @@ st.subheader("Promocodes als Firmencodes reklassifizieren")
 st.caption(
     "Trägt man hier Codes ein, werden ihre Buchungen **global** als Firmencode-"
     "Buchungen behandelt (corporateCode = Promocode). Wirkt sofort auf Reservations-"
-    "Basis; die Nacht-Netto-Sichten von B2B/Code Deep-Dive ziehen nach dem nächsten "
+    "Basis; die Stay-Netto-Sichten von B2B/Code Deep-Dive ziehen nach dem nächsten "
     "`Daten aktualisieren` nach."
 )
 

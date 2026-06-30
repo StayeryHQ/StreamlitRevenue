@@ -206,9 +206,12 @@ props_tag = "+".join(sorted(props_pick)) if len(props_pick) < 11 else "all"
 
 
 def _ck(section_id: str) -> str:
+    # WICHTIG: Storno/No-Show-Toggle MUSS im Cache-Key stehen, sonst liefern die
+    # gecachten Chart-PNGs beim Umschalten den alten (realized-only) Stand.
+    _c = int(bool(st.session_state.get("global_include_cancellations", False)))
     return (
         f"glb::{SNAP_TAG}::{props_tag}::{start_old.date()}::{end_old.date()}"
-        f"::{start_new.date()}::{end_new.date()}::{section_id}"
+        f"::{start_new.date()}::{end_new.date()}::c{_c}::{section_id}"
     )
 
 
@@ -631,11 +634,17 @@ if lazy_section("7.A", "Revenue-Heatmap Standort × Monat"):
         props_pick,
         pull_start,
         pull_end,
-        realized_only=True,
-        title_suffix=" (nach Aufenthalt, realized)",
+        realized_only=not _include_cancellations,
+        title_suffix=(
+            " (nach Aufenthalt, inkl. Storno+No-Show)"
+            if _include_cancellations
+            else " (nach Aufenthalt, realized)"
+        ),
     )
     st.image(png, use_container_width=False)
-    _tbl_locrev = CDT.location_revenue_table(nightly, pull_start, pull_end, realized_only=True)
+    _tbl_locrev = CDT.location_revenue_table(
+        nightly, pull_start, pull_end, realized_only=not _include_cancellations
+    )
     CD.data_table_expander(_tbl_locrev, filename="global_loc_x_month")
     register_section(
         "heat_loc_month",
@@ -653,10 +662,12 @@ if lazy_section("7.B", "Channel-Mix je Standort"):
         nightly,
         start_new,
         end_new,
-        realized_only=True,
+        realized_only=not _include_cancellations,
     )
     st.image(png, use_container_width=False)
-    _tbl_chloc = CDT.channel_x_location_table(nightly, start_new, end_new, realized_only=True)
+    _tbl_chloc = CDT.channel_x_location_table(
+        nightly, start_new, end_new, realized_only=not _include_cancellations
+    )
     CD.data_table_expander(_tbl_chloc, filename="global_channel_x_location")
     register_section(
         "heat_chan_loc",
@@ -707,6 +718,7 @@ if lazy_section(
         end_new,
         YEAR_OLD,
         YEAR_NEW,
+        realized_only=not _include_cancellations,
     )
     st.image(png, use_container_width=False)
     _tbl_chlosg = CDT.channel_los_granular_table(
@@ -717,6 +729,7 @@ if lazy_section(
         end_new,
         YEAR_OLD,
         YEAR_NEW,
+        realized_only=not _include_cancellations,
     )
     CD.data_table_expander(_tbl_chlosg, filename="global_channel_los_granular")
     register_section(

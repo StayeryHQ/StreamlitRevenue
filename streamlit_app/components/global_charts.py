@@ -370,8 +370,13 @@ def channel_los_heatmap_granular(
     year_old: int,
     year_new: int,
     top_n_channels: int = 8,
+    realized_only: bool = True,
 ):
-    """Globaler Channel × LOS-Vergleich auf granularer Channel-Ebene."""
+    """Globaler Channel × LOS-Vergleich auf granularer Channel-Ebene.
+
+    realized_only=True (default) → Storno + No-Show raus; False → alle Buchungen
+    (folgt dem Sidebar-Toggle „Storno + No-Show einbeziehen").
+    """
     try:
         from .global_tables import _channel_label
     except ImportError:
@@ -381,7 +386,8 @@ def channel_los_heatmap_granular(
 
     def agg(start, end):
         d = nightly[(nightly["stay_date"] >= start) & (nightly["stay_date"] <= end)]
-        d = d[d["is_realized"]]
+        if realized_only:
+            d = d[d["is_realized"]]
         if d.empty:
             return pd.DataFrame(columns=cols)
         d = d.assign(_ch=d["channel_combo"].map(_channel_label))
@@ -639,9 +645,9 @@ def stay_created_daily_chart(
     # Summen in die Legende (= Total der Tabellen, As-of).
     handles = [
         Line2D([0], [0], color=pal[0], linewidth=2.0, marker="o", markersize=4,
-               label=f"{year_new} · Σ {H.fmt_eur(float(rev_new.sum()))}"),
+               label=f"{year_new} · Summe {H.fmt_eur(float(rev_new.sum()))}"),
         Line2D([0], [0], color="#666666", linewidth=1.6, marker="o", markersize=4,
-               label=f"{year_old} · Σ {H.fmt_eur(float(rev_old.sum()))}"),
+               label=f"{year_old} · Summe {H.fmt_eur(float(rev_old.sum()))}"),
     ]
     ax.legend(handles=handles, frameon=False, fontsize=9, loc="upper left")
     fig.tight_layout()
