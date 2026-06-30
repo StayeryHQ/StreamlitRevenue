@@ -134,7 +134,7 @@ with st.expander("4 · Revenue-Grundprinzip: Netto vs. Brutto, mit/ohne Services
   führen. Eine Brutto-Excel inkl. Services ist daher **höher** als die Dashboard-Zahl
   ×1,07. Die Differenz = Services + ggf. abweichende MwSt. auf Extras (19 %).
 
-> Merksatz: **Dashboard = Übernachtung, Netto.** Services und Brutto musst du bewusst
+> **Dashboard = Übernachtung, Netto.** Services und Brutto musst du bewusst
 > dazudenken.
 """
     )
@@ -210,6 +210,26 @@ gespiegelt (gleicher Monat/Tag, ein Jahr früher).
 > **Wichtige Konsequenz:** Weil der Stichtag = Ende des Erstellungs-Fensters ist,
 > sind Erstellungs-Teilfenster **nicht additiv** – änderst du das Fensterende,
 > verschiebt sich auch der Bewertungs-Zeitpunkt für Storno/No-Show.
+
+**§8 Schritt für Schritt (`stay_created_scope`):**
+
+1. **Stay-Filter:** `serviceDate` ∈ [Stay-Start, Stay-Ende] (Sidebar).
+2. **Creation-Filter:** `created` ∈ [Erstellung-von, Erstellung-bis]; fürs Vorjahr per
+   `mirror_years` gespiegelt (gleicher Monat/Tag, 1 Jahr früher).
+3. **As-of-Maske:** `created ≤ Stichtag` UND (nicht storniert ODER `cancel_time > Stichtag`)
+   UND (kein No-Show ODER `arrival > Stichtag`). Stichtag = `min(Erstellung-bis, Snapshot)`,
+   fürs Vorjahr gespiegelt.
+
+**Rechenbeispiel (NEW):** Stay = Juli 2026, Erstellung 01.–10.06.2026, Snapshot 23.06.2026
+→ Stichtag = min(10.06., 23.06.) = **10.06.2026**.
+
+- Buchung gebucht 03.06., Anreise 14.07., **nicht** storniert → zählt (created ≤ 10.06., lebt).
+- Storno am **07.07.** (nach Stichtag) → zählt trotzdem (am 10.06. war sie noch aktiv).
+- Storno am **05.06.** (vor Stichtag) → fällt raus (realized); erscheint nur mit Toggle „an".
+- No-Show, Anreise 20.07. (> Stichtag) → zählt (am 10.06. noch nicht als No-Show bekannt).
+
+> Genau diese Nicht-Additivität ist die Ursache, dass „01.01.–30.05." + „01.06.–30.06."
+> ≠ „01.01.–30.06." ergibt: jedes Fenster hat einen **anderen Stichtag**.
 """
     )
 
@@ -217,14 +237,24 @@ gespiegelt (gleicher Monat/Tag, ein Jahr früher).
 with st.expander("8 · Channels (Buchungskanäle)"):
     st.markdown(
         """
-`channel_combo` entsteht aus `channelCode` + `source` (`classify_channel`):
+`channel_combo` entsteht aus `channelCode` + `source` (`classify_channel`). **Exakte Regel:**
 
-- `Ibe` → **Direct_Website** (= IBE, eigene Website)
-- `Direct` → **Direct_Offline** (Direktbuchung offline)
-- alles andere → OTA (z.B. `OTA.Booking.com`, `OTA.Expedia`, `OTA.HRS` …)
+1. Ist `channelCode` ∈ **CHANNEL_COMBO_MAP** → fester Wert:
+   - `Ibe` → **`Direct_Website`** (= IBE, eigene Website / Booking-Engine)
+   - `Direct` → **`Direct_Offline`** (Direktbuchung offline, z.B. Telefon/Mail/Walk-in)
+2. Sonst → **`OTA_<source>`** (die `source` angehängt), z.B. `OTA_Booking.com`,
+   `OTA_Airbnb`, `OTA_HRS`, `OTA_Expedia`, `OTA_Synxis`, `OTA_GDS`,
+   `OTA_CRC Corporate Rates Club`, …; fehlt die `source`, dann `OTA_<channelCode oder 'Other'>`.
 
-`channel_group` fasst zu **Direct / OTA / Other** zusammen. Für die Anzeige gibt es
-lesbare Labels (z.B. `OTA.Booking.com` → „Booking.com", `Direct_Website` → „IBE").
+> Hinweis: Das Präfix ist **`OTA_`** (Unterstrich), nicht `OTA.` – relevant beim Filtern in Roh-Exports.
+
+`channel_group` fasst zusammen: beginnt `channel_combo` mit `Direct` → **Direct**,
+mit `OTA` → **OTA**, sonst **Other**. Aktueller Snapshot grob: ~Direct 53 % / OTA 47 %;
+größte Einzelkanäle: Booking.com, Direct_Offline, Direct_Website (IBE), Airbnb, HRS, Expedia.
+
+Für die **Anzeige** mappt `_channel_label` (in `global_tables.py`) die internen Combos auf
+lesbare Labels (z.B. `Direct_Website` → „IBE", `Direct_Offline` → „Direct",
+`OTA_Booking.com` → „Booking.com").
 """
     )
 
@@ -254,6 +284,24 @@ beim Laden als Vertragsbuchung **reklassifiziert** (füllt `corporateCode`/`effe
 `firm_by_*`, Marker `is_reclassified_promo`). Änderungen am Store invalidieren den Cache automatisch.
 Zusatzinfo: company_code ist momentan all NAs, aber an sich die stärkere Spalte falls sie in Zukunft
 befüllt wird.
+
+**Fuzzy-Clustering im Detail (`cluster_companies`, rapidfuzz):** Freitext-Firmennamen
+werden zu einem kanonischen Namen zusammengeführt, damit Schreibvarianten nicht als
+verschiedene Firmen zählen.
+
+1. **Normalisieren:** klein, Akzente/Sonderzeichen weg, Rechtsformen entfernt (`GmbH`,
+   `AG`, `GmbH & Co. KG`, `Ltd`, `Inc`, `SE`, …) und Segment-/Region-Suffixe
+   (`… Segment X`, `… Region Y`, `… - …`) abgeschnitten.
+2. **Blocking:** Kandidaten werden nach Token-Präfix (erste 3 Zeichen) gruppiert –
+   nur innerhalb eines Blocks wird verglichen (Performance).
+3. **Ähnlichkeit:** `token_sort_ratio` ≥ **85** (Default-Schwelle) → gilt als „gleich".
+4. **Union-Find** bündelt Treffer zu Clustern; ein **Anti-Chaining**-Schritt wirft
+   transitiv „durchgereichte" Mitglieder wieder raus (A~B, B~C, aber A≁C).
+5. **Repräsentant** je Cluster = die **häufigste** Schreibvariante.
+
+Ist `rapidfuzz` nicht installiert, fällt die Funktion auf **Identität** zurück (keine
+Cluster) – mit Warnung. Das Clustering läuft **einmal beim Refresh** und wird per `id`
+auf die Nächte gebroadcastet.
 """
     )
 
@@ -261,16 +309,90 @@ befüllt wird.
 with st.expander("10 · Segmente & weitere abgeleitete Spalten"):
     st.markdown(
         """
+**Exakte Schwellen (aus `helpers.py`):**
+
+`los_bucket` (`LOS_BINS = [-0.1, 6, 28, ∞]`):
+
+| Label | Nächte |
+|---|---|
+| `short_<=6` | 1–6 |
+| `mid_7-28` | 7–28 |
+| `long_29+` | 29+ |
+
+`group_size_bucket` (`GROUP_BINS = [0, 1, 2, 4, ∞]`, Zimmer/`id` je `bookingId`):
+`single` (1) · `2_rooms` (2) · `3-4_rooms` (3–4) · `5+_rooms` (5+).
+
+`lead_time_bucket` (`arrival − created`, `LEAD_BINS`):
+`same_day` (0) · `1-3 T` · `4-7 T` · `8-10 T` · `11-13 T` · `14-16 T` · `17-19 T` ·
+`20-22 T` · `23-25 T` · `26-28 T` · `29+ T`.
+
+Storno-Timing (`cancel_lead_time_days`) nutzt **dasselbe Raster**, zusätzlich
+`nach Anreise` (Storno nach Check-in) und `Anreisetag`.
+
+**Weitere abgeleitete Spalten:**
+
 | Spalte | Logik |
 |---|---|
-| `los_bucket` | Aufenthaltsdauer: **kurz ≤6**, **mittel 7–28**, **lang 29+** Nächte |
-| `nights` | `departure − arrival` (ganze Nächte) |
-| `group_size_bucket` | Zimmer je `bookingId`: single / 2 / 3–4 / 5+ |
-| `lead_time_days` / `lead_time_bucket` | `arrival − created` (Vorlaufzeit) |
-| `room_category` | bereinigte `unitGroup_name` |
-| `is_flex` / `is_corporate_rate` | aus `ratePlan_name` (flex / firmen·corporate·business·hrs) |
+| `nights` | `departure − arrival` (ganze Nächte, Mitternacht-normalisiert) |
+| `room_category` | bereinigte `unitGroup_name` (z.B. `BIE_HB`: „ AIRCON" entfernt) |
+| `is_flex` | `ratePlan_name` enthält „flex" |
+| `is_corporate_rate` | `ratePlan_name` enthält „firmen/corporate/business/hrs" |
+| `has_promo` | `promoCode` nicht leer |
 | `stay_weekday` / `check_in_weekday` | Wochentag der Nacht / der Anreise |
-| `origin` / `is_international` | Herkunft (siehe Kap. 11) |
+| `adr_per_night` | `revenue / nights` (nur Reservations-Frame) |
+| `origin` / `is_international` | Herkunft (eigene Logik, siehe Kap. 10b) |
+"""
+    )
+
+# ============================================================================
+with st.expander(" 10b · Herkunft: Inland/Ausland & Top-Länder (Fallback-Logik – WICHTIG)"):
+    st.markdown(
+        """
+Das ist eines der **am leichtesten misszuverstehenden** Felder. Es gibt hier **zwei**
+getrennte Themen: (A) die **fachliche Herleitung** der Herkunft (Fallback-Kette) und
+(B) ein **technischer Bug** in den zugehörigen Daten-Tabellen.
+
+#### A) Wie `origin` / `is_international` entsteht (`_add_origin`)
+
+```
+origin = primaryGuest_address_countryCode
+         └─ wenn leer ──► Fallback: primaryGuest_preferredLanguage (groß)
+is_international = (origin bekannt) UND (origin ≠ "DE")
+```
+
+Im Klartext:
+
+- Liegt ein **Gast-Ländercode** (`primaryGuest_address_countryCode`) vor, wird der genutzt.
+- Fehlt er, fällt die Logik auf die **bevorzugte Sprache**
+  (`primaryGuest_preferredLanguage`) zurück und behandelt sie wie eine Herkunft.
+- `is_international` ist **WAHR**, wenn die Herkunft bekannt **und ungleich `DE`** ist.
+
+**Das hat mehrere Konsequenzen, die man kennen sollte:**
+
+1. **`origin` ist ein Misch-Feld aus Länder- UND Sprachcodes.** In „Top-Herkunftsländer"
+   steht dann z.B. `FR` (Land) neben `EN` (Sprache) – nicht sauber vergleichbar.
+2. **Sprache ≠ Land.** Ein englischsprachiger Gast aus Deutschland (ohne Ländercode,
+   Sprache `EN`) wird als **international** gezählt; ein deutschsprachiger Gast aus
+   Österreich/Schweiz (Sprache `DE`) als **Inland**. Die Quote ist also eine sehr ungenaue
+   Näherung, keine exakte Nationalität.
+3. **Datenverfügbarkeit hängt stark vom Channel ab.** OTAs geben die Gast-Adresse /
+   den Ländercode oft **nicht** durch → dort greift fast immer der Sprach-Fallback oder
+   die Herkunft bleibt unbekannt. Direkt/IBE erfasst andere Felder – und **was IBE
+   erfasst, hat sich über die Zeit geändert**. Dadurch ist ein Anstieg/Rückgang der
+   International-Quote über die Zeit oder zwischen Channels oft ein **Daten-Artefakt**
+   (anderes Erfassungsverhalten), nicht zwingend echtes Gästeverhalten.
+4. **Fallback-Spalte nicht immer vorhanden.** `primaryGuest_preferredLanguage` wird
+   defensiv per `df.get(...)` geholt – fehlt sie (ältere Snapshots/Quellen), gibt es
+   gar keinen Fallback und die Herkunft bleibt unbekannt.
+5. **Unbekannte Herkunft zählt als „Inland".** `is_international` ist bei leerer/unbekannter
+   Herkunft **FALSE** – diese Buchungen landen also im **DE-/Inland**-Balken, nicht in einem
+   eigenen „unbekannt"-Topf. Fehlende Daten verschieben die Quote damit systematisch
+   Richtung Inland.
+
+> **Lesehilfe:** International-Quote als **Tendenz** lesen, nicht als exakte Herkunft.
+> Vergleiche über Zeit oder zwischen Channels (v.a. IBE) mit Vorsicht – sie spiegeln
+> teils nur, wie vollständig Länder-/Sprachdaten erfasst wurden.
+
 """
     )
 
@@ -278,10 +400,11 @@ with st.expander("10 · Segmente & weitere abgeleitete Spalten"):
 with st.expander("11 · Bekannte Datenqualitäts-Themen"):
     st.markdown(
         """
-- **„country_code"-Bug → leere Länder-Tabellen:** Die DE-vs-International- und
-  Top-Länder-**Tabellen** suchen eine Spalte `country_code`, die Spalte heißt aber
-  **`origin`**. Folge: diese beiden Tabellen bleiben **leer**. (Die Charts nutzen
-  korrekt `is_international`/`origin`.) → offener Fix.
+- **Herkunft/International (Kap. 10b):** Sprach-Fallback, Misch-Feld Land+Sprache,
+  channel-/zeitabhängige Erfassung (v.a. IBE), unbekannt→Inland. Quote als Tendenz lesen.
+- **„country_code"-Bug:** die **Daten-Tabellen** hinter §11/§12 suchen die nicht
+  existierende Spalte `country_code` (richtig wäre `origin`) → diese Tabellen bleiben
+  **leer**; die Charts funktionieren. Offener, rein technischer Fix.
 - **`cancel_time` bei Nicht-Stornierten:** ist mit `modified` vorbelegt; nur bei
   `is_cancelled = WAHR` als Stornodatum interpretieren. Die Filter selbst sind davon
   nicht betroffen (sie prüfen `cancel_time` nur, wenn `is_cancelled`).
@@ -300,18 +423,82 @@ with st.expander("11 · Bekannte Datenqualitäts-Themen"):
 with st.expander("12 · Plan-Vergleich, Caching & Snapshot"):
     st.markdown(
         """
-**Plan:** `plan.parquet` (aus `ref_tables.plan`) liefert Monats-Planzahlen je
-Standort. `plan_revenue()` rechnet pro-rata auf die Periode. **PLAN gibt es nur in
-den Aufenthalts-Sichten** (z.B. §4 / Standort-KPIs), nicht in den Erstellungs-/§8-Sichten
-(Plan ist monatlich aufs Aufenthaltsdatum bezogen).
+**Plan (`plan_revenue`, pro-rata):** `plan.parquet` (aus `ref_tables.plan`) liefert
+**Monats**-Planzahlen je Standort (`{property_code: {"YYYY-MM": EUR}}`). Für eine
+beliebige Periode wird je Monat anteilig gerechnet:
 
-**Caching:** Tabellen/Charts sind mit `st.cache_data` gecacht. Chart-PNG-Cache-Keys
-enthalten u.a. Snapshot-Stand, Standorte, Perioden **und den Storno/No-Show-Toggle** –
-damit beim Umschalten nichts „hängen bleibt". Der Override-Store invalidiert den Cache
-über seine Signatur (Dateizeit + Größe).
+```
+Plan(Periode) = Σ_Monat  Monatsplan × (überlappende Tage im Monat / Tage des Monats)
+```
+
+Beispiel: Periode 15.07.–31.07. → 17/31 des Juli-Plans. **PLAN gibt es nur in den
+Aufenthalts-Sichten** (Standort-KPIs, §4 Global), **nicht** in Erstellungs-/§8-Sichten
+(Plan ist monatlich aufs Aufenthaltsdatum bezogen, passt nicht auf einen created-Teilausschnitt).
+
+**Promo→Firmencode-Overrides (`apply_code_overrides`):** Für jede Buchung, deren
+`promoCode` im Store (`code_overrides.json`) steht, werden – nur wo noch leer –
+`corporateCode`, `effective_code`, `firm_by_code` mit dem Code gefüllt, `has_code=True`
+gesetzt und (falls ein Firmenname hinterlegt ist) `company`/`firm_by_effective`/
+`firm_by_effective_fuzzy` ergänzt; Marker `is_reclassified_promo=True`. Idempotent,
+nur vorhandene Spalten werden angefasst. Speicherort: env `STAYERY_OVERRIDES_FILE` →
+Snapshot-Ordner → `data/` → `configs/`.
+
+**Caching:** Tabellen/Charts mit `st.cache_data` (TTL 1 h). Chart-PNG-Cache-Keys
+enthalten Snapshot-Stand, Standorte, Perioden **und den Storno/No-Show-Toggle** – damit
+beim Umschalten nichts „hängen bleibt". Der Override-Store invalidiert den Cache über
+seine Signatur (Dateizeit + Größe). Lazy-Sections (Standort 6–17, Global 4–7) rendern
+erst auf Klick; Sidebar-Buttons „Alle laden" / „Cache leeren".
 
 **Snapshot aktualisieren:** über die Seite *Daten aktualisieren* (oder
 `scripts/refresh_snapshot.py`). Erst danach sind neue BigQuery-Daten im Dashboard.
+"""
+    )
+
+# ============================================================================
+with st.expander("12b · Seiten & Sektionen im Detail"):
+    st.markdown(
+        """
+**Standort-Analyse (Einzelstandort, YoY)** – 17 Sektionen. Datumsbasis je Sektion:
+
+| # | Sektion | Basis |
+|---|---|---|
+| 1 | Landscape KPIs (Revenue, ADR, Occupancy, ALOS) + Monatstrend | Aufenthalt |
+| 2 | Pace by Month (OTB-Rekonstruktion zum Stichtag) | Aufenthalt (eigene As-of-Logik) |
+| 3 | Heatmap Channel × LOS | Aufenthalt |
+| 4 | Heatmap Channel × Reisezweck × LOS | Aufenthalt |
+| 5 | LOS-Revenue YoY | Aufenthalt |
+| 6 | Channel-Mix monatlich & YoY | Aufenthalt |
+| 7 | ALOS pro Channel | Aufenthalt |
+| 8 / 9 | Wochentag (Stay) / (Anreise) | Aufenthalt |
+| 10 | Gruppen-Größe | **Erstellung** |
+| 11 | Inland vs. Ausland | Aufenthalt (Herkunft, Kap. 10b) |
+| 12 | Top-Herkunftsländer | Aufenthalt (Herkunft, Kap. 10b) |
+| 13 | Vorlaufzeit & Storno-Risiko | **Erstellung** (eigene Storno-Logik) |
+| 14 | Daily Occupancy nach LOS | Aufenthalt |
+| 15 | Firmenkunden | **Erstellung** |
+| 16 | Direct Offline | **Erstellung** |
+| 17 | Top Vertragscodes | **Erstellung** |
+
+**Global Report (Portfolio)** – 8 Sektionen:
+
+| # | Sektion | Basis |
+|---|---|---|
+| 1 | Visual Scorecard (IST vs PLAN je Standort) | Aufenthalt + PLAN |
+| 2 | Pace by Month | Aufenthalt (As-of) |
+| 3.A/3.B | Performance / Channels **nach Erstellung** | **Erstellung** |
+| 4.A/4.B | Performance / Channels **nach Aufenthalt** (mit PLAN) | Aufenthalt |
+| 5 | IST vs PLAN · Pace-Fortschritt | Aufenthalt |
+| 6 | Channel-Mix Detail | Aufenthalt |
+| 7.A–7.D | Heatmaps (Standort×Monat, Channel×Standort, Top-Movers, Channel×LOS) | Aufenthalt |
+| 8 | **Stay × Creation (As-of)** + Download | Doppelfilter (Kap. 7) |
+
+**Weitere Seiten:** *Daten aktualisieren* (BigQuery-Refresh), *B2B Deep-Dive*
+(company_code / corporateCode / fuzzy-Firmen + Excel), *Code Deep-Dive* (eine Firma 360°),
+*Promo-Codes* (Promo→Firmencode-Reklassifizierung), *Plan-Upload*.
+
+**Querschnitt:** Der Sidebar-Toggle „Storno + No-Show einbeziehen" wirkt in allen
+„normalen" Sektionen (Default realized-only). Eigene Logik behalten: Pace (§2 beide
+Seiten), Storno-Risiko (Standort §13) und die As-of-Sicht (Global §8).
 """
     )
 
@@ -342,6 +529,6 @@ with st.expander("13 · Spalten-Glossar (Kurzreferenz)"):
 
 st.divider()
 st.caption(
-    "Stand: generiert aus dem aktuellen Code. Bei Logik-Änderungen (Filter, Spalten, "
+    "Stand: 30.06.2026 Bei Logik-Änderungen (Filter, Spalten, "
     "Engineering) diese Seite mit aktualisieren."
 )
