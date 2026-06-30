@@ -40,7 +40,7 @@ from revenueblindspots.refresh import refresh_plan, run_refresh
 
 # ============================== Page setup =================================
 st.set_page_config(
-    page_title="Daten aktualisieren · Stayery",
+    page_title="Daten aktualisieren",
     page_icon="🔄",
     layout="wide",
 )
@@ -64,7 +64,7 @@ def _clear_caches() -> None:
     """Analyse-Pages sehen sonst noch die alten Daten."""
     st.cache_data.clear()
     # WICHTIG: die Snapshot-Lader (Reservations/Timeslices) laufen über
-    # @st.cache_resource - das wird von cache_data.clear() NICHT geleert. Ohne
+    # @st.cache_resource - das wird von cache_data.clear() nicht geleert. Ohne
     # diese Zeile zeigen die Pages nach einem Refresh weiter den alten Snapshot.
     st.cache_resource.clear()
     for k in list(st.session_state.keys()):
@@ -96,7 +96,7 @@ if meta:
             f"{str(plan_meta.get('earliest', '?'))[:7]} → {str(plan_meta.get('latest', '?'))[:7]}"
         )
     else:
-        st.caption("Planzahlen: **noch nicht gezogen** - unten 'Nur Planzahlen aktualisieren'.")
+        st.caption("Planzahlen: **noch nicht gezogen**, unten 'Nur Planzahlen aktualisieren'.")
 else:
     alert_card(
         "Noch kein Snapshot vorhanden. Refresh unten starten um zu erstellen.",

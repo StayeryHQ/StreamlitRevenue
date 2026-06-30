@@ -131,8 +131,8 @@ def download_button(
     bucket = st.session_state.get(_bucket_key(page), [])
     if not bucket:
         st.caption(
-            "Noch keine Sektionen geladen - der Export bleibt leer. "
-            "Sektionen oben öffnen, dann hier zurückkommen."
+            "Noch keine Sektionen geladen. "
+            "Sektionen oben öffnen, dann zurückkommen."
         )
         return
 

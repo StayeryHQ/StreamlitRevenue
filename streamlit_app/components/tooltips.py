@@ -15,11 +15,10 @@ KPI_REVENUE = (
 )
 KPI_ADR = (
     "**ADR (Timeslice-Berechnung):** Revenue der Nächte im Filter-Fenster "
-    "÷ Anzahl Nächte IM Fenster. Datenquelle: `timeslices.parquet` "
+    "÷ Anzahl Nächte im Fenster."
     "(1 Zeile = 1 genutzte Nacht). \n\n"
     "Wenn eine 14-Nacht-Buchung nur 3 Nächte im Fenster hat, zählen "
-    "nur diese 3. Beide Werte stehen "
-    "unten im Expander *Berechnungs-Details* nebeneinander."
+    "nur diese 3."
 )
 KPI_OCCUPANCY = (
     "Anteil verkaufter Room-Nights an der Kapazität (Units × Periodentage). "
@@ -27,16 +26,15 @@ KPI_OCCUPANCY = (
 )
 KPI_ALOS = (
     "**ALOS:** ⌀ Booking-LOS aller "
-    "Reservationen die mind. 1 Nacht im Fenster haben - gemessen wird die "
-    "ganze Buchungs-Länge, nicht nur die Nächte im Fenster. Datenquelle: "
-    "`timeslices.parquet`, dedupliziert auf `id`, dann `mean(nights)`.\n\n"
+    "Reservationen die mind. 1 Nacht im Fenster haben. Gemessen wird die "
+    "ganze Buchungs-Länge, nicht nur die Nächte im Fenster. \n\n"
     "Alternative: window-saubere Variante steht unten im Expander "
     "*Berechnungs-Details* als 'ALOS (Timeslice)'."
 )
 
 # Global Report Exec-Summary KPIs
 KPI_GLOBAL_IST_STAY = (
-    "IST-Revenue nach Aufenthaltsdatum (realized only = Storno + No-Show raus). "
+    "IST-Revenue nach Stay-datum. "
     "Die Zahl mit der Plan werte verglichen werden."
 )
 KPI_GLOBAL_PLAN = (
@@ -44,14 +42,14 @@ KPI_GLOBAL_PLAN = (
     "Wenn kein Plan hinterlegt: 0 €."
 )
 KPI_GLOBAL_IST_OLD = (
-    "Vorjahres-IST im gleichen Aufenthaltsdatum-Zeitraum (realized only). "
+    "Vorjahres-IST im gleichen Stay-datum-Zeitraum (realized only). "
     "Delta-Pfeil = YoY-Veränderung."
 )
 KPI_GLOBAL_SALES = (
-    "Was wurde im Zeitraum tatsächlich gebucht (nach Erstellungs-Datum, inkl. "
-    "später stornierter). Netto-Revenue pro Nacht (Timeslices, ohne Services) - "
-    "gleiche Revenue-Basis wie die Aufenthalts-Sicht. Sales-Sicht: wie viel "
-    "Volumen wurde gewonnen, unabhängig davon ob Gäste anreisen oder stornieren."
+    "Was wurde im Zeitraum tatsächlich gebucht (nach Erstellungs-Datum)? "
+    "Netto-Revenue pro Nacht (ohne Services) - "
+    "gleiche Revenue-Basis wie die Stay-Sicht. Sales-Sicht: wie viel "
+    "Volumen wurde gewonnen durch erstellte Buchungen im Fenster."
 )
 
 KPI_LIFETIME_REVENUE = (
@@ -104,8 +102,7 @@ CHART_TOOLTIPS: dict[str, str] = {
         "**Rechts:** YoY-Vergleich pro Channel mit %-Veränderung als Label."
     ),
     "alos_channel": (
-        "⌀ Nächte je Buchung, granular pro Channel - wer bringt die langen "
-        "Aufenthalte (Corporate-Stays vs OTA-Kurztrips)."
+        "⌀ Nächte je Buchung, granular pro Channel"
     ),
     "weekday_stay": (
         "Revenue je Wochentag (gestapelt nach Channel-Gruppe), OLD vs NEW "
@@ -121,20 +118,18 @@ CHART_TOOLTIPS: dict[str, str] = {
         "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto · Counts = Buchungen."
     ),
     "de_intl": (
-        "DE vs International - drei Sichten: Revenue absolut, Anteil in %, "
+        "DE vs International: Revenue absolut, Anteil in %, "
         "Room-Nights (mit ADR als Annotation). ADR-Unterschied zeigt ob "
         "Internationale teurer/günstiger buchen."
     ),
     "top_countries": (
         "Top 10 Herkunftsländer nach Revenue. Gelb = Deutschland, Blau = Ausland. "
-        "OLD links, NEW rechts - neue Märkte werden sichtbar wenn Länder im "
-        "NEW-Panel auftauchen die im OLD nicht da waren."
+        "OLD links, NEW rechts"
     ),
     "leadtime": (
         "**Links:** Revenue pro Vorlaufzeit-Bucket (wie lange vor Anreise gebucht). "
         "n = Anzahl Buchungen.\n\n"
-        "**Rechts:** Realized vs Storniert pro Bucket - Risiko-Sicht: Werden "
-        "späte Buchungen häufiger storniert als frühe?\n\n"
+        "**Rechts:** Realized vs Storniert pro Bucket.\n\n"
         "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto · Counts = Buchungen "
         "(Vorlaufzeit = arrival − created)."
     ),
@@ -145,8 +140,7 @@ CHART_TOOLTIPS: dict[str, str] = {
     ),
     "corp_overview": (
         "**Links:** Firmen-Revenue vs Privat-Revenue (YoY in % darüber).\n\n"
-        "**Rechts:** Firmen-Revenue aufgesplittet nach Channel - sieht man "
-        "ob Direct-Offline-Firmen auf OTA gewechselt sind.\n\n"
+        "**Rechts:** Firmen-Revenue aufgesplittet nach Channel \n\n"
         "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto."
     ),
     "do_waterfall": (
@@ -161,7 +155,7 @@ CHART_TOOLTIPS: dict[str, str] = {
     "codes": (
         "Welche Vertragscodes (`corporateCode`, fallback auf apaleo "
         "`company_code` wo gepflegt) haben in der aktuellen Periode am meisten "
-        "Revenue gemacht. Reine OTA-Privatkunden ohne Code sind hier NICHT enthalten.\n\n"
+        "Revenue gemacht. Reine OTA-Privatkunden ohne Code sind hier nicht enthalten.\n\n"
         "**Filter:** Periode nach Erstellungsdatum (created) · Nacht-Netto."
     ),
     # Global Report
@@ -176,13 +170,12 @@ CHART_TOOLTIPS: dict[str, str] = {
     ),
     "perf_created": (
         "Performance pro Standort nach **Erstellungs-Datum** der Buchung. "
-        "Netto-Revenue pro Nacht (Timeslices), inkl. später stornierter. "
+        "Netto-Revenue pro Nacht (Timeslices).  "
         "KEIN PLAN-Vergleich (Plan ist immer auf Aufenthalt bezogen)."
     ),
     "chan_created": (
         "Channel-Volumen nach Erstellungs-Datum (Netto-Revenue pro Nacht, "
         "Timeslices) - wie verteilt sich das Sales-Volumen über die Channels. "
-        "Inkl. später stornierter Buchungen."
     ),
     "perf_stay": (
         "Performance pro Standort nach **Aufenthalts-Datum**. Nur realisierte "
@@ -195,11 +188,7 @@ CHART_TOOLTIPS: dict[str, str] = {
     "pace_plan": (
         "**Was du siehst:** je Standort die bisherige IST-Revenue der Periode, "
         "der PLAN-Wert, das Verhältnis IST/PLAN (%) und wie weit die Periode "
-        "zeitlich schon durch ist (Fortschritt Zeit %).\n\n"
-        "**Lese-Faustregel:** bei 30 % verstrichener Periode sind ~30 % vom "
-        "PLAN ein 'on-pace'-Signal. Deutlich weniger = hinterher, deutlich mehr "
-        "= voraus. Keine lineare Forecast-Hochrechnung mehr — die war für "
-        "Hospitality-Saisonalität ohnehin zu naiv."
+        "zeitlich schon durch ist (Fortschritt Zeit %)."
     ),
     "channel_detail": (
         "**Donuts:** Channel-Anteile am Total - OLD vs NEW nebeneinander.\n"
@@ -225,7 +214,7 @@ CHART_TOOLTIPS: dict[str, str] = {
         "wo wandert Volumen zwischen Channels und Aufenthaltsdauern."
     ),
     "stay_created": (
-        "**Doppelt gefilterte Sicht.** Hauptbasis = **Aufenthaltsdatum** "
+        "**Doppelt gefilterte Sicht.** Hauptbasis = **Stay-datum** "
         "(Stay-Fenster aus der Sidebar). Zusätzlich wird über den Filter direkt "
         "über der Tabelle nach **Erstellungsdatum** eingeschränkt - also "
         "Buchungen, die *im gewählten Buchungs-Fenster angelegt* wurden und "
@@ -233,7 +222,7 @@ CHART_TOOLTIPS: dict[str, str] = {
         "**Jahres-Spiegelung:** Das Creation-Fenster wird pro Vergleichsjahr "
         "verschoben (z.B. 1.–25.06.2026 ↔ 1.–25.06.2025), damit beide Jahre "
         "vergleichbar sind.\n\n"
-        "**Storno/No-Show — As-of (point-in-time):** Der Sidebar-Toggle greift "
+        "**Storno/No-Show - As-of (point-in-time):** Der Sidebar-Toggle greift "
         "hier wie beim Pace-Chart als **Stichtags-Sicht**, nicht über den "
         "finalen Status. Stichtag = **min(Fensterende, Snapshot)**, je Jahr "
         "gespiegelt.\n"
@@ -245,11 +234,7 @@ CHART_TOOLTIPS: dict[str, str] = {
         "stornierter und No-Shows.\n\n"
         "**Hinweis (Zukunfts-Stays):** Liegt das Stay-Fenster in der Zukunft des "
         "Snapshots, sind **No-Shows noch nicht bekannt** (der Aufenthalt war noch "
-        "nicht). **Stornierungen bis zum Stichtag zählen aber sehr wohl** - der "
-        "Toggle verändert die Zahl also um das Volumen der bis dahin schon "
-        "stornierten Buchungen; spätere Stornos bleiben in der As-of-Sicht außen "
-        "vor. Alle vier Sichten (Standort, Channel, Stay-Segment, Linien-Summe) "
-        "sind auf dieselbe Menge gerechnet und stimmen je Jahr aufsummiert überein."
+        "nicht)."
     ),
 }
 

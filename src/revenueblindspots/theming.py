@@ -110,8 +110,8 @@ def apply_stayery_style() -> None:
     cfg = load_brand_config()
     lookup = _color_lookup()
 
-    # Gebündelte Brand-Fonts bei matplotlib registrieren, damit die Charts die
-    # echten Stayery-Schriften nutzen (nicht den System-Default).
+    # Gebündelte Brand-Fonts bei matplotlib registrieren
+    # hab nicht ganz gecheckt wieso man das machen muss aber es funktioniert
     registered = _register_brand_fonts()
     primary = cfg["typography"]["primary"]
     # Brand-Primary zuerst, dann die übrigen registrierten Schnitte (z.B. der

@@ -138,10 +138,6 @@ def performance_by_stay(
     if raw.empty:
         return raw, raw
 
-    # Total über GENAU die übergebenen Standorte (= props_pick nach dem
-    # Späte-Öffner-Toggle der Seite). KEIN zweiter, versteckter has-both-Filter -
-    # sonst folgen die Kacheln (IST/PLAN/LY) dem Toggle nicht und ändern sich
-    # beim Ein-/Ausblenden später Öffner gar nicht.
     t_ist = raw["ist_new"].sum()
     t_plan = raw["plan_new"].sum()
     t_ly = raw["ist_old"].sum()
@@ -264,8 +260,7 @@ def performance_by_created(
     if raw.empty:
         return raw, raw
 
-    # Total über die übergebenen Standorte (props_pick nach Späte-Öffner-Toggle);
-    # kein separater has-both-Filter, damit der Toggle die Kacheln steuert.
+
     t_new = raw["ist_new"].sum()
     t_old = raw["ist_old"].sum()
     total = pd.DataFrame(
@@ -432,7 +427,7 @@ def _segment_label(seg: str) -> str:
 def _signed_eur(value: float) -> str:
     """Euro-String mit explizitem Vorzeichen für Delta-Spalten ('+1.234 €')."""
     if pd.isna(value):
-        return "-"
+        return "-" # weil egative schon vorzeihen haben
     return ("+" if value > 0 else "") + H.fmt_eur(value)
 
 
@@ -445,7 +440,7 @@ def _sc_volume_disp(
 ) -> pd.DataFrame:
     """Anzeige-Tabelle für die Stay×Creation-Volumen-Sichten (Channel + Segment).
 
-    Spalten-Reihenfolge (laut Product-Ownerin): Label · Revenue NEW · Revenue
+    Spalten-Reihenfolge: Label · Revenue NEW · Revenue
     OLD · Δ Revenue (€) · Δ Anteil (pp) · Tendenz. Erwartet ein ``raw`` mit den
     Spalten ``rev_new``, ``rev_old``, ``d_eur``, ``d_share_pp``, ``d_pct`` plus
     der Label-Spalte ``label_src``.
@@ -785,7 +780,7 @@ def purpose_daily_area_data(
     → Privat. Damit ist ``biz_* + priv_*`` deckungsgleich mit der
     Gesamt-Linie aus ``daily_created_line_data`` und mit den Tabellen-Totals.
 
-    HINWEIS für die Interpretation: Der Reisezweck ist oft erst nach Check-in
+    Hinweis für die Interpretation: Der Reisezweck ist oft erst nach Check-in
     sicher bekannt - je nach OTA ist es ein Pflichtfeld oder nicht. Unbekannte
     Reisezwecke landen hier (wie im restlichen Report) in ``Privat`` und können
     den Privat-Anteil leicht überzeichnen.

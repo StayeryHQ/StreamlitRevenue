@@ -49,7 +49,7 @@ def render_notepad(page: str | None = None) -> None:
         "</div>"
         '<div class="stayery-notepad-hint">'
         "Eigene Beobachtungen tippen oder per <strong>📋 In Notepad</strong>-Button "
-        "unter Sektionen befüllen. Wird mit dem Bericht exportiert."
+        "befüllen. Wird mit dem Bericht exportiert."
         "</div>",
         unsafe_allow_html=True,
     )
@@ -57,7 +57,7 @@ def render_notepad(page: str | None = None) -> None:
         "Notepad",
         key=inp,
         height=320,
-        placeholder="z.B. Mai-Peak verdankt Q3-Convention im Westend …",
+        placeholder="z.B. Mai-Peak verdankt …",
         label_visibility="collapsed",
         on_change=_sync,
     )

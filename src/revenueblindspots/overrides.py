@@ -1,17 +1,13 @@
 """Promo-Code-Reklassifizierung: Override-Store + Anwendung auf Buchungs-Frames.
 
-Marketing-Promocodes und echte Firmencodes landen bei Stayery teils im selben
+Marketing-Promocodes und echte Firmencodes landen teils im selben
 ``promoCode``-Feld. Dieses Modul erlaubt es, einzelne Promocodes als Firmencode
 zu *reklassifizieren*: betroffene Buchungen werden so behandelt, als trügen sie
 einen ``corporateCode`` (= effektiver Vertragscode). Damit tauchen sie in jeder
 Analyse (B2B Deep-Dive, Code Deep-Dive, Global Report) als Firmencode-Buchungen
-auf - ohne den Snapshot neu zu ziehen.
+auf.
 
 Persistenz: ``configs/code_overrides.json`` (stdlib-JSON, keine Extra-Dependency).
-
-ACHTUNG Deployment: Auf Streamlit Community Cloud ist das Filesystem flüchtig -
-die Datei überlebt einen Reboot nur, wenn sie ins Repo committet wird. Für
-genau diesen Fall bieten Export/Import der Liste in der Promo-Page Portabilität.
 """
 
 from __future__ import annotations
@@ -36,15 +32,13 @@ _NULLISH = {"", "nan", "none", "<na>", "null"}
 def _store_path() -> Path:
     """Pfad zum Override-Store.
 
-    Priorisierung (explizit schlägt Standard):
+    Priorisierung:
 
     1. Umgebungsvariable ``STAYERY_OVERRIDES_FILE`` - wenn gesetzt, gewinnt sie
        immer (nützlich für Tests / bewusste Verlagerung).
     2. Sonst der **Snapshot-/Volume-Ordner** neben den Parquets
-       (``find_snapshot_dir`` → im Docker das gemountete Volume ``/app/data``,
-       lokal ``<repo>/data``). So überlebt die Liste Neustart **und** Redeploy
-       genau wie ``reservations.parquet`` - statt im flüchtigen Image-Layer
-       (``configs/``) zu landen.
+       (``find_snapshot_dir`` - im Docker das gemountete Volume ``/app/data``,
+       lokal ``<repo>/data``).
     3. Letzte Rückfallebenen: lokaler ``data/``-Ordner, dann ``configs/``.
 
     Returns:

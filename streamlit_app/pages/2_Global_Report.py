@@ -1,4 +1,4 @@
-"""Global Report - Standortübergreifender Quartal-Recap (IST vs PLAN vs LY)."""
+"""Global Report"""
 
 from __future__ import annotations
 
@@ -40,7 +40,7 @@ from components.tooltips import (
 from revenueblindspots import helpers as H
 
 st.set_page_config(
-    page_title="Global Report · Stayery",
+    page_title="Global Report",
     page_icon="🌍",
     layout="wide",
 )
@@ -53,7 +53,7 @@ PAGE = "global"
 st.session_state["__page"] = PAGE
 
 hero(
-    eyebrow="Portfolio · Quartal-Recap",
+    eyebrow="Portfolio · Revenue-Recap",
     title="Global Report",
     subtitle="Standortübergreifend - IST vs. PLAN vs. Vorjahr, "
     "Pace-by-Month, Channel-Mix, Heatmaps.",
@@ -151,7 +151,7 @@ with st.sidebar:
             "Späte Öffner einbeziehen",
             value=False,
             key="global_include_late_openers",
-            help="Standorte deren Eröffnung NACH dem OLD-Periodenende liegt "
+            help="Standorte deren Eröffnung nach dem OLD-Periodenende liegt "
             "werden standardmäßig ausgeschlossen - sonst verfälschen "
             "0-€-Zeilen die Totale & YoY-Vergleiche. Aktivieren wenn "
             "du sie für eine reine NEW-Sicht trotzdem sehen willst.",
@@ -162,10 +162,9 @@ with st.sidebar:
             value=False,
             key="global_include_cancellations",
             help="Default: aus - alle KPIs/Tabellen sind realized-only "
-            "(Storno und No-Show fallen raus, sowohl in der Stay- als auch "
-            "in der Created-Sicht). Aktivieren → alle Buchungen zählen, "
+            "Aktivieren → alle Buchungen zählen, "
             "auch später stornierte und nicht-erschienene. Hinweis: in der "
-            "As-of-Sicht (§8) wirken BEIDE point-in-time - ein Storno zählt bis "
+            "As-of-Sicht (§8) wirken beide point-in-time - ein Storno zählt bis "
             "zum cancel_time, ein No-Show bis zur Anreise (erst dort wird das "
             "Nicht-Erscheinen bekannt).",
         )
@@ -216,15 +215,10 @@ def _ck(section_id: str) -> str:
 # ============================== Data load ==================================
 with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     pull_start, pull_end = H.union_period((start_old, end_old), (start_new, end_new))
-    # Pace-Chart braucht beide Jahre vollständig (Anreisen-Daten Jan-Dez)
     pace_pull_start = pd.Timestamp(f"{YEAR_OLD}-01-01")
     pace_pull_end = pd.Timestamp(f"{YEAR_NEW}-12-31")
     pull_start = min(pull_start, pace_pull_start)
     pull_end = max(pull_end, pace_pull_end)
-    # OHNE oberes serviceDate-Limit laden: die „nach Erstellungsdatum"-Sichten
-    # brauchen auch Forward-Bookings (Anreise weit in der Zukunft). ALLE
-    # Aufenthalts-Sichten (performance_by_stay, Heatmaps, Tabellen, pace) filtern
-    # `nightly` intern selbst nach stay_date/Stay-Jahr
     nightly = CD.get_timeslices(start=pull_start, end=None, properties=props_pick)
 
 reset_export(PAGE)
@@ -262,12 +256,7 @@ if _late_openers:
                 'einbeziehen" in der Sidebar aktivieren.'
             )
             st.stop()
-        # WICHTIG: auch das geladene `nightly` auf die gefilterte Liste
-        # reduzieren - sonst tauchen die Late-Openers in Heatmaps + anderen
-        # Aggregationen auf, die direkt aus `nightly` lesen statt
-        # `props_pick` zu respektieren.
         nightly = nightly[~nightly["property_code"].isin(_late_openers)]
-        # Recompute props_tag + cache key seed da Auswahl effektiv kleiner.
         props_tag = "+".join(sorted(props_pick)) if len(props_pick) < 11 else "all"
 
 # Warnung: NEW-Periode in der Zukunft.
@@ -358,8 +347,8 @@ _TOC = [
 render_toc(_TOC)
 
 st.caption(
-    "**Datenbasis & Filter:** alle €-Werte = Nacht-Netto (`baseAmount_netAmount`). "
-    "**§3** → **Erstellungsdatum** (created, Sales-Sicht inkl. Storno/No-Show). "
+    "**Datenbasis & Filter:** alle €-Werte = Stay-Date (`baseAmount_netAmount`). "
+    "**§3** → **Erstellungsdatum** (created, Sales-Sicht). "
     "**§4 + Heatmaps/§7** → **Aufenthalt** (serviceDate, realized, mit PLAN). "
     "**Pace** = OTB-Rekonstruktion am Snapshot-Stichtag. Storno/No-Show + späte "
     "Öffner via Sidebar-Toggle."
@@ -496,8 +485,7 @@ with section(
 # ===== 3 · Nach Erstellungsdatum ==========================================
 st.markdown("# 3 · Performance nach Erstellungsdatum")
 st.caption(
-    "Sales-Sicht: alles was im Zeitraum gebucht wurde, inkl. später stornierter. "
-    "Netto-Revenue pro Nacht (Timeslices), konsistent mit der Aufenthalts-Sicht."
+    "Sales-Sicht: alles was im Zeitraum gebucht wurde. "
 )
 
 
@@ -545,7 +533,7 @@ with section("3.B", "Buchungskanäle nach Erstellungsdatum"):
 
 # ===== 4 · Nach Aufenthaltsdatum ==========================================
 st.markdown("# 4 · Performance nach Aufenthaltsdatum")
-st.caption("Realized-Sicht: nur tatsächlich übernachtete Nächte. PLAN-Vergleich.")
+st.caption("PLAN-Vergleich.")
 
 
 with section(
@@ -632,7 +620,7 @@ if lazy_section(6, "Channel-Mix Detail", subtitle="Donut + horizontale Top-Bars 
         chart_help("channel_detail")
 # ===== 7 · Supporting Insights ============================================
 st.markdown("# 7 · Supporting Insights")
-st.caption("Heatmaps und Top-Movers. Realized-only.")
+st.caption("Heatmaps und Top-Movers.")
 
 
 if lazy_section("7.A", "Revenue-Heatmap Standort × Monat"):

@@ -2,7 +2,7 @@
 
 Genutzt von der Promo-Page und vom B2B-Deep-Dive: links eine Tabelle mit
 Einfach-Klick-Auswahl, rechts dieser kompakte 360°-Blick für die ausgewählte
-Zeile - ohne Seitenwechsel.
+Zeile.
 
 Die Layout-Logik (Tabelle full-size, bis etwas ausgewählt ist; danach Split)
 liegt bewusst in der jeweiligen Page - dieses Modul liefert nur den robusten
@@ -81,7 +81,7 @@ def compact_deepdive(
     cancel_rate = (n_cancelled / n_total * 100) if n_total else 0.0
     first_b, last_b = sub["arrival"].min(), sub["arrival"].max()
 
-    container.markdown(f"### 🔎 {label}")
+    container.markdown(f"### {label}")
     if caption:
         container.caption(caption)
 

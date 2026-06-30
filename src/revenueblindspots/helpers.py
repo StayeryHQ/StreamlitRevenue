@@ -1888,7 +1888,7 @@ def asof_on_the_books_mask(
 
     A row counts as on the books at the cutoff when it was already created
     (``created <= asof``) and - unless cancellations are included - had at that
-    date neither been cancelled nor resolved as a no-show. BOTH the cancellation
+    date neither been cancelled nor resolved as a no-show. Both the cancellation
     and the no-show test are applied **point-in-time**, each with its own
     resolution date:
 
@@ -1901,13 +1901,13 @@ def asof_on_the_books_mask(
       cutoff has reached the arrival day (``asof >= arrival``). A no-show row
       whose ``arrival`` is missing is treated as resolved and dropped.
 
-    Konsequenz (so gewollt): liegt das Erstellungs-Fenster komplett VOR dem
+    Konsequenz: liegt das Erstellungs-Fenster komplett vor dem
     Aufenthalts-Fenster (z.B. gebucht im Juni, Aufenthalt im Juli), ist
     ``asof < arrival`` für alle Zeilen - No-Shows zählen dann per Default mit,
     weil am Stichtag noch nicht bekannt war, dass der Gast nicht kommt.
     Überschneiden sich Erstellungs- und Aufenthalts-Fenster (z.B. beides im
-    Juli), werden früh gebuchte, mittlerweile abgereiste No-Shows als
-    aufgelöst erkannt und fallen - wie Stornos - aus der realized-Sicht.
+    Juli), werden früh gebuchte, No-Shows als
+    aufgelöst erkannt und fallen aus der realized-Sicht.
 
     Same convention as the Global-Report Storno/No-Show toggle, applied here
     point-in-time for both event types.
@@ -1944,9 +1944,7 @@ def asof_on_the_books_mask(
     else:
         cancel_still_on = ~cancelled
 
-    # --- No-Show point-in-time: aufgelöst am arrival (erst dort wird ein
-    # Nicht-Erscheinen bekannt). Bis arrival > asof bleibt die Buchung on-the-
-    # books, danach gilt sie als aufgelöster No-Show und fällt raus. ---
+    # --- No-Show point-in-time
     no_show = (
         df["is_no_show"].astype(bool)
         if "is_no_show" in df.columns

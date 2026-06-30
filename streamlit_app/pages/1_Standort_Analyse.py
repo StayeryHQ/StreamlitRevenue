@@ -41,7 +41,7 @@ from components.tooltips import (
 from revenueblindspots import helpers as H
 
 st.set_page_config(
-    page_title="Standort-Analyse · Stayery",
+    page_title="Standort-Analyse",
     page_icon="📍",
     layout="wide",
 )
@@ -54,10 +54,9 @@ PAGE = "standort"
 st.session_state["__page"] = PAGE
 
 hero(
-    eyebrow="Standort · Einzelblick",
+    eyebrow="Standort Deep Dive",
     title="Standort-Analyse",
-    subtitle="Tiefer Vergleich zwischen zwei Perioden für einen Standort - "
-    "Landscape-KPIs, Pace, Channels, Firmenkunden, Vertragscodes.",
+    subtitle="Tiefer Vergleich zwischen zwei Perioden für einen Standort",
 )
 
 
@@ -120,7 +119,7 @@ with st.sidebar:
     CD.cache_clear_button()
     st.caption(f"Snapshot vom **{str(meta.get('refreshed_at', '?'))[:10]}**")
 
-# Notepad in der Sidebar - sticky companion, exportiert mit dem Bericht
+# Notepad in der Sidebar
 render_notepad(PAGE)
 
 
@@ -152,8 +151,8 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     nightly = CD.get_timeslices(properties=[property_code])
 
     # Reservation-level Sektionen (Gruppen-Größe, Vorlaufzeit/Storno, Firmen-
-    # kunden, Vertragscodes) laufen auf der Nacht-Netto-Basis: nightly auf
-    # Buchungs-Ebene zurückfalten (revenue = Nacht-Netto je Buchung), nach
+    # kunden, Vertragscodes) laufen auf der Stay-Date-Basis: nightly auf
+    # Buchungs-Ebene zurückfalten (revenue = Stay-Date je Buchung), nach
     # `created` gebucketet ("nach Erstellungsdatum").
     _enriched = H.timeslices_are_enriched(nightly)
     if _enriched:
@@ -193,9 +192,9 @@ _TOC = [
 render_toc(_TOC)
 
 st.caption(
-    "**Datenbasis & Filter:** alle €-Werte = Nacht-Netto exkl. extra Services (`baseAmount_netAmount`). "
+    "**Datenbasis & Filter:** alle €-Werte = Staydate-Netto exkl. extra Services. "
     "**Aufenthalts-Sektionen** (KPIs, Pace, Channels, LOS, Wochentag, Inland/Ausland, "
-    "Länder, Occupancy) → **Aufenthalt** (stay date). **Reservation-Sektionen** "
+    "Länder, Occupancy) → **Aufenthalt**. **Reservation-Sektionen** "
     "(Gruppen-Größe, Vorlaufzeit/Storno, Firmenkunden, Direct-Offline, Vertragscodes) → "
     "**Erstellungsdatum** (created). Storno/No-Show via Sidebar-Toggle einstellbar."
 )
@@ -206,8 +205,7 @@ highlights = []
 
 days_old = H.period_days(start_old, end_old)
 days_new = H.period_days(start_new, end_new)
-# Storno/No-Show-Toggle aus der Sidebar - bestimmt realized_only-Flag für
-# die landscape_kpis (Revenue/ADR/Occ/ALOS). Default = realized-only.
+# Storno/No-Show-Toggle aus der Sidebar
 _include_cancellations = bool(st.session_state.get("standort_include_cancellations", False))
 _realized_only = not _include_cancellations
 _scope_caption = (
@@ -221,7 +219,7 @@ if not _enriched:
     alert_card(
         "Die Reservation-Sektionen (Gruppen-Größe, Vorlaufzeit/Storno, "
         "Firmenkunden, Vertragscodes) laufen noch auf der services-inklusiven "
-        "Reservations-Basis. Für die konsistente Nacht-Netto-Sicht nach "
+        "Reservations-Basis. Für die konsistente Stay-Date-Sicht nach "
         "Erstellungsdatum einmal Voll-Refresh ziehen (Daten aktualisieren).",
         kind="info",
     )
@@ -291,9 +289,9 @@ _open_str = f"{_opening:%d.%m.%Y}" if _opening else "(kein Eröffnungsdatum hint
 
 if not _open_old and not _open_new:
     alert_card(
-        f"**{LABEL}** wurde erst am **{_open_str}** eröffnet und war in **keiner** "
-        f"der beiden gewählten Perioden offen - für diesen Zeitraum gibt es noch "
-        f"keine Daten. Wähle in der Sidebar Perioden **nach** dem Eröffnungsdatum, "
+        f"{LABEL} wurde erst am {_open_str} eröffnet und war in keiner "
+        f"der beiden gewählten Perioden offen. Für diesen Zeitraum gibt es noch "
+        f"keine Daten. Wähle in der Sidebar Perioden nach dem Eröffnungsdatum, "
         f"dann läuft die Analyse.",
         kind="warning",
         title=f"{H.city(property_code)} war im gewählten Zeitraum noch nicht offen",
@@ -304,12 +302,12 @@ if not _open_old and not _open_new:
 # in der NEW-Periode aber schon (später Öffner - YoY nicht aussagekräftig).
 if not _open_old and _open_new:
     alert_card(
-        f"**{LABEL}** wurde erst am **{_open_str}** eröffnet - die Vergleichs-"
-        f"Periode (**{PERIOD_TAG_OLD}**) liegt davor. Die OLD-Werte sind daher 0 "
+        f"{LABEL} wurde erst am {_open_str} eröffnet. Fie Vergleichs-"
+        f"Periode ({PERIOD_TAG_OLD}) liegt davor. Die OLD-Werte sind daher 0 "
         f"und alle YoY-Vergleiche (Δ, Trend-Linien) sind für diesen Standort nicht "
-        f"aussagekräftig. Die NEW-Periode (**{PERIOD_TAG_NEW}**) wird normal "
+        f"aussagekräftig. Die NEW-Periode ({PERIOD_TAG_NEW}) wird normal "
         f"ausgewertet. Tipp: OLD auf einen Zeitraum nach Eröffnung setzen für einen "
-        f"echten Vergleich - oder standortübergreifend im Global Report schauen.",
+        f"echten Vergleich.",
         kind="warning",
         title="Vergleichs-Periode liegt vor der Eröffnung - YoY nicht aussagekräftig",
     )
@@ -644,7 +642,7 @@ if lazy_section(9, "Check-in-Pattern - Anreise"):
 
     chart_help("weekday_arr")
 # ===== 10 · Gruppen-Größe =================================================
-if lazy_section(10, "Gruppen-Größe", subtitle="nach Erstellungsdatum · Nacht-Netto"):
+if lazy_section(10, "Gruppen-Größe", subtitle="nach Erstellungsdatum · Stay-Date"):
     png = CD.chart_png(
         _ck("grp"), charts.group_size_yoy, res_old, res_new, YEAR_OLD, YEAR_NEW, LABEL
     )
@@ -686,7 +684,7 @@ if lazy_section(12, "Top-Herkunftsländer"):
 if lazy_section(
     13,
     "Vorlaufzeit & Storno-Risiko",
-    subtitle="nach Erstellungsdatum · Nacht-Netto · n = Anzahl Buchungen pro Bucket",
+    subtitle="nach Erstellungsdatum · Stay-Date · n = Anzahl Buchungen pro Bucket",
 ):
     png = CD.chart_png(
         _ck("leadtime"), charts.leadtime_storno, res_old, res_new, YEAR_OLD, YEAR_NEW, LABEL
@@ -738,7 +736,7 @@ if lazy_section(14, "Daily Occupancy nach LOS"):
 if lazy_section(
     15,
     "Firmenkunden - Überblick & Channel-Split",
-    subtitle="nach Erstellungsdatum · Nacht-Netto",
+    subtitle="nach Erstellungsdatum · Stay-Date",
 ):
     png = CD.chart_png(
         _ck("corp_ov"), charts.corporate_overview, res_old, res_new, YEAR_OLD, YEAR_NEW, LABEL
@@ -777,7 +775,7 @@ if lazy_section(
 if lazy_section(
     16,
     "Direct Offline - Detail-Segmente",
-    subtitle="nach Erstellungsdatum · Nacht-Netto",
+    subtitle="nach Erstellungsdatum · Stay-Date",
 ):
     st.markdown("""
 #### Wichtiger Unterschied zur Tabelle weiter oben
@@ -861,7 +859,7 @@ Sortiert wird nach Total New (Direct_Offline + Direct_Website + OTA zusammen).
 if lazy_section(
     17,
     "Top Vertragscodes (aktuelle Periode)",
-    subtitle="nach Erstellungsdatum · Nacht-Netto · welche `corporateCode` "
+    subtitle="nach Erstellungsdatum · Stay-Date · welche `corporateCode` "
     "haben am meisten Revenue generiert?",
 ):
     top_codes = charts.top_codes_in_period(res_new)

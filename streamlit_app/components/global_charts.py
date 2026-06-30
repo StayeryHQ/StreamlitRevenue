@@ -113,7 +113,7 @@ def visual_scorecard(
 # Channel-Mix Donuts
 # =============================================================================
 def channel_mix_donuts(raw_channel: pd.DataFrame, year_old: int, year_new: int):
-    """Zwei Donut-Charts nebeneinander - Anteil je Channel OLD vs NEW."""
+    """Anteil je Channel OLD vs NEW."""
     df = raw_channel[raw_channel["Channel"] != "Total"].copy()
     if df.empty:
         fig, ax = plt.subplots(figsize=(10, 3))
@@ -182,7 +182,7 @@ def channel_mix_donuts(raw_channel: pd.DataFrame, year_old: int, year_new: int):
 # Channel-Mix
 # =============================================================================
 def channel_mix_bars(raw_channel: pd.DataFrame, year_old: int, year_new: int, top_n: int = 8):
-    """Top-N Channel-Bars horizontal, OLD vs NEW, mit YoY-Δ als Label."""
+    """Top-N Channel horizontal, OLD vs NEW, mit YoY-Δ als Label."""
     df = raw_channel[raw_channel["Channel"] != "Total"].copy()
     if df.empty:
         fig, ax = plt.subplots(figsize=(10, 3))
@@ -805,10 +805,6 @@ def build_pace_table(
     today: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Sammelt IST vs PLAN + Zeit-Fortschritt je Standort + Gesamt-Zeile.
-
-    Kein Forecast (mehr) — nur die harten Fakten plus der Zeit-Fortschritt
-    der Periode (``elapsed_pct``), damit man IST/PLAN richtig einordnen kann
-    (bei 30 % verstrichener Zeit sind 30 % vom Plan = on-pace).
     """
     today = pd.Timestamp(today) if today is not None else pd.Timestamp.today().normalize()
 

@@ -62,7 +62,7 @@ def load_plan_cached(_snapshot_sig: str) -> pd.DataFrame:
 
 
 # Großer, unveränderlicher Snapshot: einmal je Snapshot-Signatur via
-# cache_resource in den Speicher (geteilt über ALLE Sessions, KEINE Kopie pro
+# cache_resource in den Speicher (geteilt über alle Sessions, keine Kopie pro
 # Cache-Hit). Gefiltert wird danach in-memory - kein wiederholter Disk-Read.
 @st.cache_resource(ttl=3600, show_spinner=False)
 def _raw_reservations(_snapshot_sig: str) -> pd.DataFrame:
@@ -74,9 +74,7 @@ def _raw_timeslices(_snapshot_sig: str) -> pd.DataFrame:
     return H.load_timeslices()
 
 
-# Reklassifizierung als BILLIGER Nachschritt auf der geladenen Basis: hängt am
-# Override-Signatur-Key, NICHT am teuren Disk-Read. Eine Reklassifizierung löst
-# damit keinen Parquet-Vollscan mehr aus, sondern nur dieses Re-Mappen.
+# Reklassifizierung als.
 @st.cache_resource(ttl=3600, show_spinner=False)
 def _overridden_reservations(_snapshot_sig: str, _override_sig: str) -> pd.DataFrame:
     return OV.apply_code_overrides(_raw_reservations(_snapshot_sig))
@@ -84,8 +82,7 @@ def _overridden_reservations(_snapshot_sig: str, _override_sig: str) -> pd.DataF
 
 @st.cache_resource(ttl=3600, show_spinner=False)
 def _overridden_timeslices(_snapshot_sig: str, _override_sig: str) -> pd.DataFrame:
-    # promoCode landet erst nach dem Refresh in den Timeslices; davor ist
-    # apply_code_overrides hier ein No-op (gibt das Frame unverändert zurück).
+    # promoCode landet erst nach dem Refresh in den Timeslices
     return OV.apply_code_overrides(_raw_timeslices(_snapshot_sig))
 
 
@@ -99,9 +96,9 @@ def _filter_frame(
     """In-Memory-Filter (Datum + Standorte) auf dem geteilten Snapshot.
 
     Identische Semantik wie der Disk-Filter ``helpers._read_parquet_with_filter``
-    (Kalendertag-normalisiert, ``property_code`` per ``isin``), aber OHNE den
-    Snapshot erneut von der Platte zu lesen und OHNE das geteilte (gecachte)
-    Frame zu verändern - zurück kommt nur eine gefilterte Kopie.
+    (Kalendertag-normalisiert, ``property_code`` per ``isin``), aber ohne den
+    Snapshot erneut von der Platte zu lesen und ohne das geteilte (gecachte)
+    Frame zu verändern
     """
     mask = pd.Series(True, index=df.index)
     if (start is not None or end is not None) and date_col in df.columns:
@@ -321,9 +318,7 @@ _PERSIST_KEY_PREFIXES: tuple[str, ...] = (
     "cd_",
     # Promo-Codes Sidebar
     "promo_",
-    # Notepad-Store (pro Page) - muss den Page-Wechsel überleben. Der Store-Key
-    # ist KEIN Widget-Key (das Textfeld notepad_input:: wird je Render frisch aus
-    # dem Store geseedet), darum re-touchen wir hier nur den Store.
+    # Notepad-Store
     "notepad_store::",
 )
 

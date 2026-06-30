@@ -3,7 +3,6 @@
 Wird aufgerufen von:
   * ``scripts/refresh_snapshot.py``  
   * ``streamlit_app/pages/0_Daten_Aktualisieren.py``
-  * potenzielle weitere Caller
   
 Caller-spezifische Unterschiede werden über zwei Parameter kontrolliert:
 
@@ -26,7 +25,7 @@ Drive-Scope an, der gcloud-ADC nutzt die beim Login erteilten Scopes:
              https://www.googleapis.com/auth/drive.readonly,\\
              https://www.googleapis.com/auth/cloud-platform
 
-        Might not work.
+        Might not work especially für planzahle
 """
 
 from __future__ import annotations
@@ -74,7 +73,7 @@ def get_bigquery_client():
 
     Service-Account-Key-Files fordern den Drive-Scope an (``_BQ_SCOPES``) - SAs
     unterliegen der User-Consent-Blockade nicht und können das Drive-Sheet hinter
-    ``ref_tables.plan`` lesen. Der lokale gcloud-ADC erzwingt KEINE Scopes sondern nutzt die
+    ``ref_tables.plan`` lesen. Der lokale gcloud-ADC erzwingt keine Scopes sondern nutzt die
     beim Login erteilten Scopes. Reservations/Timeslices brauchen nur BigQuery
     der Drive-backed Plan-Pull scheitert ohne Drive-Scope mit dem
     ``DRIVE_AUTH_HINT`` und wird im Voll-Refresh non-fatal behandelt.
