@@ -234,10 +234,10 @@ def de_international_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
     def agg(df):
         r = df[df["is_realized"]] if realized_only else df
-        if r.empty or "country_code" not in r.columns:
+        if r.empty or "origin" not in r.columns:
             return pd.DataFrame()
         r = r.copy()
-        r["bucket"] = np.where(r["country_code"].astype(str).str.upper() == "DE",
+        r["bucket"] = np.where(r["origin"].astype(str).str.upper() == "DE",
                                  "Deutschland", "International")
         out = r.groupby("bucket", observed=True).agg(
             revenue=("revenue", "sum"),
@@ -273,9 +273,9 @@ def top_countries_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
     def agg(df):
         r = df[df["is_realized"]] if realized_only else df
-        if r.empty or "country_code" not in r.columns:
+        if r.empty or "origin" not in r.columns:
             return pd.Series(dtype=float)
-        return r.groupby("country_code", observed=True)["revenue"].sum()
+        return r.groupby("origin", observed=True)["revenue"].sum()
 
     a, b = agg(nig_old), agg(nig_new)
     countries = (a.add(b, fill_value=0).sort_values(ascending=False).head(top_n).index.tolist())
