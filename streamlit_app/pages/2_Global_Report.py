@@ -272,6 +272,25 @@ if start_new > SNAP_DATE:
         title="NEW-Periode liegt in der Zukunft",
     )
 
+# Non-fatale Warnung: gewählte Periode reicht vor den Datenbestand des Snapshots
+# zurück (Lookback-Limit) - davor existieren keine Buchungen, Werte sind unvollständig.
+_data_start = H.snapshot_data_start(meta)
+if _data_start is not None:
+    _before = [
+        (lbl, s) for lbl, s in ((period_tag_old, start_old), (period_tag_new, start_new))
+        if s < _data_start
+    ]
+    if _before:
+        _txt = " · ".join(f"{lbl} beginnt {s:%d.%m.%Y}" for lbl, s in _before)
+        alert_card(
+            f"{_txt} - der Snapshot enthält aber erst Daten ab "
+            f"{_data_start:%d.%m.%Y}. Der Zeitraum davor ist leer, die Werte (v.a. "
+            f"Vorjahr) sind dadurch unvollständig bzw. zu niedrig. Für einen "
+            f"vollständigen Rückblick den Snapshot mit größerem Lookback neu ziehen.",
+            kind="warning",
+            title="Periode reicht vor den verfügbaren Datenbestand zurück",
+        )
+
 
 # ============================== Build recap data ==========================
 # Storno/No-Show-Toggle aus der Sidebar - bestimmt ob die Tabellen realized-only

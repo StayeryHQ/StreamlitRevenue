@@ -1959,6 +1959,25 @@ def asof_on_the_books_mask(
     return created_ok & cancel_still_on & no_show_still_on
 
 
+def snapshot_data_start(meta: "dict | None") -> "pd.Timestamp | None":
+    """Frühestes im Snapshot enthaltenes Aufenthalts-Datum (``serviceDate``).
+
+    Liest ``meta['timeslices']['earliest']`` - die Pull-Untergrenze des Snapshots
+    (lookback). Perioden, die davor beginnen, greifen auf nicht vorhandene Daten
+    zu; die €-Werte sind dort unvollständig bzw. 0. Gibt ``None`` zurück, wenn
+    sich kein Datum ermitteln lässt.
+    """
+    if not meta:
+        return None
+    earliest = (meta.get("timeslices") or {}).get("earliest")
+    if not earliest:
+        return None
+    try:
+        return pd.Timestamp(str(earliest)[:10]).normalize()
+    except (ValueError, TypeError):
+        return None
+
+
 def fmt_eur(value: float, decimals: int = 0) -> str:
     """Format a number as a German-style euro string, e.g. '1.234 €'."""
     if value is None or (isinstance(value, float) and np.isnan(value)):

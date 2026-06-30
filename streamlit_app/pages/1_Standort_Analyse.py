@@ -218,6 +218,23 @@ _scope_caption = (
 )
 st.caption(_scope_caption)
 
+# Non-fatale Warnung: gewählte Periode reicht vor den Datenbestand des Snapshots
+# zurück (Lookback-Limit) - davor existieren keine Buchungen, Werte sind unvollständig.
+_data_start = H.snapshot_data_start(meta)
+if _data_start is not None:
+    _before = [(lbl, s) for lbl, s in (("OLD", start_old), ("NEW", start_new)) if s < _data_start]
+    if _before:
+        _txt = " · ".join(f"{lbl} beginnt {s:%d.%m.%Y}" for lbl, s in _before)
+        alert_card(
+            f"{_txt} - der Snapshot enthält aber erst Daten ab "
+            f"{_data_start:%d.%m.%Y}. Der Zeitraum davor ist leer, die Werte sind "
+            f"dadurch unvollständig bzw. zu niedrig. Für einen vollständigen "
+            f"Rückblick den Snapshot mit größerem Lookback neu ziehen "
+            f"(Daten aktualisieren).",
+            kind="warning",
+            title="Periode reicht vor den verfügbaren Datenbestand zurück",
+        )
+
 if not _enriched:
     alert_card(
         "Die Reservation-Sektionen (Gruppen-Größe, Vorlaufzeit/Storno, "
