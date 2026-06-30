@@ -31,7 +31,7 @@ from components.export import register_section, reset_export
 from revenueblindspots import helpers as H
 
 st.set_page_config(
-    page_title="B2B Deep-Dive · Stayery",
+    page_title="B2B Deep-Dive",
     page_icon="🏢",
     layout="wide",
 )
@@ -44,9 +44,9 @@ PAGE = "b2b"
 st.session_state["__page"] = PAGE
 
 hero(
-    eyebrow="B2B · Outreach-Universe",
+    eyebrow="B2B · Analyse",
     title="Alle Codes & Firmen über die Historie",
-    subtitle="Zwei lange Tabellen für Sales: apaleo `corporateCode` und "
+    subtitle="Zwei Tabellen für Sales: apaleo `corporateCode` und "
     "fuzzy-geclusterte Firmen - inkl. Storno + No-Show. "
     "Multi-Sheet Excel-Export am Seitenende.",
 )

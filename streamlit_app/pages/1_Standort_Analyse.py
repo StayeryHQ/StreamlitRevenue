@@ -111,7 +111,7 @@ with st.sidebar:
             "zählen, auch später stornierte und no-shows. Vor allem bei Analyse nach Erstellungsdatum relevant.",
         )
 
-        st.form_submit_button("Perioden anwenden", use_container_width=True)
+        st.form_submit_button("Filter anwenden", use_container_width=True)
 
     st.divider()
     st.caption("Sektionen 6-17 laden erst auf Klick.")

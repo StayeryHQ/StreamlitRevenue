@@ -898,6 +898,90 @@ def purpose_booking_counts(
     return pd.DataFrame(rows)
 
 
+# ============================== §8 Excel-Export ============================
+_EXPORT_COLS = [
+    "vergleich", "id", "bookingId", "property_code", "status", "channel_combo",
+    "travelPurpose", "created", "cancel_time", "serviceDate", "arrival", "departure",
+    "naechte_buchung_gesamt", "naechte_im_stayfenster", "teilweise_im_stayfenster",
+    "revenue", "brutto_x1.07", "revenue_gross",
+    "is_realized", "is_cancelled", "is_no_show",
+    "storno_vor_stichtag", "storno_nach_stichtag",
+    "noshow_vor_stichtag", "noshow_nach_stichtag", "zaehlt_in_8A",
+]
+
+
+def stay_created_export_frames(
+    nightly: pd.DataFrame,
+    properties: list[str],
+    start_new: pd.Timestamp,
+    end_new: pd.Timestamp,
+    start_old: pd.Timestamp,
+    end_old: pd.Timestamp,
+    cre_start_new: pd.Timestamp,
+    cre_end_new: pd.Timestamp,
+    cre_start_old: pd.Timestamp,
+    cre_end_old: pd.Timestamp,
+    asof_new: pd.Timestamp,
+    asof_old: pd.Timestamp,
+    include_cancellations: bool,
+) -> dict[str, pd.DataFrame]:
+    """Baut die Roh-Timeslice-Frames für den §8-Excel-Download (eine Zeile/Nacht).
+
+    Vier Frames:
+      * ``Stay NEW (alle)`` / ``Stay OLD (alle)`` - alle Nächte mit Aufenthalt im
+        Stay-Fenster (KEIN Creation-Filter, KEINE As-of-Maske).
+      * ``Stay+Created NEW`` / ``Stay+Created OLD`` - zusätzlich auf das
+        Creation-Fenster eingeschränkt, mit Point-in-Time-Flags.
+
+    Flags (zum Selber-Filtern, nichts wird vorab weggefiltert):
+      * ``teilweise_im_stayfenster`` - die Buchung hat Nächte außerhalb des
+        Stay-Fensters (nur ein Teil der Buchung fällt rein).
+      * ``storno_vor/nach_stichtag`` - Storno (cancel_time) vor/nach As-of.
+      * ``noshow_vor/nach_stichtag`` - No-Show-Auflösung (arrival) vor/nach As-of.
+      * ``zaehlt_in_8A`` - was nach As-of + aktuellem Storno/No-Show-Toggle in
+        den §8-Tabellen tatsächlich zählt.
+    """
+    d = nightly[nightly["property_code"].isin(properties)]
+    total_nights = d.groupby("id")["revenue"].size()
+
+    def build(label, stay_s, stay_e, cre_s=None, cre_e=None, asof=None):
+        sub = H.filter_period(d, stay_s, stay_e, "stay_date")
+        if cre_s is not None:
+            sub = H.filter_period(sub, cre_s, cre_e, "created")
+        if sub.empty:
+            return pd.DataFrame(columns=_EXPORT_COLS)
+        sub = sub.copy()
+        sub["vergleich"] = label
+        sub["naechte_buchung_gesamt"] = sub["id"].map(total_nights).astype("Int64")
+        sub["naechte_im_stayfenster"] = sub.groupby("id")["revenue"].transform("size").astype("Int64")
+        sub["teilweise_im_stayfenster"] = (
+            sub["naechte_buchung_gesamt"] != sub["naechte_im_stayfenster"]
+        )
+        sub["brutto_x1.07"] = (sub["revenue"] * 1.07).round(2)
+        if asof is not None:
+            a = pd.Timestamp(asof).normalize()
+            ct = pd.to_datetime(sub["cancel_time"], errors="coerce").dt.normalize()
+            ar = pd.to_datetime(sub["arrival"], errors="coerce").dt.normalize()
+            canc = sub["is_cancelled"].astype(bool)
+            ns = sub["is_no_show"].astype(bool)
+            sub["storno_nach_stichtag"] = canc & ct.notna() & (ct > a)
+            sub["storno_vor_stichtag"] = canc & (~(ct.notna() & (ct > a)))
+            sub["noshow_nach_stichtag"] = ns & ar.notna() & (ar > a)
+            sub["noshow_vor_stichtag"] = ns & (~(ar.notna() & (ar > a)))
+            sub["zaehlt_in_8A"] = H.asof_on_the_books_mask(
+                sub, a, include_cancellations=include_cancellations
+            ).values
+        cols = [c for c in _EXPORT_COLS if c in sub.columns]
+        return sub[cols].sort_values(["bookingId", "id", "serviceDate"]).reset_index(drop=True)
+
+    return {
+        "1 Stay NEW (alle)": build("NEW", start_new, end_new),
+        "2 Stay OLD (alle)": build("OLD", start_old, end_old),
+        "3 Stay+Created NEW": build("NEW", start_new, end_new, cre_start_new, cre_end_new, asof_new),
+        "4 Stay+Created OLD": build("OLD", start_old, end_old, cre_start_old, cre_end_old, asof_old),
+    }
+
+
 # ============================== Automatische Alerts ========================
 def auto_alerts(
     raw_stay: pd.DataFrame,

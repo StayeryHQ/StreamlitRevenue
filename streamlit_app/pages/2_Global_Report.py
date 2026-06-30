@@ -206,13 +206,65 @@ props_tag = "+".join(sorted(props_pick)) if len(props_pick) < 11 else "all"
 
 
 def _ck(section_id: str) -> str:
-    # WICHTIG: Storno/No-Show-Toggle MUSS im Cache-Key stehen, sonst liefern die
+    # WICHTIG: Storno/No-Show-Toggle muss im Cache-Key stehen, sonst liefern die
     # gecachten Chart-PNGs beim Umschalten den alten (realized-only) Stand.
     _c = int(bool(st.session_state.get("global_include_cancellations", False)))
     return (
         f"glb::{SNAP_TAG}::{props_tag}::{start_old.date()}::{end_old.date()}"
         f"::{start_new.date()}::{end_new.date()}::c{_c}::{section_id}"
     )
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
+def _sc_export_xlsx(
+    key: str, _nightly, _props,
+    _sN, _eN, _sO, _eO, _csN, _ceN, _csO, _ceO, _asN, _asO, _incl,
+) -> bytes:
+    """Baut die §8-Export-Excel (Bytes). ``key`` steuert den Cache; die großen
+    Argumente (``_nightly`` etc.) sind underscore-prefixed → werden nicht gehasht."""
+    import io
+
+    from openpyxl.styles import Font
+    from openpyxl.utils import get_column_letter
+
+    frames = GT.stay_created_export_frames(
+        _nightly, _props, _sN, _eN, _sO, _eO, _csN, _ceN, _csO, _ceO, _asN, _asO, _incl
+    )
+    info = pd.DataFrame(
+        {
+            "Sheet / Flag": [
+                "1 Stay NEW (alle)", "2 Stay OLD (alle)",
+                "3 Stay+Created NEW", "4 Stay+Created OLD",
+                "teilweise_im_stayfenster", "storno_vor/nach_stichtag",
+                "noshow_vor/nach_stichtag", "zaehlt_in_8A", "revenue", "brutto_x1.07",
+            ],
+            "Bedeutung": [
+                "Alle Nächte mit Aufenthalt im Stay-Fenster (aktuelles Jahr) - ohne Creation-/As-of-Filter.",
+                "Wie 1, gespiegeltes Vorjahr (OLD).",
+                "Wie 1, zusätzlich auf das Erstellungs-Fenster eingeschränkt - mit Point-in-Time-Flags.",
+                "Wie 3, gespiegeltes Vorjahr (OLD).",
+                "WAHR = die Buchung hat Nächte außerhalb des Stay-Fensters (nur ein Teil fällt rein).",
+                "Storno (cancel_time) nach bzw. am/vor dem As-of-Stichtag.",
+                "No-Show wird am arrival aufgelöst - nach bzw. am/vor dem Stichtag.",
+                "WAHR = zählt in den §8-Tabellen (nach As-of + aktuellem Storno/No-Show-Toggle).",
+                "Nacht-Netto (baseAmount_netAmount) - ohne Services/Extras.",
+                "Brutto = Netto × 1,07 (nur Übernachtung; Frühstück/Parkplatz NICHT enthalten).",
+            ],
+        }
+    )
+    bio = io.BytesIO()
+    with pd.ExcelWriter(bio, engine="openpyxl", datetime_format="YYYY-MM-DD HH:MM") as xw:
+        info.to_excel(xw, sheet_name="0 Info", index=False)
+        for name, df in frames.items():
+            out = df if len(df) else pd.DataFrame({"Hinweis": ["keine Daten in diesem Fenster"]})
+            out.to_excel(xw, sheet_name=name, index=False)
+        for ws in xw.book.worksheets:
+            ws.freeze_panes = "A2"
+            ws.auto_filter.ref = ws.dimensions
+            for i in range(1, ws.max_column + 1):
+                ws.cell(row=1, column=i).font = Font(bold=True)
+                ws.column_dimensions[get_column_letter(i)].width = 17
+    return bio.getvalue()
 
 
 # ============================== Data load ==================================
@@ -780,22 +832,20 @@ with section(
     description=(
         "**Doppelt gefiltert:** Hauptmenge sind die Buchungen mit **Aufenthalt im "
         "Stay-Fenster** (Sidebar). Der Filter unten schränkt zusätzlich auf ein "
-        "**Erstellungs-Fenster** ein - je Vergleichsjahr gespiegelt, damit beide "
+        "**Erstellungs-Fenster** ein. Das ist je Vergleichsjahr gespiegelt, damit beide "
         "Jahre vergleichbar sind. Der Sidebar-Toggle **Storno + No-Show** wirkt "
         "hier **point-in-time** (Stand Stichtag), nicht über den finalen Status. "
         "**Storno** zählt bis zum cancel_time, **No-Show** bis zur **Anreise** - "
         "erst am Anreisetag ist das Nicht-Erscheinen bekannt. Praktische Folge: "
-        "liegt das Erstellungs-Fenster ganz VOR dem Aufenthalt (z.B. gebucht im "
-        "Juni, Aufenthalt im Juli), zählen No-Shows per Default mit; überschneiden "
+        "liegt das Erstellungs-Fenster ganz vor dem Aufenthalt, "
+        "zählen No-Shows per Default mit; überschneiden "
         "sich beide Fenster, fallen bereits bekannte No-Shows wie Stornos raus."
     ),
 ):
     with st.form("glb_sc_form", clear_on_submit=False, border=True):
-        st.markdown("**Erstellungsdatum-Filter** — nur **Monat + Tag** (gilt für BEIDE Jahre)")
+        st.markdown("**Erstellungsdatum-Filter** (gilt für beide Jahre)")
         st.caption(
-            "Bewusst **ohne Jahr**: das Fenster wird auf das aktuelle Jahr UND das "
-            "Vorjahr gespiegelt angewandt - ein fixes Jahr wäre beim Jahr-zu-Jahr-"
-            "Vergleich irreführend. Es gilt zusätzlich zum Stay-Fenster aus der "
+            " Gilt zusätzlich zum Stay-Fenster aus der "
             "Sidebar. ⚠️ Die Liniengrafik **8.D** ist ausschließlich für "
             "**Jahr-zu-Jahr-Vergleiche** gedacht."
         )
@@ -828,11 +878,11 @@ with section(
             )
         st.caption(
             "ℹ️ **Storno/No-Show** steuerst du über den Sidebar-Toggle "
-            '**„Storno + No-Show einbeziehen"** - hier greift er als **As-of-Sicht**: '
+            '**„Storno + No-Show einbeziehen"** - wenn aus zählt die **As-of-Sicht**: '
             "Stornos *nach* dem Stichtag zählen noch mit; ein No-Show gilt erst ab "
-            "der **Anreise** als aufgelöst (davor zählt er mit). Der wirksame "
-            "As-of-Stichtag ist min(Fensterende, Snapshot) - es wird nie in die "
-            "Zukunft des Snapshots geschaut."
+            "der **Anreise** als aufgelöst (davor zählt er mit egal ob der Filter an oder aus ist). " \
+            "Der wirksame As-of-Stichtag ist min(Fensterende, Snapshot)." \
+            "Wenn der Filter an ist, werden auch Buchungen inkludiert die später storniert haben."
         )
         st.form_submit_button("Analyse aktualisieren", use_container_width=True)
 
@@ -1166,6 +1216,31 @@ with section(
                     table_df=_sc_count_exp["table"],
                     page=PAGE,
                 )
+
+            # 8.G · Roh-Download aller Timeslices dieser §8-Sicht (zum Selber-Filtern).
+            st.markdown(
+                "**8.G · Download** alle Timeslices dieser Sicht als Excel "
+                "(eine Zeile je Nacht). 4 Tabellenblätter + Info: Stay-Fenster (NEW/OLD) "
+                "und zusätzlich Creation-gefiltert (NEW/OLD), inkl. Flags "
+                "(teilweise im Stay-Fenster, Storno/No-Show vor/nach Stichtag, zählt in 8.A)."
+            )
+            _sc_xls_key = _ck(
+                f"sc_export::{cre_start_new.date()}::{cre_end_new.date()}"
+                f"::{asof_new.date()}::{asof_old.date()}"
+            )
+            _sc_xls = _sc_export_xlsx(
+                _sc_xls_key, nightly, props_pick,
+                start_new, end_new, start_old, end_old,
+                cre_start_new, cre_end_new, cre_start_old, cre_end_old,
+                asof_new, asof_old, _include_cancellations,
+            )
+            st.download_button(
+                "Excel Download",
+                data=_sc_xls,
+                file_name=f"global_stay_created_{start_new:%Y%m%d}_vs_{start_old:%Y%m%d}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+            )
 
     chart_help("stay_created")
 
