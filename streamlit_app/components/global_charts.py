@@ -666,7 +666,7 @@ def purpose_composition_area_chart(
     Y-Achse**, damit die absoluten Revenue-Niveaus direkt vergleichbar sind.
     In jedem Panel ist das Revenue je Erstellungs-Tag in Business (unten) und
     Privat (oben) gestapelt - die Flächenhöhe zeigt die absolute Entwicklung,
-    der Titel je Panel nennt Σ-Total und den Business/Privat-Anteil (in %).
+    der Titel je Panel nennt die Summe und den Business/Privat-Anteil (in %).
 
     Erwartet ``area_df`` aus ``global_tables.purpose_daily_area_data`` mit den
     Spalten ``offset``, ``date_new``, ``biz_new``, ``priv_new``, ``biz_old``,
@@ -702,7 +702,7 @@ def purpose_composition_area_chart(
         sh_biz = (biz_sum / tot * 100) if tot > 0 else 0.0
         sh_priv = (priv_sum / tot * 100) if tot > 0 else 0.0
         ax.set_title(
-            f"{yr} · Σ {H.fmt_eur(tot)}\n"
+            f"{yr} · Summe {H.fmt_eur(tot)}\n"
             f"Business {sh_biz:.0f}% ({H.fmt_eur(biz_sum)}) · "
             f"Privat {sh_priv:.0f}% ({H.fmt_eur(priv_sum)})",
             fontsize=10.5, weight="bold",
@@ -788,8 +788,8 @@ def purpose_booking_count_chart(
     ax.set_ylim(0, max(float(n_old.max(initial=0)), float(n_new.max(initial=0))) * 1.18 + 1)
     tot_old, tot_new = int(n_old.sum()), int(n_new.sum())
     handles = [
-        Patch(facecolor=c_new, label=f"{year_new} · Σ {tot_new:,}".replace(",", ".")),
-        Patch(facecolor=c_old, label=f"{year_old} · Σ {tot_old:,}".replace(",", ".")),
+        Patch(facecolor=c_new, label=f"{year_new} · Summe {tot_new:,}".replace(",", ".")),
+        Patch(facecolor=c_old, label=f"{year_old} · Summe {tot_old:,}".replace(",", ".")),
     ]
     ax.legend(handles=handles, frameon=False, fontsize=9, loc="upper left")
     ax.set_title(

@@ -106,7 +106,7 @@ with st.sidebar:
             "Storno + No-Show einbeziehen",
             value=False,
             key="standort_include_cancellations",
-            help="Default: aus - alle KPIs sind realized-only "
+            help="Default: aus - alle KPIs, Tabellen und Charts sind realized-only "
             "(Storno und No-Show fallen raus). Aktivieren → alle Buchungen "
             "zählen, auch später stornierte und no-shows. Vor allem bei Analyse nach Erstellungsdatum relevant.",
         )
@@ -334,7 +334,8 @@ with section(
     1,
     "Landscape KPIs",
     subtitle=f"{LABEL} · {PERIOD_TAG_OLD} vs {PERIOD_TAG_NEW}",
-    description="Headline-KPIs (Realized-Sicht: Storno + No-Show ausgeschlossen).",
+    description="Headline-KPIs - folgen dem Storno/No-Show-Toggle (Default: realized, "
+    "d.h. Storno + No-Show ausgeschlossen).",
 ):
     _plan_active = CD.get_active_plan()
     plan_new_eur = H.plan_revenue(property_code, start_new, end_new, plan=_plan_active)
@@ -469,7 +470,7 @@ with section(
                 "ADR (€)",
                 "Occupancy (%)",
                 "ALOS (Nächte)",
-                "Realized Bookings",
+                "Buchungen",
             ],
             f"{YEAR_OLD}": [
                 H.fmt_eur(kpi_old["revenue_eur"]),

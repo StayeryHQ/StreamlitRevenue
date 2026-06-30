@@ -114,10 +114,15 @@ def landscape_kpis_chart(kpi_o, kpi_n, monthly_o, monthly_n, year_old, year_new,
         ("Revenue", "revenue_eur", "{:,.0f} €"),
         ("ALOS", "alos_nights", "{:.2f} N."),
     ]
-    months_n = sorted(monthly_n["stay_year_month"].tolist())
-    months_o = sorted(monthly_o["stay_year_month"].tolist())
-    de_lab = [_DE_MONTH.get(m.split("-")[1], m) for m in months_n]
-    x = np.arange(len(months_n))
+    # YoY-Overlay nach Monat-des-Jahres ausrichten. OLD und NEW können
+    # unterschiedlich viele Monate mit Daten haben (z.B. NEW noch früh im Jahr) -
+    # dann hätten zwei separate Achsen unterschiedliche Längen und ax.plot würde
+    # crashen. Gemeinsame Achse = Vereinigung der Monatsnummern (01-12).
+    _mn = {m.split("-")[1]: m for m in sorted(monthly_n["stay_year_month"].tolist())}
+    _mo = {m.split("-")[1]: m for m in sorted(monthly_o["stay_year_month"].tolist())}
+    months_axis = sorted(set(_mn) | set(_mo))
+    de_lab = [_DE_MONTH.get(mm, mm) for mm in months_axis]
+    x = np.arange(len(months_axis))
 
     for ax, (title, key, fmt) in zip(axes, panels):
         vo, vn = kpi_o[key], kpi_n[key]
@@ -150,8 +155,14 @@ def landscape_kpis_chart(kpi_o, kpi_n, monthly_o, monthly_n, year_old, year_new,
             fontsize=10,
             color="#666666",
         )
-        s_o = monthly_o.set_index("stay_year_month")[key].reindex(months_o)
-        s_n = monthly_n.set_index("stay_year_month")[key].reindex(months_n)
+        _so = monthly_o.set_index("stay_year_month")[key]
+        _sn = monthly_n.set_index("stay_year_month")[key]
+        s_o = pd.Series(
+            [_so.get(_mo[mm]) if mm in _mo else np.nan for mm in months_axis], dtype="float64"
+        )
+        s_n = pd.Series(
+            [_sn.get(_mn[mm]) if mm in _mn else np.nan for mm in months_axis], dtype="float64"
+        )
         ax.plot(x, s_o.values, marker="o", color=pal[1], label=str(year_old))
         ax.plot(x, s_n.values, marker="o", color=pal[0], label=str(year_new))
         ax.set_xticks(x)

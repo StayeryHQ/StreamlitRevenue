@@ -352,7 +352,7 @@ render_toc(_TOC)
 st.caption(
     "**Datenbasis & Filter:** alle €-Werte = Stay-Date (`baseAmount_netAmount`). "
     "**§3** → **Erstellungsdatum** (created, Sales-Sicht). "
-    "**§4 + Heatmaps/§7** → **Aufenthalt** (serviceDate, realized, mit PLAN). "
+    "**§4 + Heatmaps/§7** → **Aufenthalt** (serviceDate, §4 mit PLAN). "
     "**Pace** = OTB-Rekonstruktion am Snapshot-Stichtag. Storno/No-Show + späte "
     "Öffner via Sidebar-Toggle."
 )
@@ -768,7 +768,7 @@ with section(
         "erst am Anreisetag ist das Nicht-Erscheinen bekannt. Praktische Folge: "
         "liegt das Erstellungs-Fenster ganz VOR dem Aufenthalt (z.B. gebucht im "
         "Juni, Aufenthalt im Juli), zählen No-Shows per Default mit; überschneiden "
-        "sich beide Fenster, fallen bereits abgereiste No-Shows wie Stornos raus."
+        "sich beide Fenster, fallen bereits bekannte No-Shows wie Stornos raus."
     ),
 ):
     with st.form("glb_sc_form", clear_on_submit=False, border=True):

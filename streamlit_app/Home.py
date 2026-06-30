@@ -70,7 +70,7 @@ with cols[0]:
         """
         ### Daten aktualisieren
         Daten aus BigQuery ziehen, engineered + fuzzy-clustern, als Parquet
-        speichern. **Voraussetzung für alle anderen Pages. Von Admin durchgeführt.**
+        speichern. **Voraussetzung für alle anderen Pages.**
         """
     )
     st.page_link("pages/0_Daten_Aktualisieren.py", label="→ Daten Aktualisieren")

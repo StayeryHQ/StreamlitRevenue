@@ -1158,7 +1158,7 @@ def pace_to_plan(
     end: pd.Timestamp,
     today: pd.Timestamp | None = None,
 ) -> dict[str, float | str]:
-    """Zeit-Fortschritt der Periode - KEIN Forecast.
+    """Zeit-Fortschritt der Periode
 
     Returns:
         ``days_elapsed``, ``days_total``, ``elapsed_pct``,

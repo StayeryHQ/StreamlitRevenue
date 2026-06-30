@@ -9,6 +9,7 @@ Vier Stile:
 
 from __future__ import annotations
 
+import re
 import sys
 from pathlib import Path
 
@@ -39,21 +40,42 @@ _STYLES = {
 }
 
 
+def _strip_markup(text: str) -> str:
+    """Entfernt Markdown-Sonderzeichen aus Alert-Texten (kein Fett/Kursiv).
+
+    Die Box wird als rohes HTML gerendert (``unsafe_allow_html``), darin greift
+    Streamlits Markdown NICHT - ``**fett**`` / ``_kursiv_`` erschienen sonst
+    wörtlich als Sternchen/Unterstriche. Wir wollen kein Fett/Kursiv, sondern die
+    Zeichen einfach weg:
+
+      * ``**x**`` → ``x``
+      * ``_x_``  → ``x`` - aber NUR an Wortgrenzen, damit ``snake_case``
+        (``cancel_time``, ``baseAmount_netAmount``, ``is_realized`` …) erhalten bleibt.
+    """
+    if not text:
+        return text
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+    s = re.sub(r"(?<![A-Za-z0-9_])_(?=\S)([^_]+?)(?<=\S)_(?![A-Za-z0-9_])", r"\1", s)
+    return s
+
+
 def alert_card(message: str, kind: str = "info", *, title: str | None = None) -> None:
     """Render a coloured highlight box.
 
     Args:
-        message: text body of the alert (plain string or markdown).
+        message: text body of the alert. Markdown-Sonderzeichen (``**``/``_``)
+            werden entfernt (siehe ``_strip_markup``), Variablen-Unterstriche
+            bleiben erhalten.
         kind: one of 'alert', 'warning', 'info', 'success'.
         title: optional bold title above the body.
     """
     bg, fg, icon = _STYLES.get(kind, _STYLES["info"])
     title_html = (
-        f'<div style="font-weight:700;margin-bottom:4px;">{icon} {title}</div>'
+        f'<div style="font-weight:700;margin-bottom:4px;">{icon} {_strip_markup(title)}</div>'
         if title
         else f'<span style="font-weight:700;margin-right:6px;">{icon}</span>'
     )
-    body = message.replace("\n", "<br>")
+    body = _strip_markup(message).replace("\n", "<br>")
     st.markdown(
         f'<div style="background:{bg};border-left:4px solid {fg};'
         f"color:#000000;padding:10px 14px;border-radius:4px;margin:6px 0;"
