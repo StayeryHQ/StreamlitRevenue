@@ -79,6 +79,15 @@ with st.sidebar:
 
     all_props = meta.get("properties") or H.all_properties()
 
+    _today = pd.Timestamp.today().normalize()
+    _current_year = int(_today.year)
+    _current_quarter = ((int(_today.month) - 1) // 3) + 1
+    _previous_year = _current_year - 1
+    _current_quarter_start, _current_quarter_end = _quarter_bounds(_current_year, _current_quarter)
+    _previous_quarter_start, _previous_quarter_end = _quarter_bounds(
+        _previous_year, _current_quarter
+    )
+
     # `key=` ist nötig damit Filter bei Tab-Wechsel erhalten bleiben.
     props_pick = st.multiselect(
         "Standorte",
@@ -96,21 +105,31 @@ with st.sidebar:
                     "Jahr (aktuell)",
                     min_value=2018,
                     max_value=2035,
-                    value=2026,
+                    value=_current_year,
                     step=1,
                     key="global_y_new",
                 )
-                q_new = st.selectbox("Quartal", [1, 2, 3, 4], index=2, key="q_new")
+                q_new = st.selectbox(
+                    "Quartal",
+                    [1, 2, 3, 4],
+                    index=_current_quarter - 1,
+                    key="q_new",
+                )
             with c2:
                 y_old = st.number_input(
                     "Jahr (Vergleich)",
                     min_value=2018,
                     max_value=2035,
-                    value=2025,
+                    value=_previous_year,
                     step=1,
                     key="global_y_old",
                 )
-                q_old = st.selectbox("Quartal", [1, 2, 3, 4], index=2, key="q_old")
+                q_old = st.selectbox(
+                    "Quartal",
+                    [1, 2, 3, 4],
+                    index=_current_quarter - 1,
+                    key="q_old",
+                )
             start_new, end_new = _quarter_bounds(int(y_new), int(q_new))
             start_old, end_old = _quarter_bounds(int(y_old), int(q_old))
             period_tag_new = f"Q{q_new} {y_new}"
@@ -119,12 +138,28 @@ with st.sidebar:
             c1, c2 = st.columns(2)
             with c1:
                 st.caption("OLD")
-                so = st.date_input("Start", value=pd.Timestamp("2025-07-01").date(), key="go_start")
-                eo = st.date_input("Ende", value=pd.Timestamp("2025-09-30").date(), key="go_end")
+                so = st.date_input(
+                    "Start",
+                    value=_previous_quarter_start.date(),
+                    key="go_start",
+                )
+                eo = st.date_input(
+                    "Ende",
+                    value=_previous_quarter_end.date(),
+                    key="go_end",
+                )
             with c2:
                 st.caption("NEW")
-                sn = st.date_input("Start", value=pd.Timestamp("2026-07-01").date(), key="gn_start")
-                en = st.date_input("Ende", value=pd.Timestamp("2026-09-30").date(), key="gn_end")
+                sn = st.date_input(
+                    "Start",
+                    value=_current_quarter_start.date(),
+                    key="gn_start",
+                )
+                en = st.date_input(
+                    "Ende",
+                    value=_current_quarter_end.date(),
+                    key="gn_end",
+                )
             start_old, end_old = pd.Timestamp(so), pd.Timestamp(eo)
             start_new, end_new = pd.Timestamp(sn), pd.Timestamp(en)
             period_tag_new = f"{start_new:%d.%m.%Y}–{end_new:%d.%m.%Y}"
@@ -217,8 +252,20 @@ def _ck(section_id: str) -> str:
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
 def _sc_export_xlsx(
-    key: str, _nightly, _props,
-    _sN, _eN, _sO, _eO, _csN, _ceN, _csO, _ceO, _asN, _asO, _incl,
+    key: str,
+    _nightly,
+    _props,
+    _sN,
+    _eN,
+    _sO,
+    _eO,
+    _csN,
+    _ceN,
+    _csO,
+    _ceO,
+    _asN,
+    _asO,
+    _incl,
 ) -> bytes:
     """Baut die §8-Export-Excel (Bytes). ``key`` steuert den Cache; die großen
     Argumente (``_nightly`` etc.) sind underscore-prefixed → werden nicht gehasht."""
@@ -233,10 +280,16 @@ def _sc_export_xlsx(
     info = pd.DataFrame(
         {
             "Sheet / Flag": [
-                "1 Stay NEW (alle)", "2 Stay OLD (alle)",
-                "3 Stay+Created NEW", "4 Stay+Created OLD",
-                "teilweise_im_stayfenster", "storno_vor/nach_stichtag",
-                "noshow_vor/nach_stichtag", "zaehlt_in_8A", "revenue", "brutto_x1.07",
+                "1 Stay NEW (alle)",
+                "2 Stay OLD (alle)",
+                "3 Stay+Created NEW",
+                "4 Stay+Created OLD",
+                "teilweise_im_stayfenster",
+                "storno_vor/nach_stichtag",
+                "noshow_vor/nach_stichtag",
+                "zaehlt_in_8A",
+                "revenue",
+                "brutto_x1.07",
             ],
             "Bedeutung": [
                 "Alle Nächte mit Aufenthalt im Stay-Fenster (aktuelles Jahr) - ohne Creation-/As-of-Filter.",
@@ -329,7 +382,8 @@ if start_new > SNAP_DATE:
 _data_start = H.snapshot_data_start(meta)
 if _data_start is not None:
     _before = [
-        (lbl, s) for lbl, s in ((period_tag_old, start_old), (period_tag_new, start_new))
+        (lbl, s)
+        for lbl, s in ((period_tag_old, start_old), (period_tag_new, start_new))
         if s < _data_start
     ]
     if _before:
@@ -558,9 +612,7 @@ with section(
     chart_help("pace_month")
 # ===== 3 · Nach Erstellungsdatum ==========================================
 st.markdown("# 3 · Performance nach Erstellungsdatum")
-st.caption(
-    "Sales-Sicht: alles was im Zeitraum gebucht wurde. "
-)
+st.caption("Sales-Sicht: alles was im Zeitraum gebucht wurde. ")
 
 
 with section(
@@ -860,8 +912,12 @@ with section(
             )
         with _cc2:
             _vd = st.number_input(
-                "von · Tag", min_value=1, max_value=31,
-                value=int(_def_cre_start_new.day), step=1, key="global_sc_cre_vd",
+                "von · Tag",
+                min_value=1,
+                max_value=31,
+                value=int(_def_cre_start_new.day),
+                step=1,
+                key="global_sc_cre_vd",
             )
         with _cc3:
             _bm = st.selectbox(
@@ -873,15 +929,19 @@ with section(
             )
         with _cc4:
             _bd = st.number_input(
-                "bis · Tag", min_value=1, max_value=31,
-                value=int(_def_cre_end_new.day), step=1, key="global_sc_cre_bd",
+                "bis · Tag",
+                min_value=1,
+                max_value=31,
+                value=int(_def_cre_end_new.day),
+                step=1,
+                key="global_sc_cre_bd",
             )
         st.caption(
             "ℹ️ **Storno/No-Show** steuerst du über den Sidebar-Toggle "
             '**„Storno + No-Show einbeziehen"** - wenn aus zählt die **As-of-Sicht**: '
             "Stornos *nach* dem Stichtag zählen noch mit; ein No-Show gilt erst ab "
-            "der **Anreise** als aufgelöst (davor zählt er mit egal ob der Filter an oder aus ist). " \
-            "Der wirksame As-of-Stichtag ist min(Fensterende, Snapshot)." \
+            "der **Anreise** als aufgelöst (davor zählt er mit egal ob der Filter an oder aus ist). "
+            "Der wirksame As-of-Stichtag ist min(Fensterende, Snapshot)."
             "Wenn der Filter an ist, werden auch Buchungen inkludiert die später storniert haben."
         )
         st.form_submit_button("Analyse aktualisieren", use_container_width=True)
@@ -1143,9 +1203,7 @@ with section(
                 # 8.F · gleiche Aufteilung, aber nach ANZAHL Buchungen statt
                 # Revenue (eindeutige Reservierungen). Gleicher OTA-/Channel-
                 # Filter wie 8.D/8.E; beide Jahre als gruppierte Balken vergleichbar.
-                st.markdown(
-                    f"**8.F · Anzahl Buchungen je Reisezweck** (NEW vs OLD) — {ota_tag}"
-                )
+                st.markdown(f"**8.F · Anzahl Buchungen je Reisezweck** (NEW vs OLD) — {ota_tag}")
                 cdf = GT.purpose_booking_counts(ln_new, ln_old)
                 if cdf.empty:
                     alert_card(
@@ -1164,9 +1222,7 @@ with section(
                         f"{label_dates} · {ota_tag}",
                     )
                     st.image(png_count, use_container_width=False)
-                    CD.data_table_expander(
-                        cdf, filename=f"global_stay_created_counts_{year_new}"
-                    )
+                    CD.data_table_expander(cdf, filename=f"global_stay_created_counts_{year_new}")
                     st.session_state["_sc_count_export"] = {"png": png_count, "table": cdf}
 
             _sc_line_fragment()
@@ -1229,10 +1285,20 @@ with section(
                 f"::{asof_new.date()}::{asof_old.date()}"
             )
             _sc_xls = _sc_export_xlsx(
-                _sc_xls_key, nightly, props_pick,
-                start_new, end_new, start_old, end_old,
-                cre_start_new, cre_end_new, cre_start_old, cre_end_old,
-                asof_new, asof_old, _include_cancellations,
+                _sc_xls_key,
+                nightly,
+                props_pick,
+                start_new,
+                end_new,
+                start_old,
+                end_old,
+                cre_start_new,
+                cre_end_new,
+                cre_start_old,
+                cre_end_old,
+                asof_new,
+                asof_old,
+                _include_cancellations,
             )
             st.download_button(
                 "Excel Download",
