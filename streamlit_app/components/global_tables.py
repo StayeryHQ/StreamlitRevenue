@@ -7,11 +7,48 @@ Timeslices-/Nightly-Basis (Netto-Revenue pro Nacht, ``baseAmount_netAmount``).
 
 from __future__ import annotations
 
+from enum import Enum
+
 import numpy as np
 import pandas as pd
 import streamlit as st
 
 from revenueblindspots import helpers as H
+
+
+class CancelMode(str, Enum):
+    """Storno-/No-Show-Behandlung für die Stay×Creation-Sichten (Pickup-Seite).
+
+    - ``ALL_IN``: jede Buchung im Fenster zählt (inkl. später storniert / No-Show),
+      finaler Status, KEIN Stichtag-Cutoff.
+    - ``ALL_OUT``: realized-only (finaler ``is_realized``), KEIN Stichtag-Cutoff.
+    - ``AS_OF``: point-in-time zum Stichtag - Storno bis ``cancel_time``, No-Show bis
+      ``arrival`` (``H.asof_on_the_books_mask``). Die bisherige „§8-Logik".
+
+    ``str, Enum`` → hashbar & cache-key-freundlich für ``@st.cache_data``.
+    """
+
+    ALL_IN = "all_in"
+    ALL_OUT = "all_out"
+    AS_OF = "as_of"
+
+
+def _apply_cancel_mode(
+    df: pd.DataFrame, asof: pd.Timestamp, mode: CancelMode
+) -> pd.DataFrame:
+    """Wende den Storno-Modus auf einen bereits fenster-gefilterten Frame an.
+
+    Nur ``AS_OF`` ist point-in-time (nutzt den Stichtag); ``ALL_IN``/``ALL_OUT``
+    sind finale Status-Sichten ohne Stichtag-Cutoff.
+    """
+    if df is None or df.empty:
+        return df
+    if mode == CancelMode.ALL_OUT:
+        return df[df["is_realized"]] if "is_realized" in df.columns else df
+    if mode == CancelMode.AS_OF:
+        mask = H.asof_on_the_books_mask(df, asof, include_cancellations=False)
+        return df[mask]
+    return df  # ALL_IN - nichts filtern (Datenbasis ist ohnehin ≤ Snapshot)
 
 # ============================== Tendency thresholds ========================
 GREEN_PCT = 2.0  # ≥ green → 🟢
@@ -431,34 +468,101 @@ def _signed_eur(value: float) -> str:
     return ("+" if value > 0 else "") + H.fmt_eur(value)
 
 
-def _sc_volume_disp(
+def _signed_pct_icon(pct: float) -> str:
+    """Relatives Delta mit Ampel + Vorzeichen ('🟢 +12,3 %').
+
+    Vereinheitlichte Delta-relativ-Darstellung für §8.A-8.C: Ampel-Icon
+    (``tendency_icon``) plus vorzeichenbehafteter Prozentwert. ``NaN`` (z.B.
+    Vorjahr = 0, keine Rate berechenbar) → ``"-"``.
+    """
+    if pd.isna(pct):
+        return "-"
+    # Prozent mit Punkt-Dezimal (App-Konvention; € nutzt dagegen Komma).
+    return f"{tendency_icon(pct)} {pct:+.1f} %"
+
+
+def _eur_or_dash(v: float) -> str:
+    """Euro-String, aber ``0``/``NaN`` → ``"-"`` (leere Zellen ruhig halten)."""
+    return H.fmt_eur(v) if (pd.notna(v) and v > 0) else "-"
+
+
+def _sc_standard_disp(
     raw: pd.DataFrame,
+    *,
     label_src: str,
     label_header: str,
     year_old: int,
     year_new: int,
+    rev_new_col: str = "rev_new",
+    rev_old_col: str = "rev_old",
+    include_share: bool = False,
 ) -> pd.DataFrame:
-    """Anzeige-Tabelle für die Stay×Creation-Volumen-Sichten (Channel + Segment).
+    """Vereinheitlichte Anzeige-Tabelle für §8.A-8.C (Standardstruktur).
 
-    Spalten-Reihenfolge: Label · Revenue NEW · Revenue
-    OLD · Δ Revenue (€) · Δ Anteil (pp) · Tendenz. Erwartet ein ``raw`` mit den
-    Spalten ``rev_new``, ``rev_old``, ``d_eur``, ``d_share_pp``, ``d_pct`` plus
-    der Label-Spalte ``label_src``.
+    Feste Spalten-Reihenfolge (Jahr NEW vor OLD)::
+
+        Kategorie · as-of {NEW} (€) · as-of {OLD} (€) · Δ absolut (€) ·
+        Δ relativ (%) [Ampel] · [Δ Anteil (pp) {NEW}/{OLD}] ·
+        Stay-Total {NEW} (€) · Stay-Total {OLD} (€)
+
+    ``Kategorie`` ist Standort / Buchungskanal / Stay-Segment. Die zwei
+    ``Stay-Total``-Spalten zeigen das **volle Stay-Fenster-Revenue OHNE
+    Creation-Filter** zum selben As-of-Stichtag (siehe ``stay_only_scope``); die
+    ``as-of``-Spalten sind die creation-gefilterte Teilmenge davon.
+
+    Args:
+        raw: Frame mit ``label_src``, ``rev_new_col``, ``rev_old_col``,
+            ``d_eur``, ``d_pct``, ``stay_new``, ``stay_old`` und - falls
+            ``include_share`` - ``d_share_pp``.
+        include_share: ``True`` fügt die ``Δ Anteil (pp)``-Spalte ein (8.B/8.C).
     """
     if raw is None or raw.empty:
         return raw
-    return pd.DataFrame(
-        {
-            label_header: raw[label_src],
-            f"Revenue {year_new} (€)": raw["rev_new"].map(H.fmt_eur),
-            f"Revenue {year_old} (€)": raw["rev_old"].map(H.fmt_eur),
-            "Δ Revenue (€)": raw["d_eur"].map(_signed_eur),
-            f"Δ Anteil (pp) {year_new}/{year_old}": raw["d_share_pp"].map(
-                lambda v: f"{v:+.2f}"
-            ),
-            "Tendenz": [tendency_icon(p) for p in raw["d_pct"]],
-        }
-    )
+    cols: dict[str, object] = {
+        label_header: raw[label_src],
+        f"as-of {year_new} (€)": raw[rev_new_col].map(_eur_or_dash),
+        f"as-of {year_old} (€)": raw[rev_old_col].map(_eur_or_dash),
+        "Δ absolut (€)": raw["d_eur"].map(_signed_eur),
+        "Δ relativ (%)": raw["d_pct"].map(_signed_pct_icon),
+    }
+    if include_share:
+        cols[f"Δ Anteil (pp) {year_new}/{year_old}"] = raw["d_share_pp"].map(
+            lambda v: f"{v:+.2f}"
+        )
+    cols[f"Stay-Total {year_new} (€)"] = raw["stay_new"].map(_eur_or_dash)
+    cols[f"Stay-Total {year_old} (€)"] = raw["stay_old"].map(_eur_or_dash)
+    return pd.DataFrame(cols)
+
+
+def _revenue_by_key(df: pd.DataFrame, key_col: str, mapper=None) -> pd.Series:
+    """Revenue-Summe je Schlüssel (optional über ``mapper`` gelabelt)."""
+    if df is None or df.empty:
+        return pd.Series(dtype="float64")
+    if mapper is not None:
+        df = df.assign(_k=df[key_col].map(mapper))
+        return df.groupby("_k", observed=True)["revenue"].sum()
+    return df.groupby(key_col, observed=True)["revenue"].sum()
+
+
+def _attach_stay_totals(
+    raw: pd.DataFrame, label_col: str, stay_new: pd.Series, stay_old: pd.Series
+) -> pd.DataFrame:
+    """Hänge ``stay_new``/``stay_old`` (Stay-Total, kein Creation-Filter) an ``raw``.
+
+    Mappt je Label-Wert; die ``Total``-Zeile bekommt die jeweilige Gesamtsumme.
+    """
+    if raw is None or raw.empty:
+        return raw
+    raw = raw.copy()
+    t_new = float(stay_new.sum())
+    t_old = float(stay_old.sum())
+    raw["stay_new"] = [
+        t_new if lbl == "Total" else float(stay_new.get(lbl, 0.0)) for lbl in raw[label_col]
+    ]
+    raw["stay_old"] = [
+        t_old if lbl == "Total" else float(stay_old.get(lbl, 0.0)) for lbl in raw[label_col]
+    ]
+    return raw
 
 
 def stay_created_scope(
@@ -505,6 +609,44 @@ def stay_created_scope(
     return sc[mask]
 
 
+def stay_only_scope(
+    nightly: pd.DataFrame,
+    start_stay: pd.Timestamp,
+    end_stay: pd.Timestamp,
+    asof: pd.Timestamp,
+    include_cancellations: bool,
+) -> pd.DataFrame:
+    """Stay-Fenster OHNE Creation-Filter, As-of am ``asof`` gefiltert.
+
+    Wie ``stay_created_scope``, aber das Erstellungs-Fenster wird bewusst
+    weggelassen: gibt das volle Stay-Fenster-Revenue zurück, das zum selben
+    As-of-Stichtag ``on the books`` war. Damit ist die creation-gefilterte
+    As-of-Menge (``stay_created_scope``) eine Teilmenge dieser Sicht - genau die
+    Basis für die zusätzlichen ``Stay-Total``-Spalten in §8.A-8.C.
+
+    Die Storno-/No-Show-Logik ist identisch zu ``stay_created_scope``
+    (point-in-time über ``H.asof_on_the_books_mask``, gesteuert vom selben
+    ``include_cancellations``-Toggle), nur eben ohne den zusätzlichen
+    Erstellungs-Fenster-Schnitt.
+
+    Args:
+        nightly: Timeslices (eine Zeile je Stay-Nacht).
+        start_stay: Aufenthalts-Fenster Start (inklusive).
+        end_stay: Aufenthalts-Fenster Ende (inklusive).
+        asof: Point-in-time-Stichtag für die Storno-/No-Show-Logik (identisch
+            zum As-of-Stichtag der creation-gefilterten Tabelle).
+        include_cancellations: Toggle wie in ``stay_created_scope``.
+
+    Returns:
+        Gefilterte Kopie von ``nightly``.
+    """
+    stay = H.filter_period(nightly, start_stay, end_stay, "stay_date")
+    if stay.empty:
+        return stay
+    mask = H.asof_on_the_books_mask(stay, asof, include_cancellations=include_cancellations)
+    return stay[mask]
+
+
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def performance_by_stay_created(
     nightly: pd.DataFrame,
@@ -540,11 +682,20 @@ def performance_by_stay_created(
     ist_new = scope_new.groupby("property_code", observed=True)["revenue"].sum()
     ist_old = scope_old.groupby("property_code", observed=True)["revenue"].sum()
 
+    # Stay-Total (OHNE Creation-Filter): volles Stay-Fenster-Revenue zum selben
+    # As-of-Stichtag. Die creation-gefilterten ist_new/ist_old sind Teilmengen.
+    stay_scope_new = stay_only_scope(nightly, start_new, end_new, asof_new, include_cancellations)
+    stay_scope_old = stay_only_scope(nightly, start_old, end_old, asof_old, include_cancellations)
+    stay_new = stay_scope_new.groupby("property_code", observed=True)["revenue"].sum()
+    stay_old = stay_scope_old.groupby("property_code", observed=True)["revenue"].sum()
+
     rows = []
     for pc in properties:
         ic = float(ist_new.get(pc, 0.0))
         ily = float(ist_old.get(pc, 0.0))
-        if ic == 0 and ily == 0:
+        sc_new = float(stay_new.get(pc, 0.0))
+        sc_old = float(stay_old.get(pc, 0.0))
+        if ic == 0 and ily == 0 and sc_new == 0 and sc_old == 0:
             continue
         d_eur = ic - ily
         d_pct = ((ic / ily - 1) * 100) if ily > 0 else float("nan")
@@ -556,6 +707,8 @@ def performance_by_stay_created(
                 "ist_old": ily,
                 "d_eur": d_eur,
                 "d_pct": d_pct,
+                "stay_new": sc_new,
+                "stay_old": sc_old,
             }
         )
     raw = pd.DataFrame(rows)
@@ -573,23 +726,21 @@ def performance_by_stay_created(
                 "ist_old": t_old,
                 "d_eur": t_new - t_old,
                 "d_pct": ((t_new / t_old - 1) * 100) if t_old > 0 else float("nan"),
+                "stay_new": raw["stay_new"].sum(),
+                "stay_old": raw["stay_old"].sum(),
             }
         ]
     )
     raw = pd.concat([raw, total], ignore_index=True)
 
-    c_ist = f"IST {year_new} (€)"
-    c_ly = f"IST {year_old} (€)"
-    disp = pd.DataFrame(
-        {
-            "Standort": raw["Standort"],
-            c_ist: raw["ist_new"].map(lambda v: H.fmt_eur(v, 2) if v > 0 else "-"),
-            c_ly: raw["ist_old"].map(lambda v: H.fmt_eur(v, 2) if v > 0 else "-"),
-            f"DIFF {year_new} vs {year_old} (€)": [
-                f"{tendency_icon(p)} {H.fmt_eur(e, 2)}" if pd.notna(p) else "-"
-                for e, p in zip(raw["d_eur"], raw["d_pct"], strict=False)
-            ],
-        }
+    disp = _sc_standard_disp(
+        raw,
+        label_src="Standort",
+        label_header="Standort",
+        year_old=year_old,
+        year_new=year_new,
+        rev_new_col="ist_new",
+        rev_old_col="ist_old",
     )
     return disp, raw
 
@@ -625,7 +776,21 @@ def channel_volume_by_stay_created(
         nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old, include_cancellations
     )
     _, raw = _build_channel_table(scope_new, scope_old, year_old, year_new, realized_only=False)
-    return _sc_volume_disp(raw, "Channel", "Channel", year_old, year_new), raw
+    # Stay-Total je Channel (OHNE Creation-Filter, gleicher As-of-Stichtag).
+    stay_scope_new = stay_only_scope(nightly, start_new, end_new, asof_new, include_cancellations)
+    stay_scope_old = stay_only_scope(nightly, start_old, end_old, asof_old, include_cancellations)
+    stay_new = _revenue_by_key(stay_scope_new, "channel_combo", _channel_label)
+    stay_old = _revenue_by_key(stay_scope_old, "channel_combo", _channel_label)
+    raw = _attach_stay_totals(raw, "Channel", stay_new, stay_old)
+    disp = _sc_standard_disp(
+        raw,
+        label_src="Channel",
+        label_header="Channel",
+        year_old=year_old,
+        year_new=year_new,
+        include_share=True,
+    )
+    return disp, raw
 
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
@@ -707,7 +872,22 @@ def segment_volume_by_stay_created(
         ]
     )
     raw = pd.concat([raw, total], ignore_index=True)
-    return _sc_volume_disp(raw, "Segment", "Stay-Segment", year_old, year_new), raw
+
+    # Stay-Total je Segment (OHNE Creation-Filter, gleicher As-of-Stichtag).
+    stay_scope_new = stay_only_scope(nightly, start_new, end_new, asof_new, include_cancellations)
+    stay_scope_old = stay_only_scope(nightly, start_old, end_old, asof_old, include_cancellations)
+    stay_new = _revenue_by_key(stay_scope_new, "los_bucket", _segment_label)
+    stay_old = _revenue_by_key(stay_scope_old, "los_bucket", _segment_label)
+    raw = _attach_stay_totals(raw, "Segment", stay_new, stay_old)
+    disp = _sc_standard_disp(
+        raw,
+        label_src="Segment",
+        label_header="Stay-Segment",
+        year_old=year_old,
+        year_new=year_new,
+        include_share=True,
+    )
+    return disp, raw
 
 
 def daily_created_line_data(

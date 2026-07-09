@@ -1037,6 +1037,17 @@ with section(
                 kind="info",
             )
         else:
+            st.caption(
+                "Alle drei Tabellen nutzen dieselbe Struktur: **Kategorie · "
+                f"as-of {YEAR_NEW} · as-of {YEAR_OLD} · Δ absolut (€) · Δ relativ (%)** "
+                "(8.B/8.C zusätzlich **Δ Anteil (pp)**). Die beiden Spalten "
+                f"**Stay-Total {YEAR_NEW}/{YEAR_OLD}** zeigen das **volle "
+                "Stay-Fenster-Revenue ohne Erstellungs-Filter** - gerechnet mit "
+                "**derselben As-of-Logik** (Stichtag min(Fensterende, Snapshot), "
+                "gleicher Storno/No-Show-Toggle) wie die as-of-Spalten. Die "
+                "as-of-Spalten sind also die creation-gefilterte Teilmenge der "
+                "Stay-Total-Spalte."
+            )
             st.markdown("**8.A · nach Standort** (YoY, ohne PLAN)")
             st.dataframe(disp_sc_loc, hide_index=True, use_container_width=True)
 
