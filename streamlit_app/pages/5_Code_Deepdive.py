@@ -136,11 +136,17 @@ lookback_start = (period_start - pd.DateOffset(years=lookback_years)).normalize(
 lookback_end = max(pd.Timestamp.today().normalize(), period_end + pd.Timedelta(days=180))
 
 codes_tag = "+".join(sorted(codes))
+SNAP_TAG = CD.snapshot_tag()
+props_tag = "+".join(sorted(props_pick)) if len(props_pick) < 11 else "all"
 
 
 def _ck(section: str) -> str:
+    # Cache-Key MUSS Snapshot-Stand, Standorte und den Promo-Toggle enthalten,
+    # sonst liefern die Session-PNGs nach Filterwechsel/Refresh den alten
+    # Stand (Review A6) - analog zu 3_Standort_Analyse._ck.
     return (
-        f"code::{codes_tag}::{period_start.date()}::{period_end.date()}"
+        f"code::{SNAP_TAG}::{props_tag}::p{int(bool(include_promo))}"
+        f"::{codes_tag}::{period_start.date()}::{period_end.date()}"
         f"::{lookback_years}::{section}"
     )
 
