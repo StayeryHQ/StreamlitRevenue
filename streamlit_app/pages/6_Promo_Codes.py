@@ -104,12 +104,13 @@ render_notepad(PAGE)
 
 start_ts = pd.Timestamp(lookback_start)
 active_ts = pd.Timestamp(active_since)
-end_ts = pd.Timestamp.today().normalize() + pd.Timedelta(days=180)
+# Kein Zukunfts-Cap mehr (Review A12.3) - alles bis Snapshot-Ende zählt.
+end_ts = None
 
 
 st.markdown(f"""
 **Analyse-Setup:**
-- Historie: **{start_ts:%d.%m.%Y} – {end_ts:%d.%m.%Y}**
+- Historie: **ab {start_ts:%d.%m.%Y}** (bis Snapshot-Ende, inkl. aller Zukunftsbuchungen)
 - „Aktiv"-Schwelle: Buchung mit Anreise **≥ {active_ts:%d.%m.%Y}**
 - Standorte: **{len(props_pick)}** ({", ".join(props_pick)})
 """)
@@ -158,11 +159,23 @@ else:
     _corp_set = set()
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
-def _build_promo_table(_sig: str, _active_ts: pd.Timestamp, _ovsig: str):
+# WICHTIG (Review A2): Cache-relevante Parameter OHNE führenden Unterstrich -
+# Streamlit schließt "_"-Parameter vom Cache-Key aus; vorher bekam jede
+# Filterkombination bis zu 1 h lang das erste Ergebnis. `_res`/`_corp_set`/
+# `_reclassified` bleiben ungehasht - ihr Inhalt ist durch `sig` bestimmt.
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+def _build_promo_table(
+    sig: str,
+    active_ts: pd.Timestamp,
+    _res: pd.DataFrame,
+    _corp_set_arg: set,
+    _reclassified_arg: set,
+):
     try:
         return P.aggregate_promo_codes(
-            res, _active_ts, corporate_code_set=_corp_set, reclassified_codes=_reclassified
+            _res, active_ts,
+            corporate_code_set=_corp_set_arg,
+            reclassified_codes=_reclassified_arg,
         )
     except Exception as e:  # pragma: no cover - defensiv
         st.warning(f"Promo-Aggregation schlug fehl: {e} - leere Tabelle.")
@@ -171,7 +184,12 @@ def _build_promo_table(_sig: str, _active_ts: pd.Timestamp, _ovsig: str):
 
 with st.spinner("Aggregiere Promo-Codes …"):
     promo_table = _build_promo_table(
-        f"{meta.get('refreshed_at', '?')}|{len(res)}", active_ts, OV.override_signature()
+        f"{CD.snapshot_tag()}|{OV.override_signature()}"
+        f"|{'+'.join(sorted(props_pick))}|{start_ts.date()}",
+        active_ts,
+        res,
+        _corp_set,
+        _reclassified,
     )
 
 if promo_table.empty:
@@ -246,7 +264,7 @@ if selected_code and _detail_col is not None:
         _sub,
         f"`{selected_code}`",
         period_start=active_ts,
-        period_end=end_ts,
+        period_end=(pd.to_datetime(nightly["stay_date"]).max() if len(nightly) else pd.Timestamp.today()),
         cache_salt=f"promo::{CD.snapshot_tag()}",
         caption=f"Status: **{_status}**",
         open_code=selected_code,
@@ -350,11 +368,13 @@ st.subheader("Bericht exportieren")
 # die reklassifizierten Promocodes). Läuft auf demselben res wie oben.
 try:
     cp_after = B.aggregate_corporate_codes(res, active_ts)
-    firmencode_sheet = B.format_display(cp_after, "corporate")
+    firmencode_sheet = B.export_frame(cp_after, "corporate")  # roh: Zahlen + Datetime
 except Exception:  # pragma: no cover - defensiv
     firmencode_sheet = pd.DataFrame()
 
-_sheets: dict[str, pd.DataFrame] = {"promo_codes": display_df}
+# Excel bekommt die ROH-Tabelle (Zahlen als Zahlen, Datum als Datum) -
+# die String-Formatierung (format_display) bleibt der Anzeige vorbehalten.
+_sheets: dict[str, pd.DataFrame] = {"promo_codes": promo_table}
 if not firmencode_sheet.empty:
     _sheets["firmencodes_aktualisiert"] = firmencode_sheet
 if _override_map:

@@ -140,6 +140,17 @@ def aggregate_firms(res: pd.DataFrame, active_ts: pd.Timestamp) -> pd.DataFrame:
 
 
 # ============================== Display formatting =========================
+def export_frame(table: pd.DataFrame, kind: str) -> pd.DataFrame:
+    """Spalten-Reihenfolge wie ``format_display``, aber ROHE Werte.
+
+    Für Excel-/CSV-Exporte: Zahlen bleiben Zahlen, Datumsfelder bleiben
+    Datetime (Excel kann damit rechnen/sortieren) - keine String-Formatierung.
+    """
+    if table.empty:
+        return table
+    return table.reindex(columns=[c for c in _column_order(kind) if c in table.columns])
+
+
 def format_display(table: pd.DataFrame, kind: str) -> pd.DataFrame:
     """Reorder + format columns for st.dataframe rendering.
 
@@ -153,42 +164,28 @@ def format_display(table: pd.DataFrame, kind: str) -> pd.DataFrame:
         if col in out.columns:
             out[col] = pd.to_datetime(out[col]).dt.strftime("%d.%m.%Y")
 
+    return out.reindex(columns=[c for c in _column_order(kind) if c in out.columns])
+
+
+def _column_order(kind: str) -> list[str]:
+    """Kanonische Spalten-Reihenfolge je Tabellen-Art (Anzeige UND Export)."""
+    _metrics = [
+        "Aktiv seit Schwelle?",
+        "Erste Buchung",
+        "Letzte Buchung",
+        "# Standorte",
+        "Standorte",
+        "Buchungen gesamt",
+        "davon realisiert",
+        "davon storniert",
+        "davon no-show",
+        "Revenue gesamt (€)",
+        "Revenue realisiert (€)",
+        "Revenue verloren (€)",
+        "Nächte realisiert",
+    ]
     if kind == "firm":
-        cols = [
-            "Firma",
-            "Genutzte corporateCodes",
-            "Aktiv seit Schwelle?",
-            "Erste Buchung",
-            "Letzte Buchung",
-            "# Standorte",
-            "Standorte",
-            "Buchungen gesamt",
-            "davon realisiert",
-            "davon storniert",
-            "davon no-show",
-            "Revenue gesamt (€)",
-            "Revenue realisiert (€)",
-            "Revenue verloren (€)",
-            "Nächte realisiert",
-        ]
-    elif kind == "corporate":
-        cols = [
-            "Corporate-Code",
-            "Firmenname(n)",
-            "Aktiv seit Schwelle?",
-            "Erste Buchung",
-            "Letzte Buchung",
-            "# Standorte",
-            "Standorte",
-            "Buchungen gesamt",
-            "davon realisiert",
-            "davon storniert",
-            "davon no-show",
-            "Revenue gesamt (€)",
-            "Revenue realisiert (€)",
-            "Revenue verloren (€)",
-            "Nächte realisiert",
-        ]
-    else:
-        raise ValueError(f"Unsupported kind={kind!r}; supported: 'corporate', 'firm'.")
-    return out.reindex(columns=[c for c in cols if c in out.columns])
+        return ["Firma", "Genutzte corporateCodes", *_metrics]
+    if kind == "corporate":
+        return ["Corporate-Code", "Firmenname(n)", *_metrics]
+    raise ValueError(f"Unsupported kind={kind!r}; supported: 'corporate', 'firm'.")

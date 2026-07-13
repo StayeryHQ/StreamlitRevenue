@@ -29,6 +29,7 @@ from components.alerts import alert_card
 from components.brand import hero
 from components.export import register_section, reset_export
 from revenueblindspots import helpers as H
+from revenueblindspots import overrides as OV
 
 st.set_page_config(
     page_title="B2B Deep-Dive",
@@ -100,12 +101,14 @@ render_notepad(PAGE)
 
 start_ts = pd.Timestamp(lookback_start)
 active_ts = pd.Timestamp(active_since)
-end_ts = pd.Timestamp.today().normalize() + pd.Timedelta(days=180)
+# Kein Zukunfts-Cap mehr (Review A12.3): vorher wurden Buchungen mit Anreise
+# > heute+180 Tage still abgeschnitten - jetzt zählt alles bis Snapshot-Ende.
+end_ts = None
 
 
 st.markdown(f"""
 **Analyse-Setup:**
-- Historie: **{start_ts:%d.%m.%Y} – {end_ts:%d.%m.%Y}**
+- Historie: **ab {start_ts:%d.%m.%Y}** (bis Snapshot-Ende, inkl. aller Zukunftsbuchungen)
 - „Aktiv"-Schwelle: Buchung mit Anreise **≥ {active_ts:%d.%m.%Y}**
 - Standorte: **{len(props_pick)}** ({", ".join(props_pick)})
 """)
@@ -136,6 +139,9 @@ if res.empty:
     st.warning("Keine Reservierungen im gewählten Zeitraum.")
     st.stop()
 
+# Anzeige-Ende für den Drilldown (Fokus-Schattierung): letzte Nacht im Datenbestand.
+_display_end = pd.to_datetime(nightly["stay_date"]).max() if len(nightly) else pd.Timestamp.today()
+
 if not _enriched:
     alert_card(
         "Firmen-/Code-Revenue läuft noch auf der services-inklusiven "
@@ -159,10 +165,19 @@ if _late_b2b:
     )
 
 
-# Cache je (snapshot + properties + period + active_ts).
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
+# Cache je (Snapshot + Overrides + Standorte + Periode + Aktiv-Schwelle).
+# WICHTIG (Review A2): Die Cache-relevanten Parameter dürfen NICHT mit "_"
+# beginnen - Streamlit schließt Unterstrich-Parameter vom Cache-Key aus,
+# wodurch vorher JEDE Filterkombination dasselbe (erste) Ergebnis bekam.
+# `_res` bleibt bewusst ungehasht (teuer); sein Inhalt ist durch `sig` +
+# die übrigen Key-Parameter vollständig bestimmt.
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def _build_tables(
-    _sig: str, _active_ts: pd.Timestamp, _props: tuple, _start: pd.Timestamp, _end: pd.Timestamp
+    sig: str,
+    active_ts: pd.Timestamp,
+    props: tuple,
+    start: pd.Timestamp,
+    _res: pd.DataFrame,
 ):
     def _safe(fn, *args):
         try:
@@ -174,18 +189,18 @@ def _build_tables(
             return pd.DataFrame()
 
     return (
-        _safe(B.aggregate_corporate_codes, res, _active_ts),
-        _safe(B.aggregate_firms, res, _active_ts),
+        _safe(B.aggregate_corporate_codes, _res, active_ts),
+        _safe(B.aggregate_firms, _res, active_ts),
     )
 
 
 with st.spinner("Aggregiere Codes & Firmen …"):
     cp_table, fm_table = _build_tables(
-        f"{meta.get('refreshed_at', '?')}|{len(res)}",
+        f"{CD.snapshot_tag()}|{OV.override_signature()}|enriched={int(_enriched)}",
         active_ts,
-        tuple(props_pick),
+        tuple(sorted(props_pick)),
         start_ts,
-        end_ts,
+        res,
     )
 
 
@@ -263,7 +278,7 @@ def _table_with_drilldown(
             sub,
             label,
             period_start=active_ts,
-            period_end=end_ts,
+            period_end=_display_end,
             cache_salt=f"b2b::{CD.snapshot_tag()}",
             open_code=open_code,
             page=PAGE,
@@ -334,10 +349,12 @@ st.subheader("Bericht exportieren")
 
 # Multi-Sheet Excel nur wenn mindestens eine der beiden Tabellen Inhalt hat.
 _sheets: dict[str, pd.DataFrame] = {}
+# Excel-Export mit ROH-Werten (Zahlen als Zahlen, Datumsfelder als Datum) -
+# format_display (String-Datumsformate) bleibt der Bildschirm-Anzeige vorbehalten.
 if not cp_table.empty:
-    _sheets["corporate_codes"] = B.format_display(cp_table, "corporate")
+    _sheets["corporate_codes"] = B.export_frame(cp_table, "corporate")
 if not fm_table.empty:
-    _sheets["firmen_fuzzy"] = B.format_display(fm_table, "firm")
+    _sheets["firmen_fuzzy"] = B.export_frame(fm_table, "firm")
 
 if _sheets:
     buf = io.BytesIO()
