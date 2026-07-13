@@ -74,7 +74,7 @@ def _clear_caches() -> None:
 
 # ============================== Aktueller Stand ===========================
 st.subheader("Aktueller Stand")
-meta = H.load_snapshot_metadata()
+meta = H.load_snapshot_metadata(st.session_state.get("snapshot_dir_override") or None)
 if meta:
     refreshed_at = str(meta.get("refreshed_at", "?"))[:19].replace("T", " ")
     n_res = meta.get("reservations", {}).get("rows", 0)
@@ -149,12 +149,12 @@ with st.expander("Erweitert: Snapshot-Pfad", expanded=False):
         help="Default = `data/` im Repo. Akzeptiert `gs://...`-URIs für GCS.",
         key="snapshot_location_input",
     )
+    # Override lebt NUR im Session-State (Review A12.8) - keine os.environ-
+    # Mutation mehr, die alle gleichzeitigen User des Servers treffen würde.
     if snapshot_location.strip():
         st.session_state["snapshot_dir_override"] = snapshot_location.strip()
-        _os.environ["STAYERY_SNAPSHOT_DIR"] = snapshot_location.strip()
     else:
         st.session_state.pop("snapshot_dir_override", None)
-        _os.environ.pop("STAYERY_SNAPSHOT_DIR", None)
 
 
 def _configured_dir() -> str:

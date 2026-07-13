@@ -11,7 +11,6 @@ Drei Tasks:
 from __future__ import annotations
 
 import io
-import os
 from pathlib import Path
 
 import pandas as pd
@@ -22,13 +21,28 @@ from revenueblindspots import overrides as OV
 
 
 # ============================== Cache key helper ==========================
-def _snapshot_signature() -> str:
-    """Stable string for the current snapshot - invalidates cache when it changes
+def _resolved_snapshot_dir():
+    """Snapshot-Verzeichnis auflösen: Session-Override → env/Repo-Default.
+
+    Der Pfad-Override aus der „Daten aktualisieren"-Seite lebt NUR noch im
+    ``st.session_state`` der jeweiligen Session (Review A12.8) - vorher wurde
+    ``os.environ`` mutiert, was prozessweit ALLE gleichzeitigen User traf.
     """
-    override = os.environ.get("STAYERY_SNAPSHOT_DIR", "")
-    snap_dir = H.find_snapshot_dir()
+    override = st.session_state.get("snapshot_dir_override")
+    if override:
+        s = str(override).strip()
+        if s:
+            if s.startswith(("gs://", "s3://")):
+                return s
+            return Path(s).expanduser()
+    return H.find_snapshot_dir()
+
+
+def _snapshot_signature() -> str:
+    """Stable string for the current snapshot - invalidates cache when it changes."""
+    snap_dir = _resolved_snapshot_dir()
     if snap_dir is None:
-        return f"override={override}|none"
+        return "none"
     if isinstance(snap_dir, Path):
         try:
             res_path = snap_dir / H.SNAPSHOT_FILES["reservations"]
@@ -49,41 +63,45 @@ def _override_signature() -> str:
 
 
 # ============================== Cached loaders ============================
+# WICHTIG: Die Signatur-Parameter dürfen NICHT mit "_" beginnen - Streamlit
+# schließt Unterstrich-Parameter vom Cache-Key aus. Vorher war die
+# mtime-/Override-Invalidierung dadurch komplett wirkungslos (Review A2-Familie);
+# nur das explizite st.cache_*.clear() nach dem Refresh hat es kaschiert.
+# ``_snap_dir`` bleibt bewusst ungehasht (durch die Signatur bestimmt).
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
-def load_snapshot_metadata_cached(_snapshot_sig: str) -> dict:
-    return H.load_snapshot_metadata() or {}
+def load_snapshot_metadata_cached(snapshot_sig: str, _snap_dir=None) -> dict:
+    return H.load_snapshot_metadata(_snap_dir) or {}
 
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
-def load_plan_cached(_snapshot_sig: str) -> pd.DataFrame:
+def load_plan_cached(snapshot_sig: str, _snap_dir=None) -> pd.DataFrame:
     """Planzahlen aus ``plan.parquet`` (BigQuery-Snapshot), cache-invalidiert
     über den Snapshot-Signatur-Key."""
-    return H.load_plan()
+    return H.load_plan(_snap_dir)
 
 
 # Großer, unveränderlicher Snapshot: einmal je Snapshot-Signatur via
 # cache_resource in den Speicher (geteilt über alle Sessions, keine Kopie pro
 # Cache-Hit). Gefiltert wird danach in-memory - kein wiederholter Disk-Read.
 @st.cache_resource(ttl=3600, show_spinner=False)
-def _raw_reservations(_snapshot_sig: str) -> pd.DataFrame:
-    return H.load_reservations()
+def _raw_reservations(snapshot_sig: str, _snap_dir=None) -> pd.DataFrame:
+    return H.load_reservations(snapshot_dir=_snap_dir)
 
 
 @st.cache_resource(ttl=3600, show_spinner=False)
-def _raw_timeslices(_snapshot_sig: str) -> pd.DataFrame:
-    return H.load_timeslices()
+def _raw_timeslices(snapshot_sig: str, _snap_dir=None) -> pd.DataFrame:
+    return H.load_timeslices(snapshot_dir=_snap_dir)
 
 
-# Reklassifizierung als.
+# Promo→Firmencode-Reklassifizierung, einmal je (Snapshot, Override-Stand).
 @st.cache_resource(ttl=3600, show_spinner=False)
-def _overridden_reservations(_snapshot_sig: str, _override_sig: str) -> pd.DataFrame:
-    return OV.apply_code_overrides(_raw_reservations(_snapshot_sig))
+def _overridden_reservations(snapshot_sig: str, override_sig: str, _snap_dir=None) -> pd.DataFrame:
+    return OV.apply_code_overrides(_raw_reservations(snapshot_sig, _snap_dir))
 
 
 @st.cache_resource(ttl=3600, show_spinner=False)
-def _overridden_timeslices(_snapshot_sig: str, _override_sig: str) -> pd.DataFrame:
-    # promoCode landet erst nach dem Refresh in den Timeslices
-    return OV.apply_code_overrides(_raw_timeslices(_snapshot_sig))
+def _overridden_timeslices(snapshot_sig: str, override_sig: str, _snap_dir=None) -> pd.DataFrame:
+    return OV.apply_code_overrides(_raw_timeslices(snapshot_sig, _snap_dir))
 
 
 def _filter_frame(
@@ -117,12 +135,12 @@ def _filter_frame(
 
 # ============================== Convenience wrappers =====================
 def get_metadata() -> dict:
-    return load_snapshot_metadata_cached(_snapshot_signature())
+    return load_snapshot_metadata_cached(_snapshot_signature(), _resolved_snapshot_dir())
 
 
 def get_plan_df() -> pd.DataFrame:
     """Planzahlen aus ``plan.parquet`` (BigQuery-Snapshot). Leer wenn fehlt."""
-    return load_plan_cached(_snapshot_signature())
+    return load_plan_cached(_snapshot_signature(), _resolved_snapshot_dir())
 
 
 def get_active_plan() -> dict:
@@ -139,7 +157,9 @@ def get_reservations(
     end: pd.Timestamp | None = None,
     properties: list[str] | None = None,
 ) -> pd.DataFrame:
-    df = _overridden_reservations(_snapshot_signature(), _override_signature())
+    df = _overridden_reservations(
+        _snapshot_signature(), _override_signature(), _resolved_snapshot_dir()
+    )
     return _filter_frame(
         df, "arrival", start, end, tuple(properties) if properties else None
     )
@@ -150,7 +170,9 @@ def get_timeslices(
     end: pd.Timestamp | None = None,
     properties: list[str] | None = None,
 ) -> pd.DataFrame:
-    df = _overridden_timeslices(_snapshot_signature(), _override_signature())
+    df = _overridden_timeslices(
+        _snapshot_signature(), _override_signature(), _resolved_snapshot_dir()
+    )
     return _filter_frame(
         df, "serviceDate", start, end, tuple(properties) if properties else None
     )
