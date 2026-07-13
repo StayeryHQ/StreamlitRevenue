@@ -273,27 +273,64 @@ _otb_new = float(_tot["stay_new"])
 _otb_old = float(_tot["stay_old"])
 _erst_new = float(_tot["ist_new"])
 _erst_old = float(_tot["ist_old"])
+# Fenster-Pickup: NUR im Erstellungs-Fenster gebuchter Umsatz ÷ OTB.
 _pu_new = (_erst_new / _otb_new * 100.0) if _otb_new > 0 else float("nan")
 _pu_old = (_erst_old / _otb_old * 100.0) if _otb_old > 0 else float("nan")
 _pu_delta = _pu_new - _pu_old if pd.notna(_pu_new) and pd.notna(_pu_old) else float("nan")
+
+# Kumulierter Pickup: ALLES bis zum Ende des Erstellungs-Fensters gebuchte
+# (keine untere Grenze) ÷ OTB - "wie viel des OTB stand Ende Juni schon?".
+# Liegt das Fenster-Ende am/nach dem Stichtag, ist der Wert per Definition 100 %.
+_CUM_FLOOR = pd.Timestamp("2000-01-01")
+_cum_new = float(GT.stay_created_scope(
+    nightly, start_new, end_new, _CUM_FLOOR, cre_end_new, asof_new, cancel_mode=CMODE
+)["revenue"].sum())
+_cum_old = float(GT.stay_created_scope(
+    nightly, start_old, end_old, _CUM_FLOOR, cre_end_old, asof_old, cancel_mode=CMODE
+)["revenue"].sum())
+_pu_cum_new = (_cum_new / _otb_new * 100.0) if _otb_new > 0 else float("nan")
+_pu_cum_old = (_cum_old / _otb_old * 100.0) if _otb_old > 0 else float("nan")
+_pu_cum_delta = (
+    _pu_cum_new - _pu_cum_old
+    if pd.notna(_pu_cum_new) and pd.notna(_pu_cum_old)
+    else float("nan")
+)
+
+
+def _pct(v: float) -> str:
+    return f"{v:.1f} %" if pd.notna(v) else "–"
 
 
 # ============================== KPIs =======================================
 st.markdown("## 1 · Headline-Kennzahlen")
 st.markdown("*Portfolio-Summe über alle gewählten Standorte.*")
 st.caption(
-    "**Pickup-Anteil** = Anteil des Stay-Umsatzes, der bis zum Stichtag gebucht "
-    "war (NEW vs. OLD). **Δ Pickup** = Vorlauf-Vorsprung (+) oder -rückstand (−) "
-    "ggü. Vorjahr in Prozentpunkten. **OTB gesamt** = zum Stichtag gebuchter "
-    "Stay-Umsatz (NEW), unabhängig vom Erstellungs-Fenster."
+    "**Pickup kumuliert** = Anteil des OTB, der **bis zum Ende des "
+    "Erstellungs-Fensters** gebucht war (ohne untere Grenze) - wie viel stand "
+    "z.B. Ende Juni schon in den Büchern? **In Klammern: Fenster-Pickup** = nur der "
+    "**im Erstellungs-Fenster** (z.B. 01.–30.06.) erstellte Umsatz ÷ OTB. "
+    "**Δ Pickup** = Vorsprung (+) / Rückstand (−) ggü. Vorjahr in Prozentpunkten. "
+    "**OTB gesamt** = zum Stichtag gebuchter Stay-Umsatz (NEW), unabhängig vom "
+    "Erstellungs-Fenster. Endet das Fenster am/nach dem Stichtag, ist kumuliert = 100 %."
 )
 k1, k2, k3, k4 = st.columns(4)
-k1.metric(f"Pickup-Anteil {YEAR_NEW}", f"{_pu_new:.1f} %" if pd.notna(_pu_new) else "–")
-k2.metric(f"Pickup-Anteil {YEAR_OLD}", f"{_pu_old:.1f} %" if pd.notna(_pu_old) else "–")
+k1.metric(
+    f"Pickup kumuliert {YEAR_NEW}",
+    _pct(_pu_cum_new),
+    delta=f"(im Fenster: {_pct(_pu_new)})",
+    delta_color="off",
+)
+k2.metric(
+    f"Pickup kumuliert {YEAR_OLD}",
+    _pct(_pu_cum_old),
+    delta=f"(im Fenster: {_pct(_pu_old)})",
+    delta_color="off",
+)
 k3.metric(
-    "Δ Pickup",
-    f"{_pu_delta:+.1f} pp" if pd.notna(_pu_delta) else "–",
-    delta=f"{_pu_delta:+.1f} pp" if pd.notna(_pu_delta) else None,
+    "Δ Pickup kumuliert",
+    f"{_pu_cum_delta:+.1f} pp" if pd.notna(_pu_cum_delta) else "–",
+    delta=(f"im Fenster: {_pu_delta:+.1f} pp" if pd.notna(_pu_delta) else None),
+    delta_color="off",
 )
 k4.metric(f"OTB gesamt {YEAR_NEW}", H.fmt_eur(_otb_new))
 
@@ -406,8 +443,11 @@ Stay-Segment):
   auf den Büchern.
 - **OTB {YEAR_OLD} (€)** - dasselbe fürs **Vorjahr**.
 - **Pickup-Anteil {YEAR_NEW} (%)** - wie viel **Prozent** des gesamten
-  Umsatzes im gewählten Buchungs-Fenster reinkam. 70 % heißt: 70 % war
- im Juni gebucht.
+  Umsatzes **genau im gewählten Buchungs-Fenster** reinkam - **NICHT
+  kumuliert**. 40 % heißt: 40 % des OTB wurde zwischen dem 01.06. und
+  30.06. gebucht; was davor schon gebucht war, steckt hier nicht drin.
+  Die kumulierte Sicht („wie viel stand Ende Juni insgesamt schon in den
+  Büchern?") zeigen die Kacheln oben unter **Pickup kumuliert**.
 - **Pickup-Anteil {YEAR_OLD} (%)** - dasselbe fürs Vorjahr: sind wir dieses
   Jahr **früher oder später** dran als damals?
 - **Δ Pickup (pp)** - um wie viele **Prozentpunkte** unser Vorlauf besser (+)
@@ -484,14 +524,50 @@ else:
 
 
 # ============================== Downloads (3 separate) =====================
-def _tables_xlsx(loc: pd.DataFrame, chan: pd.DataFrame, seg: pd.DataFrame) -> bytes:
-    """Aggregierte Pickup-Tabellen als Excel (3 Blätter)."""
+def _numeric_pickup_frame(
+    raw: pd.DataFrame, label_col: str, rev_new_col: str, rev_old_col: str
+) -> pd.DataFrame:
+    """Pickup-Tabelle mit ROHEN Zahlen für den Excel-Export.
+
+    Die Bildschirm-Tabellen (``disp_*``) enthalten formatierte Strings
+    („1.234 €", „🟢 +5,2 %") - in Excel weder sortier- noch rechenbar.
+    Hier: gleiche Kennzahlen als echte Zahlen (Review A12.10).
+    """
+    if raw is None or raw.empty:
+        return pd.DataFrame()
+    d = raw.copy()
+    out = pd.DataFrame({
+        label_col: d[label_col],
+        f"Erstellt {YEAR_NEW} (EUR)": d[rev_new_col].astype(float).round(2),
+        f"Erstellt {YEAR_OLD} (EUR)": d[rev_old_col].astype(float).round(2),
+        "Delta absolut (EUR)": d["d_eur"].astype(float).round(2),
+        "Delta relativ (%)": d["d_pct"].astype(float).round(1),
+        f"OTB {YEAR_NEW} (EUR)": d["stay_new"].astype(float).round(2),
+        f"OTB {YEAR_OLD} (EUR)": d["stay_old"].astype(float).round(2),
+    })
+    pu_new = GT._pickup_pct(d[rev_new_col], d["stay_new"])
+    pu_old = GT._pickup_pct(d[rev_old_col], d["stay_old"])
+    out[f"Pickup-Anteil {YEAR_NEW} (%)"] = pu_new.astype(float).round(1).to_numpy()
+    out[f"Pickup-Anteil {YEAR_OLD} (%)"] = pu_old.astype(float).round(1).to_numpy()
+    out["Delta Pickup (pp)"] = (pu_new - pu_old).astype(float).round(1).to_numpy()
+    if "d_share_pp" in d.columns:
+        out["Delta Anteil (pp)"] = d["d_share_pp"].astype(float).round(2)
+    return out
+
+
+def _tables_xlsx() -> bytes:
+    """Aggregierte Pickup-Tabellen als Excel (3 Blätter, rohe Zahlen)."""
     from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
 
+    frames = [
+        ("Standort", _numeric_pickup_frame(raw_loc, "Standort", "ist_new", "ist_old")),
+        ("Buchungskanal", _numeric_pickup_frame(raw_ch, "Channel", "rev_new", "rev_old")),
+        ("Stay-Segment", _numeric_pickup_frame(raw_seg, "Segment", "rev_new", "rev_old")),
+    ]
     bio = io.BytesIO()
     with pd.ExcelWriter(bio, engine="openpyxl") as xw:
-        for name, df in [("Standort", loc), ("Buchungskanal", chan), ("Stay-Segment", seg)]:
+        for name, df in frames:
             out = df if (df is not None and len(df)) else pd.DataFrame({"Hinweis": ["keine Daten"]})
             out.to_excel(xw, sheet_name=name, index=False)
         for ws in xw.book.worksheets:
@@ -551,7 +627,7 @@ _fname = f"pickup_{start_new:%Y%m%d}_vs_{start_old:%Y%m%d}"
 with d1:
     st.download_button(
         "Pickup-Tabellen (Excel)",
-        data=_tables_xlsx(disp_loc, disp_ch, disp_seg),
+        data=_tables_xlsx(),
         file_name=f"{_fname}_tabellen.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         use_container_width=True,
