@@ -10,6 +10,7 @@ Refresh als ``plan.parquet`` geschrieben. Pages holen sich das Dict über
 
 from __future__ import annotations
 
+from enum import Enum
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -681,6 +682,20 @@ def classify_channel(channel_code: Any, source: Any) -> str:
     return f"OTA_{src}" if src else f"OTA_{cc or 'Other'}"
 
 
+# Kanonische 3er-Bucket-Reihenfolge für Chart-/Tabellen-Achsen.
+CHANNEL_BUCKETS: tuple[str, ...] = ("Direct_Website", "Direct_Offline", "OTA")
+
+
+def channel_bucket(series: pd.Series) -> pd.Series:
+    """``channel_combo`` -> 3 Buckets: Direct_Website / Direct_Offline / OTA.
+
+    Die EINE zentrale Bucketing-Regel für alle Charts & Tabellen (vorher
+    in 6+ Dateien kopiert - Review D2). Alles was nicht Direct ist, ist OTA.
+    """
+    s = series.astype(str)
+    return s.where(s.isin(CHANNEL_BUCKETS[:2]), "OTA")
+
+
 def normalize_room_category(series: pd.Series, property_code: str) -> pd.Series:
     """Hotel-specific room-category clean-up. Returns a new Series."""
     s = series.astype("string")
@@ -707,6 +722,66 @@ def _add_status_flags(df: pd.DataFrame) -> None:
     df["is_no_show"] = s.isin(NO_SHOW_STATUS)
 
 
+def filter_realized(df: pd.DataFrame, realized_only: bool = True) -> pd.DataFrame:
+    """Der EINE binäre Storno-Filter der App (Review: Cancel-Logik vereinheitlicht).
+
+    ``realized_only=True``  -> nur realisierte Buchungen (Storno + No-Show raus).
+    ``realized_only=False`` -> unverändert (alle Buchungen).
+    Frames ohne ``is_realized``-Spalte werden unverändert zurückgegeben.
+    """
+    if realized_only and df is not None and "is_realized" in df.columns:
+        return df[df["is_realized"]]
+    return df
+
+
+class CancelMode(str, Enum):
+    """Storno-/No-Show-Behandlung - zentrale 3-fach-Logik (Data-Layer).
+
+    - ``ALL_IN``: jede Buchung zählt (inkl. später storniert / No-Show),
+      finaler Status, KEIN Stichtag-Cutoff.
+    - ``ALL_OUT``: realized-only (finaler ``is_realized``), KEIN Stichtag-Cutoff.
+      Entspricht ``filter_realized(df, True)``.
+    - ``AS_OF``: point-in-time zum Stichtag - Storno löst zu ``cancel_time`` auf,
+      No-Show zu ``arrival`` (``asof_on_the_books_mask``).
+
+    ``str, Enum`` -> hashbar & cache-key-freundlich für ``@st.cache_data``.
+    """
+
+    ALL_IN = "all_in"
+    ALL_OUT = "all_out"
+    AS_OF = "as_of"
+
+
+def apply_cancel_mode(
+    df: pd.DataFrame,
+    mode: "CancelMode | str",
+    asof: "pd.Timestamp | None" = None,
+) -> pd.DataFrame:
+    """Wende einen ``CancelMode`` auf einen Buchungs-/Nightly-Frame an.
+
+    Einzige Implementierung der Storno-Scope-Auswahl (vorher verteilt über
+    ``global_tables._apply_cancel_mode`` und ad-hoc ``is_realized``-Filter).
+
+    Args:
+        df: Reservations- oder Timeslices-förmiger Frame.
+        mode: ``CancelMode`` (oder dessen String-Wert).
+        asof: Stichtag - nur für ``AS_OF`` nötig.
+
+    Returns:
+        Gefilterte Sicht auf ``df`` (bei ``ALL_IN`` unverändert).
+    """
+    if df is None or df.empty:
+        return df
+    mode = CancelMode(mode)
+    if mode is CancelMode.ALL_OUT:
+        return filter_realized(df, True)
+    if mode is CancelMode.AS_OF:
+        if asof is None:
+            raise ValueError("CancelMode.AS_OF braucht einen Stichtag (asof).")
+        return df[asof_on_the_books_mask(df, asof, include_cancellations=False)]
+    return df  # ALL_IN
+
+
 def _add_channel(df: pd.DataFrame) -> None:
     df["channel_combo"] = [
         classify_channel(c, s) for c, s in zip(df["channelCode"], df["source"], strict=True)
@@ -727,6 +802,26 @@ def _add_origin(df: pd.DataFrame) -> None:
     unknown = clean.isin(_UNKNOWN_ORIGIN)
     df["origin"] = origin
     df["is_international"] = (~unknown) & clean.ne("DE")
+
+
+# Kanonische Herkunfts-Buckets inkl. explizitem "Unbekannt" (Review A4).
+ORIGIN_BUCKETS: tuple[str, ...] = ("Deutschland", "International", "Unbekannt")
+
+
+def origin_bucket(df: pd.DataFrame) -> pd.Series:
+    """Herkunft je Zeile: Deutschland / International / Unbekannt.
+
+    Die EINE Bucketing-Regel für alle Inland/Ausland-Sichten. Unbekannte
+    Herkunft (leerer Ländercode UND leere Sprache) wird explizit als
+    ``Unbekannt`` ausgewiesen statt still einem Lager zugeschlagen
+    (vorher: Chart -> DE, Tabelle -> International; Review A4).
+    """
+    clean = df["origin"].astype(str).str.upper().str.strip()
+    unknown = clean.isin(_UNKNOWN_ORIGIN)
+    return pd.Series(
+        np.where(unknown, "Unbekannt", np.where(clean.eq("DE"), "Deutschland", "International")),
+        index=df.index,
+    )
 
 
 def _to_dt(series: pd.Series, tz: str = "Europe/Berlin") -> pd.Series:
@@ -835,7 +930,7 @@ def engineer_reservations(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
     origin, los_bucket, lead_time_days / lead_time_bucket,
     cancel_lead_time_days (via `cancellationTime`, Fallback `modified`),
     booking_size / group_size_bucket, room_category, rate-plan flags, has_promo /
-    has_company, calendar fields, adr_per_night, kept_revenue / lost_revenue.
+    has_company, calendar fields, kept_revenue / lost_revenue.
     """
     df = df.copy()
     for c in ("arrival", "departure", "modified", "cancellationTime"):
@@ -895,7 +990,6 @@ def engineer_reservations(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
     df["arrival_weekday"] = df["arrival"].dt.day_name()
     df["arrival_year_month"] = df["arrival"].dt.to_period("M").astype(str)
     df["created_year_month"] = df["created"].dt.to_period("M").astype(str)
-    df["adr_per_night"] = df["revenue"] / df["nights"].replace(0, np.nan)
 
     # Storno economics straight from the apaleo fee columns (net basis).
     # Realized → full revenue kept; cancelled / no-show → the retained fee,
@@ -1224,8 +1318,10 @@ def pace_by_month(
 
       - ``ist_eom_old``  : finale realisierte Realität für ``year_old`` (alle
                             12 Stay-Monate, realized-only).
-      - ``ist_asof_old`` : On-the-books-Stand am ``snapshot_date`` minus 366
-                            Tage (Vorjahres-Pendant des Snapshot-Stichtags).
+      - ``ist_asof_old`` : On-the-books-Stand am jahres-gespiegelten
+                            Snapshot-Stichtag (``mirror_years(snapshot_date, 1)``,
+                            gleicher Monat/Tag im Vorjahr - konsistent zur
+                            Pickup-Seite; Review A10).
       - ``ist_asof_new`` : On-the-books-Stand am ``snapshot_date``.
 
     "On the books" am Stichtag T = die Nacht gehört zu einer Buchung mit
@@ -1234,11 +1330,11 @@ def pace_by_month(
     später storniert wurden, korrekt mit - sonst unterschätzen die asof-Serien
     den damaligen Stand.
 
-    Storno-Zeitpunkt = ``cancel_time`` (trägt aus dem Engineering bereits
-    ``cancellationTime`` mit ``modified`` als Fallback); fehlt ``cancel_time``,
-    wird die rohe ``modified``-Spalte genutzt. Hat eine stornierte Nacht gar
-    keinen Storno-Zeitstempel, wird sie ausgeschlossen (statt zeitlich
-    rekonstruiert). NoShows sind überall ausgeschlossen. Alle Stichtage hängen
+    Die On-the-books-Rekonstruktion läuft über ``asof_on_the_books_mask``
+    (EINE Implementierung für Pace + Pickup, Review "Cancel-Logik"):
+    Storno löst zu ``cancel_time`` auf (fehlt der Zeitstempel bei einer
+    stornierten Nacht, wird sie ausgeschlossen statt zeitlich rekonstruiert).
+    NoShows sind hier überall vorab ausgeschlossen. Alle Stichtage hängen
     am ``snapshot_date`` (Parquet-Stand), nie an "heute".
     """
     df = nightly
@@ -1252,7 +1348,6 @@ def pace_by_month(
 
     stay_col = "stay_date" if "stay_date" in df.columns else "serviceDate"
     stay = pd.to_datetime(df[stay_col]).dt.normalize()
-    created = pd.to_datetime(df["created"]).dt.normalize()
     rev = df["revenue"].astype(float)
     month = stay.dt.month
 
@@ -1266,33 +1361,18 @@ def pace_by_month(
         if "is_realized" in df.columns
         else ~cancelled
     )
-    # Storno-Zeitstempel: cancel_time (= cancellationTime ?? modified aus dem
-    # Engineering), sonst rohe modified-Spalte; fehlt beides -> Stornos raus.
-    _cancel_col = (
-        "cancel_time" if "cancel_time" in df.columns
-        else ("modified" if "modified" in df.columns else None)
-    )
-    cancel_ts = (
-        pd.to_datetime(df[_cancel_col], errors="coerce").dt.normalize()
-        if _cancel_col is not None
-        else None
-    )
 
     snap = pd.Timestamp(snapshot_date).normalize()
-    snap_old = snap - pd.Timedelta(days=366)
+    # Jahres-Spiegelung statt pauschal -366 Tage (Review A10) - identische
+    # Stichtags-Logik wie auf der Pickup-Seite.
+    snap_old = mirror_years(snap, 1)
 
     is_old_year = stay.dt.year == year_old
     is_new_year = stay.dt.year == year_new
 
     def _otb(asof: pd.Timestamp, year_mask: pd.Series) -> pd.Series:
         """Nacht-Netto on-the-books am Stichtag, gruppiert nach Stay-Monat."""
-        if cancel_ts is not None:
-            # nicht storniert ODER Storno erst nach dem Stichtag; storniert
-            # ohne Zeitstempel -> raus.
-            still_on = (~cancelled) | (cancelled & cancel_ts.notna() & (cancel_ts > asof))
-        else:
-            still_on = ~cancelled
-        m = year_mask & (created <= asof) & still_on
+        m = year_mask & asof_on_the_books_mask(df, asof, include_cancellations=False)
         return rev[m].groupby(month[m]).sum()
 
     # finale Realität fürs alte Jahr: realized-only (bzw. nicht-storniert wenn
@@ -1323,15 +1403,7 @@ FIRM_DEFINITIONS: tuple[str, ...] = (
     "firm_by_code",            # apaleo company_code only - strict contract view
     "firm_by_effective",       # priority walk: company_name → booker → guest → code
     "firm_by_effective_fuzzy", # effective + fuzzy-clustered name variants merged
-    "firm_by_business_purpose",# travelPurpose == "Business" → effective company
 )
-
-FIRM_DEFINITION_LABELS: dict[str, str] = {
-    "firm_by_code": "Company-Code (Vertrag)",
-    "firm_by_effective": "Effective Company (Priority-Walk)",
-    "firm_by_effective_fuzzy": "Effective + Fuzzy-Cluster",
-    "firm_by_business_purpose": "Reisezweck = Business",
-}
 
 
 def add_firm_definitions(
@@ -1340,9 +1412,9 @@ def add_firm_definitions(
     apply_fuzzy: bool = True,
     fuzzy_threshold: int = 85,
 ) -> pd.DataFrame:
-    """Add the four ``firm_by_*`` columns to a reservations frame in place.
+    """Add the ``firm_by_*`` columns to a reservations frame in place.
 
-    Returns the same frame (modified). All four columns hold either a string
+    Returns the same frame (modified). All columns hold either a string
     identifier or ``pd.NA``. The fuzzy column only differs from the effective
     column when fuzzy clustering is enabled and finds variants to merge.
 
@@ -1379,11 +1451,6 @@ def add_firm_definitions(
         else:
             df["firm_by_effective_fuzzy"] = df["firm_by_effective"]
 
-    # 4. firm_by_business_purpose - effective company filtered to business trips.
-    if "firm_by_business_purpose" not in df.columns:
-        is_business = df["travelPurpose"].astype(str).str.lower().eq("business")
-        df["firm_by_business_purpose"] = df["firm_by_effective"].where(is_business)
-
     return df
 
 
@@ -1396,7 +1463,6 @@ _RESERVATION_FIELDS_FOR_TIMESLICES: tuple[str, ...] = (
     "firm_by_code",
     "firm_by_effective",
     "firm_by_effective_fuzzy",
-    "firm_by_business_purpose",
     "company",
     "has_company",
     "company_code",
