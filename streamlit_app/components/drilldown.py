@@ -126,7 +126,7 @@ def compact_deepdive(
             use_container_width=True,
         ):
             st.session_state["cd_code_input"] = open_code
-            st.switch_page("pages/4_Code_Deepdive.py")
+            st.switch_page("pages/5_Code_Deepdive.py")
 
     if section_id and page:
         register_section(

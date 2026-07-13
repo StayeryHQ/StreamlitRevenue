@@ -16,7 +16,7 @@ import streamlit as st
 from revenueblindspots import helpers as H
 
 
-class CancelMode(str, Enum):
+class CancelMode(str, Enum):  # noqa: UP042  (StrEnum erst ab 3.11; Runtime = 3.10)
     """Storno-/No-Show-Behandlung für die Stay×Creation-Sichten (Pickup-Seite).
 
     - ``ALL_IN``: jede Buchung im Fenster zählt (inkl. später storniert / No-Show),
@@ -486,6 +486,22 @@ def _eur_or_dash(v: float) -> str:
     return H.fmt_eur(v) if (pd.notna(v) and v > 0) else "-"
 
 
+def _pct_or_dash(v: float) -> str:
+    """Prozent (1 Nachkommastelle) oder ``"-"`` bei ``NaN``."""
+    return f"{v:.1f} %" if pd.notna(v) else "-"
+
+
+def _pickup_pct(rev: pd.Series, otb: pd.Series) -> pd.Series:
+    """Pickup-Anteil (%) = Erstellt-im-Fenster ÷ OTB gesamt · 100, sonst ``NaN``."""
+    return pd.Series(
+        [
+            (float(r) / float(o) * 100.0) if (pd.notna(o) and o > 0) else float("nan")
+            for r, o in zip(rev, otb, strict=False)
+        ],
+        index=rev.index,
+    )
+
+
 def _sc_standard_disp(
     raw: pd.DataFrame,
     *,
@@ -496,32 +512,46 @@ def _sc_standard_disp(
     rev_new_col: str = "rev_new",
     rev_old_col: str = "rev_old",
     include_share: bool = False,
+    pickup: bool = False,
+    rev_label: str = "as-of",
+    otb_label: str = "Stay-Total",
 ) -> pd.DataFrame:
-    """Vereinheitlichte Anzeige-Tabelle für §8.A-8.C (Standardstruktur).
+    """Vereinheitlichte Anzeige-Tabelle für die Stay×Creation-Sichten.
 
     Feste Spalten-Reihenfolge (Jahr NEW vor OLD)::
 
-        Kategorie · as-of {NEW} (€) · as-of {OLD} (€) · Δ absolut (€) ·
+        Kategorie · {rev_label} {NEW} (€) · {rev_label} {OLD} (€) · Δ absolut (€) ·
         Δ relativ (%) [Ampel] · [Δ Anteil (pp) {NEW}/{OLD}] ·
-        Stay-Total {NEW} (€) · Stay-Total {OLD} (€)
+        {otb_label} {NEW} (€) · {otb_label} {OLD} (€)
+        [+ falls pickup: Pickup-Anteil {NEW}/{OLD} (%) · Δ Pickup (pp)]
 
-    ``Kategorie`` ist Standort / Buchungskanal / Stay-Segment. Die zwei
-    ``Stay-Total``-Spalten zeigen das **volle Stay-Fenster-Revenue OHNE
-    Creation-Filter** zum selben As-of-Stichtag (siehe ``stay_only_scope``); die
-    ``as-of``-Spalten sind die creation-gefilterte Teilmenge davon.
+    ``Kategorie`` ist Standort / Buchungskanal / Stay-Segment. Die zwei OTB-Spalten
+    zeigen das **volle Stay-Fenster-Revenue OHNE Creation-Filter** (siehe
+    ``stay_only_scope``); die ``rev``-Spalten sind die creation-gefilterte Teilmenge.
+    ``pickup=True`` (Pickup-Seite) benennt sie ``Erstellt``/``OTB`` und ergänzt die
+    Pickup-Anteil-Spalten (Erstellt ÷ OTB).
 
     Args:
-        raw: Frame mit ``label_src``, ``rev_new_col``, ``rev_old_col``,
-            ``d_eur``, ``d_pct``, ``stay_new``, ``stay_old`` und - falls
-            ``include_share`` - ``d_share_pp``.
+        raw: Frame mit ``label_src``, ``rev_new_col``, ``rev_old_col``, ``d_eur``,
+            ``d_pct``, ``stay_new``, ``stay_old`` und - falls ``include_share`` -
+            ``d_share_pp``.
+        label_src: Spaltenname der Kategorie-Werte in ``raw``.
+        label_header: Überschrift der Kategorie-Spalte im Output.
+        year_old: Vorjahr (OLD).
+        year_new: aktuelles Jahr (NEW).
+        rev_new_col: Spalte mit dem NEW-Revenue (creation-gefiltert).
+        rev_old_col: Spalte mit dem OLD-Revenue (creation-gefiltert).
         include_share: ``True`` fügt die ``Δ Anteil (pp)``-Spalte ein (8.B/8.C).
+        pickup: ``True`` ergänzt Pickup-Anteil-Spalten + benennt rev/otb um.
+        rev_label: Header-Präfix der Revenue-Spalten (z.B. ``Erstellt``/``as-of``).
+        otb_label: Header-Präfix der OTB-Spalten (z.B. ``OTB``/``Stay-Total``).
     """
     if raw is None or raw.empty:
         return raw
     cols: dict[str, object] = {
         label_header: raw[label_src],
-        f"as-of {year_new} (€)": raw[rev_new_col].map(_eur_or_dash),
-        f"as-of {year_old} (€)": raw[rev_old_col].map(_eur_or_dash),
+        f"{rev_label} {year_new} (€)": raw[rev_new_col].map(_eur_or_dash),
+        f"{rev_label} {year_old} (€)": raw[rev_old_col].map(_eur_or_dash),
         "Δ absolut (€)": raw["d_eur"].map(_signed_eur),
         "Δ relativ (%)": raw["d_pct"].map(_signed_pct_icon),
     }
@@ -529,8 +559,15 @@ def _sc_standard_disp(
         cols[f"Δ Anteil (pp) {year_new}/{year_old}"] = raw["d_share_pp"].map(
             lambda v: f"{v:+.2f}"
         )
-    cols[f"Stay-Total {year_new} (€)"] = raw["stay_new"].map(_eur_or_dash)
-    cols[f"Stay-Total {year_old} (€)"] = raw["stay_old"].map(_eur_or_dash)
+    cols[f"{otb_label} {year_new} (€)"] = raw["stay_new"].map(_eur_or_dash)
+    cols[f"{otb_label} {year_old} (€)"] = raw["stay_old"].map(_eur_or_dash)
+    if pickup:
+        pu_new = _pickup_pct(raw[rev_new_col], raw["stay_new"])
+        pu_old = _pickup_pct(raw[rev_old_col], raw["stay_old"])
+        d_pu = pu_new - pu_old
+        cols[f"Pickup-Anteil {year_new} (%)"] = pu_new.map(_pct_or_dash)
+        cols[f"Pickup-Anteil {year_old} (%)"] = pu_old.map(_pct_or_dash)
+        cols["Δ Pickup (pp)"] = d_pu.map(lambda v: f"{v:+.1f}" if pd.notna(v) else "-")
     return pd.DataFrame(cols)
 
 
@@ -572,7 +609,8 @@ def stay_created_scope(
     cre_start: pd.Timestamp,
     cre_end: pd.Timestamp,
     asof: pd.Timestamp,
-    include_cancellations: bool,
+    include_cancellations: bool = False,
+    cancel_mode: CancelMode | None = None,
 ) -> pd.DataFrame:
     """Stay-Fenster ∩ Creation-Fenster, As-of am ``asof`` gefiltert.
 
@@ -594,9 +632,11 @@ def stay_created_scope(
         cre_start: Erstellungs-Fenster Start (inklusive, schon jahr-gespiegelt).
         cre_end: Erstellungs-Fenster Ende (inklusive, schon jahr-gespiegelt).
         asof: Point-in-time-Stichtag für die Storno-/No-Show-Logik.
-        include_cancellations: Toggle - False = realized-only (As-of-Storno raus
-            + am Stichtag bereits aufgelöste No-Shows raus), True = alle
-            on-the-books am Stichtag.
+        include_cancellations: Legacy-Toggle - False = realized-only (As-of-Storno
+            raus + am Stichtag bereits aufgelöste No-Shows raus), True = alle
+            on-the-books am Stichtag. Wird ignoriert, wenn ``cancel_mode`` gesetzt ist.
+        cancel_mode: Wenn gesetzt (Pickup-Seite), übersteuert es
+            ``include_cancellations`` mit der 3-fach-Logik (siehe ``CancelMode``).
 
     Returns:
         Gefilterte Kopie von ``nightly``.
@@ -605,6 +645,8 @@ def stay_created_scope(
     sc = H.filter_period(stay, cre_start, cre_end, "created")
     if sc.empty:
         return sc
+    if cancel_mode is not None:
+        return _apply_cancel_mode(sc, asof, cancel_mode)
     mask = H.asof_on_the_books_mask(sc, asof, include_cancellations=include_cancellations)
     return sc[mask]
 
@@ -614,7 +656,8 @@ def stay_only_scope(
     start_stay: pd.Timestamp,
     end_stay: pd.Timestamp,
     asof: pd.Timestamp,
-    include_cancellations: bool,
+    include_cancellations: bool = False,
+    cancel_mode: CancelMode | None = None,
 ) -> pd.DataFrame:
     """Stay-Fenster OHNE Creation-Filter, As-of am ``asof`` gefiltert.
 
@@ -635,7 +678,9 @@ def stay_only_scope(
         end_stay: Aufenthalts-Fenster Ende (inklusive).
         asof: Point-in-time-Stichtag für die Storno-/No-Show-Logik (identisch
             zum As-of-Stichtag der creation-gefilterten Tabelle).
-        include_cancellations: Toggle wie in ``stay_created_scope``.
+        include_cancellations: Legacy-Toggle wie in ``stay_created_scope``.
+        cancel_mode: Wenn gesetzt, übersteuert es ``include_cancellations``
+            (3-fach-Logik, siehe ``CancelMode``).
 
     Returns:
         Gefilterte Kopie von ``nightly``.
@@ -643,6 +688,8 @@ def stay_only_scope(
     stay = H.filter_period(nightly, start_stay, end_stay, "stay_date")
     if stay.empty:
         return stay
+    if cancel_mode is not None:
+        return _apply_cancel_mode(stay, asof, cancel_mode)
     mask = H.asof_on_the_books_mask(stay, asof, include_cancellations=include_cancellations)
     return stay[mask]
 
@@ -664,6 +711,10 @@ def performance_by_stay_created(
     year_old: int,
     year_new: int,
     include_cancellations: bool = False,
+    cancel_mode: CancelMode | None = None,
+    otb_asof_new: pd.Timestamp | None = None,
+    otb_asof_old: pd.Timestamp | None = None,
+    pickup: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Standort-Tabelle: Stay-Fenster ∩ Creation-Fenster, As-of, YoY (KEIN PLAN).
 
@@ -671,21 +722,32 @@ def performance_by_stay_created(
     auf der As-of-gefilterten Stay×Creation-Menge. KEIN PLAN-Vergleich - der
     Plan ist monatlich auf das Aufenthaltsdatum bezogen und passt nicht auf
     einen creation-gefilterten Teilausschnitt.
+
+    ``cancel_mode`` (Pickup-Seite) übersteuert den Legacy-``include_cancellations``.
+    ``otb_asof_new/old`` erlauben, den OTB-Nenner an einem anderen (Snapshot-)Stichtag
+    zu messen als das creation-gefilterte Zähler-Fenster. ``pickup=True`` benennt die
+    Spalten (Erstellt/OTB) und ergänzt die Pickup-Anteil-Spalten.
     """
     scope_new = stay_created_scope(
-        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new, include_cancellations
+        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new,
+        include_cancellations, cancel_mode,
     )
     scope_old = stay_created_scope(
-        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old, include_cancellations
+        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old,
+        include_cancellations, cancel_mode,
     )
 
     ist_new = scope_new.groupby("property_code", observed=True)["revenue"].sum()
     ist_old = scope_old.groupby("property_code", observed=True)["revenue"].sum()
 
-    # Stay-Total (OHNE Creation-Filter): volles Stay-Fenster-Revenue zum selben
-    # As-of-Stichtag. Die creation-gefilterten ist_new/ist_old sind Teilmengen.
-    stay_scope_new = stay_only_scope(nightly, start_new, end_new, asof_new, include_cancellations)
-    stay_scope_old = stay_only_scope(nightly, start_old, end_old, asof_old, include_cancellations)
+    # OTB gesamt (OHNE Creation-Filter): volles Stay-Fenster-Revenue - Default am
+    # selben Stichtag, auf der Pickup-Seite am (gespiegelten) Snapshot-Stichtag.
+    stay_scope_new = stay_only_scope(
+        nightly, start_new, end_new, otb_asof_new or asof_new, include_cancellations, cancel_mode
+    )
+    stay_scope_old = stay_only_scope(
+        nightly, start_old, end_old, otb_asof_old or asof_old, include_cancellations, cancel_mode
+    )
     stay_new = stay_scope_new.groupby("property_code", observed=True)["revenue"].sum()
     stay_old = stay_scope_old.groupby("property_code", observed=True)["revenue"].sum()
 
@@ -741,6 +803,9 @@ def performance_by_stay_created(
         year_new=year_new,
         rev_new_col="ist_new",
         rev_old_col="ist_old",
+        pickup=pickup,
+        rev_label="Erstellt" if pickup else "as-of",
+        otb_label="OTB" if pickup else "Stay-Total",
     )
     return disp, raw
 
@@ -761,24 +826,35 @@ def channel_volume_by_stay_created(
     year_old: int,
     year_new: int,
     include_cancellations: bool = False,
+    cancel_mode: CancelMode | None = None,
+    otb_asof_new: pd.Timestamp | None = None,
+    otb_asof_old: pd.Timestamp | None = None,
+    pickup: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Channel-Tabelle auf der As-of-gefilterten Stay×Creation-Menge.
 
     Die Storno-/No-Show-Logik passiert bereits in ``stay_created_scope``
     (point-in-time), daher ``realized_only=False`` an ``_build_channel_table``:
     KEIN zweiter, finaler ``is_realized``-Filter - sonst stimmen die Totals
-    nicht mehr mit der Standort-/Segment-Tabelle überein.
+    nicht mehr mit der Standort-/Segment-Tabelle überein. Params ``cancel_mode`` /
+    ``otb_asof_*`` / ``pickup`` wie in ``performance_by_stay_created``.
     """
     scope_new = stay_created_scope(
-        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new, include_cancellations
+        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new,
+        include_cancellations, cancel_mode,
     )
     scope_old = stay_created_scope(
-        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old, include_cancellations
+        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old,
+        include_cancellations, cancel_mode,
     )
     _, raw = _build_channel_table(scope_new, scope_old, year_old, year_new, realized_only=False)
-    # Stay-Total je Channel (OHNE Creation-Filter, gleicher As-of-Stichtag).
-    stay_scope_new = stay_only_scope(nightly, start_new, end_new, asof_new, include_cancellations)
-    stay_scope_old = stay_only_scope(nightly, start_old, end_old, asof_old, include_cancellations)
+    # OTB je Channel (OHNE Creation-Filter) - Nenner am (ggf. Snapshot-)Stichtag.
+    stay_scope_new = stay_only_scope(
+        nightly, start_new, end_new, otb_asof_new or asof_new, include_cancellations, cancel_mode
+    )
+    stay_scope_old = stay_only_scope(
+        nightly, start_old, end_old, otb_asof_old or asof_old, include_cancellations, cancel_mode
+    )
     stay_new = _revenue_by_key(stay_scope_new, "channel_combo", _channel_label)
     stay_old = _revenue_by_key(stay_scope_old, "channel_combo", _channel_label)
     raw = _attach_stay_totals(raw, "Channel", stay_new, stay_old)
@@ -789,6 +865,9 @@ def channel_volume_by_stay_created(
         year_old=year_old,
         year_new=year_new,
         include_share=True,
+        pickup=pickup,
+        rev_label="Erstellt" if pickup else "as-of",
+        otb_label="OTB" if pickup else "Stay-Total",
     )
     return disp, raw
 
@@ -809,18 +888,25 @@ def segment_volume_by_stay_created(
     year_old: int,
     year_new: int,
     include_cancellations: bool = False,
+    cancel_mode: CancelMode | None = None,
+    otb_asof_new: pd.Timestamp | None = None,
+    otb_asof_old: pd.Timestamp | None = None,
+    pickup: bool = False,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Stay-Segment-Tabelle (``los_bucket``) auf der As-of-Stay×Creation-Menge.
 
     kurz ``short_<=6`` / mittel ``mid_7-28`` / lang ``long_29+`` - feste
     Reihenfolge, YoY mit Revenue-Anteil. Gleicher Scope + As-of-Filter wie die
-    Standort- und Channel-Tabelle (Reconciliation).
+    Standort- und Channel-Tabelle (Reconciliation). Params ``cancel_mode`` /
+    ``otb_asof_*`` / ``pickup`` wie in ``performance_by_stay_created``.
     """
     scope_new = stay_created_scope(
-        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new, include_cancellations
+        nightly, start_new, end_new, cre_start_new, cre_end_new, asof_new,
+        include_cancellations, cancel_mode,
     )
     scope_old = stay_created_scope(
-        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old, include_cancellations
+        nightly, start_old, end_old, cre_start_old, cre_end_old, asof_old,
+        include_cancellations, cancel_mode,
     )
 
     def agg(df: pd.DataFrame) -> pd.Series:
@@ -873,9 +959,13 @@ def segment_volume_by_stay_created(
     )
     raw = pd.concat([raw, total], ignore_index=True)
 
-    # Stay-Total je Segment (OHNE Creation-Filter, gleicher As-of-Stichtag).
-    stay_scope_new = stay_only_scope(nightly, start_new, end_new, asof_new, include_cancellations)
-    stay_scope_old = stay_only_scope(nightly, start_old, end_old, asof_old, include_cancellations)
+    # OTB je Segment (OHNE Creation-Filter) - Nenner am (ggf. Snapshot-)Stichtag.
+    stay_scope_new = stay_only_scope(
+        nightly, start_new, end_new, otb_asof_new or asof_new, include_cancellations, cancel_mode
+    )
+    stay_scope_old = stay_only_scope(
+        nightly, start_old, end_old, otb_asof_old or asof_old, include_cancellations, cancel_mode
+    )
     stay_new = _revenue_by_key(stay_scope_new, "los_bucket", _segment_label)
     stay_old = _revenue_by_key(stay_scope_old, "los_bucket", _segment_label)
     raw = _attach_stay_totals(raw, "Segment", stay_new, stay_old)
@@ -886,6 +976,9 @@ def segment_volume_by_stay_created(
         year_old=year_old,
         year_new=year_new,
         include_share=True,
+        pickup=pickup,
+        rev_label="Erstellt" if pickup else "as-of",
+        otb_label="OTB" if pickup else "Stay-Total",
     )
     return disp, raw
 
@@ -944,6 +1037,120 @@ def daily_created_line_data(
             "rev_old": [float(so.get(o, 0.0)) for o in offsets],
         }
     )
+
+
+def pickup_pace_curve(
+    line_df: pd.DataFrame,
+    otb_new: float,
+    otb_old: float,
+    year_new: int,
+    year_old: int,
+) -> pd.DataFrame:
+    """Kumulierter Pickup-Anteil (%) je Erstellungs-Tag — Basis der Buchungskurve.
+
+    ``line_df`` aus ``daily_created_line_data``. Kumuliert ``rev_new``/``rev_old``
+    über die Erstellungs-Tage und teilt durch das jeweilige OTB-Total → Anteil des
+    bis zu diesem Tag gebuchten Umsatzes am gesamten Stay-Fenster-OTB. Für
+    ``st.line_chart`` (Index = Kalendertag NEW, Spalten = Jahre).
+    """
+    if line_df is None or line_df.empty:
+        return pd.DataFrame(columns=[str(year_new), str(year_old)])
+    days = [pd.Timestamp(d).strftime("%d.%m.") for d in line_df["date_new"]]
+    cum_new = line_df["rev_new"].cumsum()
+    cum_old = line_df["rev_old"].cumsum()
+    pct_new = (cum_new / otb_new * 100.0) if otb_new else cum_new * 0.0
+    pct_old = (cum_old / otb_old * 100.0) if otb_old else cum_old * 0.0
+    out = pd.DataFrame(
+        {str(year_new): pct_new.to_numpy(), str(year_old): pct_old.to_numpy()},
+        index=days,
+    )
+    out.index.name = "Erstellungs-Tag"
+    return out
+
+
+def pickup_bars_data(
+    raw: pd.DataFrame,
+    label_col: str,
+    rev_new_col: str,
+    rev_old_col: str,
+    year_new: int,
+    year_old: int,
+) -> pd.DataFrame:
+    """Pickup-Anteil (%) je Kategorie (ohne ``Total``) — für ``st.bar_chart``."""
+    if raw is None or raw.empty:
+        return pd.DataFrame(columns=[str(year_new), str(year_old)])
+    sub = raw[raw[label_col] != "Total"].copy()
+    if sub.empty:
+        return pd.DataFrame(columns=[str(year_new), str(year_old)])
+    pu_new = _pickup_pct(sub[rev_new_col], sub["stay_new"])
+    pu_old = _pickup_pct(sub[rev_old_col], sub["stay_old"])
+    out = pd.DataFrame(
+        {str(year_new): pu_new.to_numpy(), str(year_old): pu_old.to_numpy()},
+        index=sub[label_col].to_numpy(),
+    )
+    out.index.name = label_col
+    return out
+
+
+def pickup_leadtime_curve(
+    scope_new: pd.DataFrame,
+    scope_old: pd.DataFrame,
+    otb_new: float,
+    otb_old: float,
+    year_new: int,
+    year_old: int,
+    max_lead: int = 180,
+) -> pd.DataFrame:
+    """Kumulierter OTB-Anteil nach Tagen vor Anreise (Lead-Time-Buchungskurve).
+
+    Für jeden x = Tage vor Anreise (0..``max_lead``): Anteil des OTB, der
+    **mindestens x Tage vor Anreise** gebucht war (``lead_time_days >= x``).
+    Monoton fallend; **NEW über OLD = wir buchen weiter im Voraus** (mehr Umsatz
+    früh gesichert). Über Monate hinweg vergleichbar (unabhängig von
+    Monatslänge / Kalendertag). Für ``st.line_chart`` (Index = Tage vor Anreise).
+
+    Args:
+        scope_new: OTB-Menge NEW (``stay_only_scope``, alle Stay-Buchungen
+            on-the-books zum Stichtag) — braucht Spalten ``lead_time_days`` +
+            ``revenue``.
+        scope_old: OTB-Menge OLD.
+        otb_new: OTB-Total NEW (Nenner).
+        otb_old: OTB-Total OLD (Nenner).
+        year_new: aktuelles Jahr.
+        year_old: Vorjahr.
+        max_lead: obere Grenze der X-Achse in Tagen.
+
+    Returns:
+        DataFrame, Index 0..max_lead (Tage vor Anreise), Spalten = Jahre (%).
+    """
+    xs = list(range(0, int(max_lead) + 1))
+
+    def cum(df: pd.DataFrame, otb: float) -> list[float]:
+        if df is None or df.empty or "lead_time_days" not in df.columns or not otb:
+            return [float("nan")] * len(xs)
+        lt = pd.to_numeric(df["lead_time_days"], errors="coerce").clip(lower=0)
+        rev_by_lead = (
+            pd.Series(df["revenue"].to_numpy(), index=lt.to_numpy())
+            .groupby(level=0)
+            .sum()
+            .sort_index()
+        )
+        # Kumuliert von hohem Lead nach 0: Anteil mit lead >= x.
+        csum_desc = rev_by_lead[::-1].cumsum()  # index absteigend, Wert = sum(lead>=idx)
+        csum = csum_desc.sort_index()
+        idx = csum.index.to_numpy()
+        vals = csum.to_numpy()
+        out = []
+        for x in xs:
+            pos = idx.searchsorted(x, side="left")
+            share = (float(vals[pos]) if pos < len(vals) else 0.0) / otb * 100.0
+            out.append(share)
+        return out
+
+    data = {str(year_new): cum(scope_new, otb_new), str(year_old): cum(scope_old, otb_old)}
+    out = pd.DataFrame(data, index=xs)
+    out.index.name = "Tage vor Anreise"
+    return out
 
 
 def purpose_daily_area_data(

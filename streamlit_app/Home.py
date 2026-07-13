@@ -77,21 +77,30 @@ with cols[0]:
 
     st.markdown(
         """
-        ### Standort-Analyse
-        Tiefer Einzelblick auf einen Standort. KPIs, Pace,
-        Heatmaps, LOS, Channel-Mix, Firmenkunden, Top-Vertragscodes.
-        """
-    )
-    st.page_link("pages/1_Standort_Analyse.py", label="→ Standort-Analyse öffnen")
-
-    st.markdown(
-        """
         ### Global Report
         Standortübergreifender Quartal-Recap mit IST vs. PLAN vs. Vorjahr.
         Auto-Alerts, Pace-by-Month, Heatmaps, Top-Movers.
         """
     )
-    st.page_link("pages/2_Global_Report.py", label="→ Global Report öffnen")
+    st.page_link("pages/1_Global_Report.py", label="→ Global Report öffnen")
+
+    st.markdown(
+        """
+        ### Pickup / Vorlauf-Analyse
+        Stay × Creation: Wie viel eines Aufenthalts-Zeitraums bis zum Stichtag
+        gebucht war — Pickup-Anteil, Buchungskurve, YoY-Vorlauf. Vor- & rückwärts.
+        """
+    )
+    st.page_link("pages/2_Pickup_Analyse.py", label="→ Pickup-Analyse öffnen")
+
+    st.markdown(
+        """
+        ### Standort-Analyse
+        Tiefer Einzelblick auf einen Standort. KPIs, Pace,
+        Heatmaps, LOS, Channel-Mix, Firmenkunden, Top-Vertragscodes.
+        """
+    )
+    st.page_link("pages/3_Standort_Analyse.py", label="→ Standort-Analyse öffnen")
 
 with cols[1]:
     st.markdown(
@@ -101,7 +110,7 @@ with cols[1]:
         (fuzzy-geclustert). Multi-Sheet Excel-Export.
         """
     )
-    st.page_link("pages/3_B2B_Deepdive.py", label="→ B2B Deep-Dive öffnen")
+    st.page_link("pages/4_B2B_Deepdive.py", label="→ B2B Deep-Dive öffnen")
 
     st.markdown(
         """
@@ -110,7 +119,7 @@ with cols[1]:
         Stay-Pattern, Storno-Verhalten, Future-Pipeline.
         """
     )
-    st.page_link("pages/4_Code_Deepdive.py", label="→ Code Deep-Dive öffnen")
+    st.page_link("pages/5_Code_Deepdive.py", label="→ Code Deep-Dive öffnen")
 
     st.markdown(
         """
@@ -119,7 +128,7 @@ with cols[1]:
         Drilldown je Code und Reklassifizierung von Promo- zu Firmencodes (global).
         """
     )
-    st.page_link("pages/5_Promo_Codes.py", label="→ Promo-Codes öffnen")
+    st.page_link("pages/6_Promo_Codes.py", label="→ Promo-Codes öffnen")
 
 
 st.divider()
