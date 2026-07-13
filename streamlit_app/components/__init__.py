@@ -1,7 +1,7 @@
 """Reusable Streamlit components for the app."""
 from .alerts import alert_card
 from .section import (
-    section, lazy_section, preload_all_button, section_loaded, render_toc,
+    section, lazy_section, preload_all_button, render_toc,
 )
 from .export import build_markdown, download_button
 from .brand import inject_brand_css, sync_snapshot_override
@@ -12,7 +12,6 @@ __all__ = [
     "section",
     "lazy_section",
     "preload_all_button",
-    "section_loaded",
     "render_toc",
     "build_markdown",
     "download_button",

@@ -111,10 +111,6 @@ def lazy_section(
     return False
 
 
-def section_loaded(num: int | str) -> bool:
-    return bool(st.session_state.get(_key(num), False))
-
-
 def preload_all_button(
     section_nums: list[int | str], label: str = "🚀 Alle Sektionen laden"
 ) -> None:

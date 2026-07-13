@@ -97,21 +97,14 @@ def categorical_palette(n: int | None = None) -> list[str]:
     return [palette[i % len(palette)] for i in range(n)]
 
 
-def diverging_triplet() -> tuple[str, str, str]:
-    """Return (negative, neutral, positive) hex triplet for diverging encodings."""
-    cfg = load_brand_config()
-    lookup = _color_lookup()
-    div = cfg["diverging"]
-    return lookup[div["negative"]], lookup[div["neutral"]], lookup[div["positive"]]
-
-
 def apply_stayery_style() -> None:
     """Apply the Stayery matplotlib style globally for the current session."""
     cfg = load_brand_config()
     lookup = _color_lookup()
 
-    # Gebündelte Brand-Fonts bei matplotlib registrieren
-    # hab nicht ganz gecheckt wieso man das machen muss aber es funktioniert
+    # Gebündelte Brand-Fonts bei matplotlib registrieren: matplotlib kennt nur
+    # System-Fonts; die mitgelieferten OTFs müssen explizit in den FontManager,
+    # sonst fallen die Charts still auf einen Default-Font zurück.
     registered = _register_brand_fonts()
     primary = cfg["typography"]["primary"]
     # Brand-Primary zuerst, dann die übrigen registrierten Schnitte (z.B. der

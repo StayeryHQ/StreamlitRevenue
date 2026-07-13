@@ -199,7 +199,6 @@ def run_refresh(
     from google.cloud import bigquery
 
     progress = progress or _noop_progress
-    _REPO_ROOT = Path(__file__).resolve().parents[2]
 
     # ----- 1. Auth ----------
     progress("Authentifiziere mit BigQuery …", 0.05)
@@ -290,14 +289,7 @@ def run_refresh(
     progress("✓ nightly um Reservation-Felder angereichert", 0.91)
 
     # ----- 7. Resolve snapshot target ----------
-    if snapshot_dir is None:
-        snapshot_dir = os.environ.get("STAYERY_SNAPSHOT_DIR") or str(_REPO_ROOT / "data")
-    if isinstance(snapshot_dir, str) and snapshot_dir.startswith("gs://"):
-        target: "str | Path" = snapshot_dir
-    else:
-        target = Path(snapshot_dir).expanduser()
-        if not target.is_absolute():
-            target = _REPO_ROOT / target
+    target = _resolve_snapshot_dir(snapshot_dir)  # eine Auflösung, kein Inline-Duplikat (D4)
     progress(f"Schreibe Snapshot nach {target} …", 0.92)
 
     # ----- 8. Save ----------
