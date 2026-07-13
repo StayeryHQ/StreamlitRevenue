@@ -1,7 +1,7 @@
-"""Pickup / Vorlauf-Analyse — Stay × Creation Booking-Pace.
+"""Pickup / Vorlauf-Analyse - Stay × Creation Booking-Pace.
 
 Kombiniert Aufenthalts- und Erstellungsdatum: Wie viel Umsatz eines Stay-Zeitraums
-wurde in einem gewählten Erstellungs-Fenster gebucht — YoY, auf denselben Vorlauf
+wurde in einem gewählten Erstellungs-Fenster gebucht - YoY, auf denselben Vorlauf
 normiert. Funktioniert vorwärts (füllender Zukunftsmonat) wie rückwärts (einen
 vergangenen Monat im Nachhinein auswerten). Löst den früheren §8-Block des
 Global Reports ab.
@@ -42,7 +42,7 @@ hero(
     eyebrow="Portfolio · Booking-Pace",
     title="Pickup / Vorlauf-Analyse",
     subtitle="Stay × Creation: Wie viel Umsatz eines Aufenthalts-Zeitraums war "
-    "zu einem Stichtag schon gebucht — im Jahresvergleich auf denselben Vorlauf "
+    "zu einem Stichtag schon gebucht - im Jahresvergleich auf denselben Vorlauf "
     "normiert. Vorwärts (füllender Zukunftsmonat) wie rückwärts (vergangenen "
     "Monat auswerten).",
 )
@@ -53,24 +53,22 @@ with st.expander("Was zeigt diese Seite? (kurz erklärt)", expanded=False):
 **Zwei Datumsachsen kombiniert.** *Stay-Datum* = wann der Gast übernachtet;
 *Erstellungs-Datum* = wann gebucht wurde. Diese Seite beantwortet:
 **Wie viel Umsatz eines Aufenthalts-Zeitraums war zu einem Stichtag schon
-gebucht — und wie schlägt sich das gegen das Vorjahr?** Sie ersetzt den früheren
-§8-Block des Global Reports.
+gebucht - und wie schlägt sich das gegen das Vorjahr?**
 
-**Pickup-Anteil — die Kernzahl.**
+**Pickup-Anteil - die Kernzahl.**
 `Pickup-Anteil = Erstellt-im-Fenster ÷ OTB gesamt`
 
 - *Erstellt-im-Fenster (€)* = Umsatz für Stays im Stay-Fenster, der im gewählten
   **Erstellungs-Fenster** gebucht wurde.
 - *OTB gesamt (€)* = gesamter Stay-Umsatz **on-the-books** zum Stichtag, ohne
-  Erstellungs-Filter. Beide zum **selben Stichtag** gemessen → der Anteil ist
-  immer ≤ 100 %.
+  Erstellungs-Filter. Beide zum **selben Stichtag** gemessen.
 
 **Fairer Jahresvergleich.** Der Vorjahres-Stichtag ist der aktuelle Stichtag
 minus ganze Jahre. Beide Jahre werden so auf **demselben Buchungsvorlauf**
-verglichen — egal ob der Monat noch **in der Zukunft** liegt (füllt sich noch)
+verglichen - egal ob der Monat noch **in der Zukunft** liegt (füllt sich noch)
 oder schon **vorbei** ist (im Nachhinein lernen, z.B. im Februar den Januar).
 
-**Storno-Modus (nur hier, 3-fach).** *All in* = alle Buchungen (inkl. später
+**Storno-Modus.** *All in* = alle Buchungen (inkl. später
 storniert / No-Show). *All out* = nur realisierte (finaler Status). *As-of* =
 point-in-time zum Stichtag (Storno bis `cancel_time`, No-Show bis Anreise). Für
 vergangene Monate sind As-of und All out gleich; für Zukunftsmonate zeigt As-of
@@ -227,7 +225,7 @@ st.caption(
 )
 st.caption(
     "**Pickup-Anteil** = Erstellt-im-Fenster ÷ OTB gesamt (voller Stay-Umsatz, "
-    "ohne Erstellungs-Filter) — beide zum selben Stichtag, daher ≤ 100 %. "
+    "ohne Erstellungs-Filter) - beide zum selben Stichtag, daher ≤ 100 %. "
     "Zähler und Nenner sind YoY auf denselben Vorlauf gespiegelt."
 )
 
@@ -286,7 +284,7 @@ st.markdown("*Portfolio-Summe über alle gewählten Standorte.*")
 st.caption(
     "**Pickup-Anteil** = Anteil des Stay-Umsatzes, der bis zum Stichtag gebucht "
     "war (NEW vs. OLD). **Δ Pickup** = Vorlauf-Vorsprung (+) oder -rückstand (−) "
-    "ggü. Vorjahr in Prozentpunkten. **OTB gesamt** = aktuell gebuchter "
+    "ggü. Vorjahr in Prozentpunkten. **OTB gesamt** = zum Stichtag gebuchter "
     "Stay-Umsatz (NEW), unabhängig vom Erstellungs-Fenster."
 )
 k1, k2, k3, k4 = st.columns(4)
@@ -311,7 +309,7 @@ _scope_old = GT.stay_created_scope(
 _line_df = GT.daily_created_line_data(_scope_new, _scope_old, cre_start_new, cre_start_old)
 
 st.markdown("## 2 · Buchungskurve")
-st.markdown("*Wie sich der gebuchte Anteil über die Zeit aufbaut — NEW vs. OLD.*")
+st.markdown("*Wie sich der gebuchte Anteil über die Zeit aufbaut - NEW vs. OLD.*")
 _curve_axis = st.radio(
     "X-Achse",
     ["Erstellungs-Tag", "Tage vor Anreise (Lead-Time)"],
@@ -387,37 +385,34 @@ else:
 
 # ============================== Tabellen ===================================
 st.markdown("## 4 · Tabellen")
-st.markdown("*Dieselbe Struktur je Kategorie — Detail hinter den Charts.*")
+st.markdown("*Dieselbe Struktur je Kategorie - Detail hinter den Charts.*")
 with st.expander("Spalten einfach erklärt (Klartext)", expanded=False):
     st.markdown(
         f"""
 Jede Zeile ist **eine Gruppe** (ein Standort, ein Buchungskanal oder ein
-Stay-Segment). Die letzte Zeile **Total** ist die Summe über alles. Von links
-nach rechts:
+Stay-Segment):
 
-- **Standort / Kanal / Segment** — um welche Gruppe es in dieser Zeile geht
-  (z.B. Berlin, oder der Kanal Booking.com).
-- **Erstellt {YEAR_NEW} (€)** — Umsatz für diesen Zeitraum, der **in deinem
+- **Erstellt {YEAR_NEW} (€)** - Umsatz für diesen Zeitraum, der **im ausgewählten
   Buchungs-Fenster** reingekommen ist. Beispiel: Umsatz für
   Juli-Übernachtungen, der im Juni gebucht wurde.
-- **Erstellt {YEAR_OLD} (€)** — genau dasselbe, aber im **Vorjahr** (zum
+- **Erstellt {YEAR_OLD} (€)** - genau dasselbe, aber im **Vorjahr** (zum
   Vergleichen).
-- **Δ absolut (€)** — der Unterschied in Euro: dieses Jahr **minus** letztes
+- **Δ absolut (€)** - der Unterschied in Euro: dieses Jahr **minus** letztes
   Jahr. Plus = mehr als letztes Jahr, Minus = weniger.
-- **Δ relativ (%)** — derselbe Unterschied in **Prozent**. Die Ampel zeigt es
+- **Δ relativ (%)** - derselbe Unterschied in **Prozent**. Die Ampel zeigt es
   auf einen Blick: 🟢 deutlich besser, 🟠 ähnlich, 🔴 deutlich schlechter.
-- **OTB {YEAR_NEW} (€)** — der **gesamte** bisher gebuchte Umsatz für den
+- **OTB {YEAR_NEW} (€)** - der **gesamte** zum Stichtag gebuchte Umsatz für den
   Zeitraum, **egal wann** gebucht wurde. „On-the-books" = steht schon fest
   auf den Büchern.
-- **OTB {YEAR_OLD} (€)** — dasselbe fürs **Vorjahr**.
-- **Pickup-Anteil {YEAR_NEW} (%)** — wie viel **Prozent** des gesamten
-  Umsatzes schon in deinem Buchungs-Fenster reinkam. 70 % heißt: 70 % war
-  schon im Juni gebucht. Höher = wir sind früher dran.
-- **Pickup-Anteil {YEAR_OLD} (%)** — dasselbe fürs Vorjahr: sind wir dieses
+- **OTB {YEAR_OLD} (€)** - dasselbe fürs **Vorjahr**.
+- **Pickup-Anteil {YEAR_NEW} (%)** - wie viel **Prozent** des gesamten
+  Umsatzes im gewählten Buchungs-Fenster reinkam. 70 % heißt: 70 % war
+ im Juni gebucht.
+- **Pickup-Anteil {YEAR_OLD} (%)** - dasselbe fürs Vorjahr: sind wir dieses
   Jahr **früher oder später** dran als damals?
-- **Δ Pickup (pp)** — um wie viele **Prozentpunkte** unser Vorlauf besser (+)
+- **Δ Pickup (pp)** - um wie viele **Prozentpunkte** unser Vorlauf besser (+)
   oder schlechter (−) ist als letztes Jahr. Plus = wir buchen früher.
-- **Δ Anteil (pp)** *(nur Kanal/Segment)* — wie sich der **Anteil dieser
+- **Δ Anteil (pp)** *(nur Kanal/Segment)* - wie sich der **Anteil dieser
   Gruppe am Gesamt-Umsatz** verschoben hat (der „Kuchen-Anteil"). Das ist der
   **Mix**, nicht der Vorlauf.
 
@@ -447,13 +442,13 @@ st.markdown("*Wie viel des Stay-PLANs ist zum Stichtag on-the-books?*")
 st.caption(
     "IST = **OTB gesamt** (aktueller Stay-Umsatz zum Stichtag, gem. Storno-Modus) "
     "je Standort gegen den **PLAN** des Stay-Fensters. **Fortschritt Zeit** = wie "
-    "viel der Periode am Stichtag verstrichen ist — liegt IST/PLAN darüber, sind "
+    "viel der Periode am Stichtag verstrichen ist - liegt IST/PLAN darüber, sind "
     "wir dem Zeitplan **voraus**, darunter **hinterher**. Unabhängig vom "
     "Erstellungs-Fenster. (Früher Global Report §5.)"
 )
 if not plan_dict:
     alert_card(
-        "Kein PLAN-Snapshot geladen — Pace-to-PLAN nicht verfügbar.", kind="info"
+        "Kein PLAN-Snapshot geladen - Pace-to-PLAN nicht verfügbar.", kind="info"
     )
 else:
     _pace_src = raw_loc[raw_loc["property_code"] != "TOTAL"][
@@ -544,7 +539,7 @@ def _curve_csv() -> bytes:
 
 
 st.markdown("## 6 · Downloads")
-st.markdown("*Drei getrennte Exporte — genau für diese Sicht.*")
+st.markdown("*Drei getrennte Exporte - genau für diese Sicht.*")
 st.caption(
     "**Pickup-Tabellen (Excel)** = die drei aggregierten Tabellen oben, fertig "
     "fürs Deck. **Roh-Timeslices (Excel)** = eine Zeile je Nacht mit allen Flags "

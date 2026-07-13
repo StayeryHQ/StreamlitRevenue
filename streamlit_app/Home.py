@@ -26,9 +26,9 @@ inject_brand_css()
 
 hero(
     eyebrow="Stayery · Revenue Analytics",
-    title="Self-Service-Analytics für RM & B2B-Outreach",
+    title="Self-Service-Analytics Revenue & Sales",
     subtitle="Wähl links eine Analyse, setze Filter, lade am Ende den Bericht "
-    "als Markdown für Notion herunter - oder push einzelne Sektionen "
+    "als Markdown für Notion herunter, oder push einzelne Sektionen "
     "ins Notepad und nimm nur das mit was du brauchst.",
 )
 
@@ -69,8 +69,7 @@ with cols[0]:
     st.markdown(
         """
         ### Daten aktualisieren
-        Daten aus BigQuery ziehen, engineered + fuzzy-clustern, als Parquet
-        speichern. **Voraussetzung für alle anderen Pages.**
+        Daten aus BigQuery ziehen und abspeichern. **Voraussetzung für alle anderen Pages.**
         """
     )
     st.page_link("pages/0_Daten_Aktualisieren.py", label="→ Daten Aktualisieren")
