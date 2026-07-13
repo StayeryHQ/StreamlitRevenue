@@ -37,7 +37,7 @@ with st.expander("1 · Überblick, Zugriff & Tech-Stack", expanded=True):
     st.markdown(
         """
 **Was ist das?** Ein Streamlit-Dashboard für den Revenue-Recap
-(Standort-Analyse, Portfolio/Global-Report, B2B-, Code- und Promo-Deepdives).
+(Global-Report, Pickup/Vorlauf-Analyse, Standort-Analyse, B2B-, Code- und Promo-Deepdives).
 
 **Zugriff / Code:** Der Quellcode liegt im GitHub-Repo **`StreamlitRevenue`**.
 Sprache ist **Python (3.12)**. Wichtigste Bausteine:
@@ -148,7 +148,7 @@ Drei Datums-Achsen:
 - **Aufenthalt** = `stay_date` / `serviceDate` (der Tag der Übernachtung). Basis der
   „nach Aufenthalt"-Sichten (KPIs, Occupancy, Pace, Channels …).
 - **Erstellung** = `created` (wann gebucht wurde). Basis der „nach Erstellungsdatum"-Sichten
-  (Sales/Pickup, Gruppen-Größe, Lead-Time, Firmen, §8).
+  (Sales/Pickup, Gruppen-Größe, Lead-Time, Firmen, Pickup-Analyse).
 - **Anreise** = `arrival`. U.a. Auflösungs-Zeitpunkt für No-Shows (siehe Kap. 7).
 
 **Zeitzone:** Alle Zeitstempel werden nach **Europe/Berlin** normalisiert (inkl.
@@ -184,7 +184,9 @@ Weitere Storno-Spalten (auf Buchungs-Ebene):
     )
 
 # ============================================================================
-with st.expander("7 · Filter-Logik: realized-only, As-of (point-in-time) & Doppelfilterung §8"):
+with st.expander(
+    "7 · Filter-Logik: realized-only, As-of (point-in-time) & Doppelfilterung (Pickup-Analyse)"
+):
     st.markdown(
         """
 **a) Der Storno/No-Show-Toggle greift in fast allen Charts/Tabellen** beider Seiten
@@ -193,25 +195,31 @@ with st.expander("7 · Filter-Logik: realized-only, As-of (point-in-time) & Dopp
 Rekonstruktion, No-Shows immer raus) und die **Storno-Risiko/Vorlaufzeit**-Sektion
 (braucht Stornos, um die Storno-Quote zu zeigen).
 
-**b) As-of / point-in-time (Global §8):** Hier wird gefragt *„War die Buchung am
+**b) As-of / point-in-time (Pickup-Analyse):** Hier wird gefragt *„War die Buchung am
 Stichtag schon storniert / als No-Show aufgelöst?"* – nicht der heutige Endstatus.
 
 - **Storno** löst zum `cancel_time` auf: ein Storno **nach** dem Stichtag zählt am
   Stichtag noch mit; ein Storno **am/vor** dem Stichtag fällt raus.
 - **No-Show** löst zur **`arrival`** auf (erst am Anreisetag ist das Nicht-Erscheinen
   bekannt): No-Show mit Anreise **nach** dem Stichtag zählt noch mit.
-- **Stichtag** = `min(Ende Erstellungs-Fenster, Snapshot-Datum)`
+- **Stichtag** = auf der Pickup-Seite **frei wählbar** (Default = Snapshot); fürs
+  Vorjahr um ganze Jahre gespiegelt. Zähler (Erstellt) und Nenner (OTB) nutzen
+  **denselben** Stichtag → Pickup-Anteil ≤ 100 %.
+- **Storno-Modus 3-fach:** *All in* (alle), *All out* (nur realisierte, finaler
+  Status) und *As-of* (die obige point-in-time-Logik). Für vergangene Monate
+  fallen As-of und All out zusammen.
 
-**c) Doppelfilterung §8 „Stay × Creation":** Die Menge ist der Schnitt aus
-**Aufenthalts-Fenster** (serviceDate) **und** **Erstellungs-Fenster** (created),
+**c) Doppelfilterung „Stay × Creation" (Pickup-Analyse):** Die Menge ist der Schnitt
+aus **Aufenthalts-Fenster** (serviceDate) **und** **Erstellungs-Fenster** (created),
 danach die As-of-Maske. Das Erstellungs-Fenster wird fürs Vorjahr per `mirror_years`
-gespiegelt (gleicher Monat/Tag, ein Jahr früher).
+gespiegelt (gleicher Monat/Tag, ein Jahr früher). Creation-Fenster-Modi: *festes
+Fenster* (von–bis) oder *alles bis Stichtag*.
 
-> **Wichtige Konsequenz:** Weil der Stichtag = Ende des Erstellungs-Fensters ist,
-> sind Erstellungs-Teilfenster **nicht additiv** – änderst du das Fensterende,
-> verschiebt sich auch der Bewertungs-Zeitpunkt für Storno/No-Show.
+> **Hinweis:** Der frühere Global-§8-Stichtag war `min(Ende Erstellungs-Fenster,
+> Snapshot)`. Auf der Pickup-Seite ist der Stichtag ein eigener Filter, damit der
+> OTB-Nenner sauber definiert ist und der Pickup-Anteil ≤ 100 % bleibt.
 
-**§8 Schritt für Schritt (`stay_created_scope`):**
+**Schritt für Schritt (`stay_created_scope`, Pickup-Analyse):**
 
 1. **Stay-Filter:** `serviceDate` ∈ [Stay-Start, Stay-Ende] (Sidebar).
 2. **Creation-Filter:** `created` ∈ [Erstellung-von, Erstellung-bis]; fürs Vorjahr per
@@ -432,7 +440,7 @@ Plan(Periode) = Σ_Monat  Monatsplan × (überlappende Tage im Monat / Tage des 
 ```
 
 Beispiel: Periode 15.07.–31.07. → 17/31 des Juli-Plans. **PLAN gibt es nur in den
-Aufenthalts-Sichten** (Standort-KPIs, §4 Global), **nicht** in Erstellungs-/§8-Sichten
+Aufenthalts-Sichten** (Standort-KPIs, §4 Global), **nicht** in Erstellungs-/Pickup-Sichten
 (Plan ist monatlich aufs Aufenthaltsdatum bezogen, passt nicht auf einen created-Teilausschnitt).
 
 **Promo→Firmencode-Overrides (`apply_code_overrides`):** Für jede Buchung, deren
@@ -479,7 +487,7 @@ with st.expander("12b · Seiten & Sektionen im Detail"):
 | 16 | Direct Offline | **Erstellung** |
 | 17 | Top Vertragscodes | **Erstellung** |
 
-**Global Report (Portfolio)** – 8 Sektionen:
+**Global Report (Portfolio)** – 7 Sektionen:
 
 | # | Sektion | Basis |
 |---|---|---|
@@ -490,15 +498,31 @@ with st.expander("12b · Seiten & Sektionen im Detail"):
 | 5 | IST vs PLAN · Pace-Fortschritt | Aufenthalt |
 | 6 | Channel-Mix Detail | Aufenthalt |
 | 7.A–7.D | Heatmaps (Standort×Monat, Channel×Standort, Top-Movers, Channel×LOS) | Aufenthalt |
-| 8 | **Stay × Creation (As-of)** + Download | Doppelfilter (Kap. 7) |
+
+Der frühere §8 „Stay × Creation" ist auf die **eigene Seite Pickup / Vorlauf-Analyse**
+umgezogen; der Sidebar-Toggle im Global Report ist damit wieder rein binär.
+
+**Pickup / Vorlauf-Analyse** (eigene Seite, Position 2):
+
+| Block | Inhalt | Basis |
+|---|---|---|
+| Headline | Pickup-Anteil NEW/OLD + Δ pp + OTB | Stay × Creation |
+| Buchungskurve | kumulierter Pickup-Anteil je Erstellungs-Tag | Doppelfilter |
+| Kategorie-Balken | Pickup-Anteil je Standort/Kanal/Segment | Doppelfilter |
+| Tabellen | Erstellt · OTB · Pickup-Anteil · Δ Pickup, je Kategorie | Doppelfilter |
+| Downloads | 3 separate: Tabellen, Roh-Timeslices, Kurve | – |
+
+Storno-Modus hier **3-fach** (All in / All out / As-of, Kap. 7c). Nenner (OTB) =
+voller Stay-Umsatz zum **selben** Stichtag → Pickup-Anteil ≤ 100 %. Funktioniert
+vorwärts (Zukunftsmonat) wie rückwärts (vergangenen Monat auswerten).
 
 **Weitere Seiten:** *Daten aktualisieren* (BigQuery-Refresh), *B2B Deep-Dive*
 (company_code / corporateCode / fuzzy-Firmen + Excel), *Code Deep-Dive* (eine Firma 360°),
 *Promo-Codes* (Promo→Firmencode-Reklassifizierung), *Plan-Upload*.
 
 **Querschnitt:** Der Sidebar-Toggle „Storno + No-Show einbeziehen" wirkt in allen
-„normalen" Sektionen (Default realized-only). Eigene Logik behalten: Pace (§2 beide
-Seiten), Storno-Risiko (Standort §13) und die As-of-Sicht (Global §8).
+„normalen" Sektionen (Default realized-only, binär). Eigene Logik behalten: Pace (§2 beide
+Seiten), Storno-Risiko (Standort §13) und die As-of-/3-fach-Sicht der **Pickup-Analyse**.
 """
     )
 

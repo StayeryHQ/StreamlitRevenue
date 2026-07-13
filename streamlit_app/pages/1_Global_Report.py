@@ -196,12 +196,10 @@ with st.sidebar:
             "Storno + No-Show einbeziehen",
             value=False,
             key="global_include_cancellations",
-            help="Default: aus - alle KPIs/Tabellen sind realized-only "
-            "Aktivieren → alle Buchungen zählen, "
-            "auch später stornierte und nicht-erschienene. Hinweis: in der "
-            "As-of-Sicht (§8) wirken beide point-in-time - ein Storno zählt bis "
-            "zum cancel_time, ein No-Show bis zur Anreise (erst dort wird das "
-            "Nicht-Erscheinen bekannt).",
+            help="Default: aus - alle KPIs/Tabellen sind realized-only. "
+            "Aktivieren → alle Buchungen zählen, auch später stornierte und "
+            "nicht-erschienene (finaler Status, binär). Für die Point-in-time-/"
+            "As-of-Auswertung gibt es die eigene Seite Pickup / Vorlauf-Analyse.",
         )
 
         st.form_submit_button("Recap aktualisieren", use_container_width=True)
@@ -210,9 +208,9 @@ with st.sidebar:
     GT.RED_PCT = red_threshold
 
     st.divider()
-    st.caption("Sektionen 4-6 laden erst auf Klick.")
+    st.caption("Sektionen 6-7 laden erst auf Klick.")
     preload_all_button(
-        [5, 6, "7.A", "7.B", "7.C", "7.D"],
+        [6, "7.A", "7.B", "7.C", "7.D"],
         label="Alle Sektionen laden",
     )
     CD.cache_clear_button()
@@ -248,76 +246,6 @@ def _ck(section_id: str) -> str:
         f"glb::{SNAP_TAG}::{props_tag}::{start_old.date()}::{end_old.date()}"
         f"::{start_new.date()}::{end_new.date()}::c{_c}::{section_id}"
     )
-
-
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=4)
-def _sc_export_xlsx(
-    key: str,
-    _nightly,
-    _props,
-    _sN,
-    _eN,
-    _sO,
-    _eO,
-    _csN,
-    _ceN,
-    _csO,
-    _ceO,
-    _asN,
-    _asO,
-    _incl,
-) -> bytes:
-    """Baut die §8-Export-Excel (Bytes). ``key`` steuert den Cache; die großen
-    Argumente (``_nightly`` etc.) sind underscore-prefixed → werden nicht gehasht."""
-    import io
-
-    from openpyxl.styles import Font
-    from openpyxl.utils import get_column_letter
-
-    frames = GT.stay_created_export_frames(
-        _nightly, _props, _sN, _eN, _sO, _eO, _csN, _ceN, _csO, _ceO, _asN, _asO, _incl
-    )
-    info = pd.DataFrame(
-        {
-            "Sheet / Flag": [
-                "1 Stay NEW (alle)",
-                "2 Stay OLD (alle)",
-                "3 Stay+Created NEW",
-                "4 Stay+Created OLD",
-                "teilweise_im_stayfenster",
-                "storno_vor/nach_stichtag",
-                "noshow_vor/nach_stichtag",
-                "zaehlt_in_8A",
-                "revenue",
-                "brutto_x1.07",
-            ],
-            "Bedeutung": [
-                "Alle Nächte mit Aufenthalt im Stay-Fenster (aktuelles Jahr) - ohne Creation-/As-of-Filter.",
-                "Wie 1, gespiegeltes Vorjahr (OLD).",
-                "Wie 1, zusätzlich auf das Erstellungs-Fenster eingeschränkt - mit Point-in-Time-Flags.",
-                "Wie 3, gespiegeltes Vorjahr (OLD).",
-                "WAHR = die Buchung hat Nächte außerhalb des Stay-Fensters (nur ein Teil fällt rein).",
-                "Storno (cancel_time) nach bzw. am/vor dem As-of-Stichtag.",
-                "No-Show wird am arrival aufgelöst - nach bzw. am/vor dem Stichtag.",
-                "WAHR = zählt in den §8-Tabellen (nach As-of + aktuellem Storno/No-Show-Toggle).",
-                "Nacht-Netto (baseAmount_netAmount) - ohne Services/Extras.",
-                "Brutto = Netto × 1,07 (nur Übernachtung; Frühstück/Parkplatz NICHT enthalten).",
-            ],
-        }
-    )
-    bio = io.BytesIO()
-    with pd.ExcelWriter(bio, engine="openpyxl", datetime_format="YYYY-MM-DD HH:MM") as xw:
-        info.to_excel(xw, sheet_name="0 Info", index=False)
-        for name, df in frames.items():
-            out = df if len(df) else pd.DataFrame({"Hinweis": ["keine Daten in diesem Fenster"]})
-            out.to_excel(xw, sheet_name=name, index=False)
-        for ws in xw.book.worksheets:
-            ws.freeze_panes = "A2"
-            ws.auto_filter.ref = ws.dimensions
-            for i in range(1, ws.max_column + 1):
-                ws.cell(row=1, column=i).font = Font(bold=True)
-                ws.column_dimensions[get_column_letter(i)].width = 17
-    return bio.getvalue()
 
 
 # ============================== Data load ==================================
@@ -464,13 +392,12 @@ _TOC = [
     ("3.B", "Buchungskanäle (Erstellung)"),
     ("4.A", "Performance Standorte (Aufenthalt)"),
     ("4.B", "Buchungskanäle (Aufenthalt)"),
-    (5, "IST vs PLAN · Pace-Fortschritt"),
+    (5, "IST vs PLAN → Pickup-Seite"),
     (6, "Channel-Mix Detail"),
     ("7.A", "Revenue-Heatmap Standort × Monat"),
     ("7.B", "Channel-Mix je Standort"),
     ("7.C", "Top-Movers"),
     ("7.D", "Channel × LOS (granular)"),
-    (8, "Stay × Creation (As-of)"),
 ]
 render_toc(_TOC)
 
@@ -688,41 +615,20 @@ with section("4.B", "Buchungskanäle nach Aufenthaltsdatum"):
     chart_help("chan_stay")
 
 
-# ===== 5 · IST vs PLAN · Pace-Fortschritt =================================
-if lazy_section(
+# ===== 5 · IST vs PLAN · Pace-Fortschritt (umgezogen) =====================
+with section(
     5,
     "IST vs PLAN · Pace-Fortschritt",
-    subtitle="Was ist bisher reingekommen vs Plan, und wie weit ist die Periode schon durch.",
+    subtitle="Auf die eigene Seite Pickup / Vorlauf-Analyse umgezogen.",
 ):
-    pace_df = GC.build_pace_table(raw_stay, start_new, end_new)
-    if pace_df.empty:
-        alert_card("Keine Pace-Daten verfügbar.", kind="info")
-    else:
-        pace_disp = pace_df.copy()
-        for c in ("IST (€)", "PLAN (€)"):
-            pace_disp[c] = pace_disp[c].map(H.fmt_eur)
-        pace_disp["IST / PLAN (%)"] = pace_disp["IST / PLAN (%)"].map(
-            lambda v: f"{v:.0f} %" if pd.notna(v) else "-"
-        )
-        pace_disp["Fortschritt Zeit (%)"] = pace_disp["Fortschritt Zeit (%)"].map(
-            lambda v: f"{v:.0f} %"
-        )
-        st.dataframe(pace_disp, hide_index=True, use_container_width=True)
+    alert_card(
+        "Die **Pace-to-PLAN**-Analyse (OTB vs. Ziel + Zeit-Fortschritt) ist auf die "
+        "Seite **Pickup / Vorlauf-Analyse** umgezogen — dort mit frei wählbarem "
+        "Stichtag, 3-fach-Storno-Modus und zusätzlicher Lead-Time-Sicht.",
+        kind="info",
+    )
+    st.page_link("pages/2_Pickup_Analyse.py", label="→ Pickup / Vorlauf-Analyse öffnen")
 
-        # Chart bekommt Hotel-Codes statt Stadt-Namen (kompakter)
-        pace_df_chart = GC.build_pace_table(GT.with_code_labels(raw_stay), start_new, end_new)
-        png = CD.chart_png(
-            _ck("pace_plan"), GC.pace_to_plan_chart, pace_df_chart, YEAR_NEW, period_tag_new
-        )
-        st.image(png, use_container_width=False)
-        register_section(
-            "pace_plan",
-            "5 · IST vs PLAN · Pace-Fortschritt",
-            chart_png=png,
-            table_df=pace_df,
-            page=PAGE,
-        )
-        chart_help("pace_plan")
 # ===== 6 · Channel-Mix Detail =============================================
 if lazy_section(6, "Channel-Mix Detail", subtitle="Donut + horizontale Top-Bars (nach Aufenthalt)"):
     if not raw_chan_stay.empty:
@@ -863,463 +769,6 @@ if lazy_section(
         page=PAGE,
     )
     chart_help("heat_ch_los_granular")
-
-
-# ===== 8 · Stay × Creation (As-of) ========================================
-# Hauptbasis = Aufenthaltsdatum (Sidebar). Zusätzlicher Erstellungsdatum-Filter
-# DIREKT ÜBER der Tabelle (nicht Sidebar), je Jahr gespiegelt. Storno/No-Show =
-# derselbe Sidebar-Toggle, aber POINT-IN-TIME (As-of) wie der Pace-Chart.
-YEAR_DELTA = YEAR_NEW - YEAR_OLD
-
-# Default-Creation-Fenster: der Kalendermonat unmittelbar vor dem NEW-Stay-Start
-# (z.B. Stay Juli → gebucht im Juni). Nur Vorbelegung - der User passt an.
-_def_cre_end_new = (start_new - pd.Timedelta(days=1)).normalize()
-_def_cre_start_new = _def_cre_end_new.replace(day=1)
-
-with section(
-    8,
-    "Stay × Creation (As-of)",
-    subtitle=f"Aufenthalt {period_tag_new} vs {period_tag_old}, zusätzlich nach "
-    f"Erstellungsdatum gefiltert · {YEAR_NEW} vs {YEAR_OLD}",
-    description=(
-        "**Doppelt gefiltert:** Hauptmenge sind die Buchungen mit **Aufenthalt im "
-        "Stay-Fenster** (Sidebar). Der Filter unten schränkt zusätzlich auf ein "
-        "**Erstellungs-Fenster** ein. Das ist je Vergleichsjahr gespiegelt, damit beide "
-        "Jahre vergleichbar sind. Der Sidebar-Toggle **Storno + No-Show** wirkt "
-        "hier **point-in-time** (Stand Stichtag), nicht über den finalen Status. "
-        "**Storno** zählt bis zum cancel_time, **No-Show** bis zur **Anreise** - "
-        "erst am Anreisetag ist das Nicht-Erscheinen bekannt. Praktische Folge: "
-        "liegt das Erstellungs-Fenster ganz vor dem Aufenthalt, "
-        "zählen No-Shows per Default mit; überschneiden "
-        "sich beide Fenster, fallen bereits bekannte No-Shows wie Stornos raus."
-    ),
-):
-    with st.form("glb_sc_form", clear_on_submit=False, border=True):
-        st.markdown("**Erstellungsdatum-Filter** (gilt für beide Jahre)")
-        st.caption(
-            " Gilt zusätzlich zum Stay-Fenster aus der "
-            "Sidebar. ⚠️ Die Liniengrafik **8.D** ist ausschließlich für "
-            "**Jahr-zu-Jahr-Vergleiche** gedacht."
-        )
-        _cc1, _cc2, _cc3, _cc4 = st.columns(4)
-        with _cc1:
-            _vm = st.selectbox(
-                "von · Monat",
-                list(range(1, 13)),
-                index=int(_def_cre_start_new.month) - 1,
-                format_func=lambda m: f"{m:02d} · " + H.MONTH_ABBR_DE[m - 1],
-                key="global_sc_cre_vm",
-            )
-        with _cc2:
-            _vd = st.number_input(
-                "von · Tag",
-                min_value=1,
-                max_value=31,
-                value=int(_def_cre_start_new.day),
-                step=1,
-                key="global_sc_cre_vd",
-            )
-        with _cc3:
-            _bm = st.selectbox(
-                "bis · Monat",
-                list(range(1, 13)),
-                index=int(_def_cre_end_new.month) - 1,
-                format_func=lambda m: f"{m:02d} · " + H.MONTH_ABBR_DE[m - 1],
-                key="global_sc_cre_bm",
-            )
-        with _cc4:
-            _bd = st.number_input(
-                "bis · Tag",
-                min_value=1,
-                max_value=31,
-                value=int(_def_cre_end_new.day),
-                step=1,
-                key="global_sc_cre_bd",
-            )
-        st.caption(
-            "ℹ️ **Storno/No-Show** steuerst du über den Sidebar-Toggle "
-            '**„Storno + No-Show einbeziehen"** - wenn aus zählt die **As-of-Sicht**: '
-            "Stornos *nach* dem Stichtag zählen noch mit; ein No-Show gilt erst ab "
-            "der **Anreise** als aufgelöst (davor zählt er mit egal ob der Filter an oder aus ist). "
-            "Der wirksame As-of-Stichtag ist min(Fensterende, Snapshot)."
-            "Wenn der Filter an ist, werden auch Buchungen inkludiert die später storniert haben."
-        )
-        st.form_submit_button("Analyse aktualisieren", use_container_width=True)
-
-    # Monat+Tag auf das jeweilige Jahr setzen: NEW = Stay-Jahr (Sidebar). Der Tag
-    # wird defensiv auf die Monatslänge geclampt (z.B. 31 in einem 30-Tage-Monat
-    # → 30). Das OLD-Fenster wird weiter unten über mirror_years gespiegelt.
-    cre_start_new = H.clamp_day(YEAR_NEW, int(_vm), int(_vd))
-    cre_end_new = H.clamp_day(YEAR_NEW, int(_bm), int(_bd))
-
-    if cre_end_new < cre_start_new:
-        alert_card(
-            'Das Erstellungs-Fenster ist leer: „von" liegt nach „bis". '
-            "Bitte Datumsgrenzen korrigieren.",
-            kind="warning",
-            title="Ungültiges Erstellungs-Fenster",
-        )
-    else:
-        cre_start_old = H.mirror_years(cre_start_new, YEAR_DELTA)
-        cre_end_old = H.mirror_years(cre_end_new, YEAR_DELTA)
-        snap_old = H.mirror_years(SNAP_DATE, YEAR_DELTA)
-        # Stichtag = min(Fensterende, Snapshot), je Jahr gespiegelt (PO-Entscheid).
-        asof_new = min(cre_end_new, SNAP_DATE)
-        asof_old = min(cre_end_old, snap_old)
-
-        _sc_scope_txt = (
-            "alle Buchungen (inkl. Storno + No-Show)"
-            if _include_cancellations
-            else "realized-only (Storno + No-Show point-in-time raus)"
-        )
-        st.caption(
-            f"**Stay-Fenster:** {period_tag_new} vs {period_tag_old}  ·  "
-            f"**Erstellungs-Fenster:** {cre_start_new:%d.%m.%Y}–{cre_end_new:%d.%m.%Y} "
-            f"(NEW) ↔ {cre_start_old:%d.%m.%Y}–{cre_end_old:%d.%m.%Y} (OLD)  ·  "
-            f"**As-of-Stichtag:** {asof_new:%d.%m.%Y} (NEW) · {asof_old:%d.%m.%Y} (OLD)  ·  "
-            f"**Scope:** {_sc_scope_txt}."
-        )
-
-        disp_sc_loc, raw_sc_loc = GT.performance_by_stay_created(
-            nightly,
-            props_pick,
-            start_new,
-            end_new,
-            start_old,
-            end_old,
-            cre_start_new,
-            cre_end_new,
-            cre_start_old,
-            cre_end_old,
-            asof_new,
-            asof_old,
-            YEAR_OLD,
-            YEAR_NEW,
-            include_cancellations=_include_cancellations,
-        )
-        disp_sc_chan, raw_sc_chan = GT.channel_volume_by_stay_created(
-            nightly,
-            start_new,
-            end_new,
-            start_old,
-            end_old,
-            cre_start_new,
-            cre_end_new,
-            cre_start_old,
-            cre_end_old,
-            asof_new,
-            asof_old,
-            YEAR_OLD,
-            YEAR_NEW,
-            include_cancellations=_include_cancellations,
-        )
-        disp_sc_seg, raw_sc_seg = GT.segment_volume_by_stay_created(
-            nightly,
-            start_new,
-            end_new,
-            start_old,
-            end_old,
-            cre_start_new,
-            cre_end_new,
-            cre_start_old,
-            cre_end_old,
-            asof_new,
-            asof_old,
-            YEAR_OLD,
-            YEAR_NEW,
-            include_cancellations=_include_cancellations,
-        )
-
-        if raw_sc_loc.empty:
-            alert_card(
-                "Keine Buchungen mit Aufenthalt im Stay-Fenster, die im gewählten "
-                "Erstellungs-Fenster (bis zum Stichtag) angelegt wurden.",
-                kind="info",
-            )
-        else:
-            st.caption(
-                "Alle drei Tabellen nutzen dieselbe Struktur: **Kategorie · "
-                f"as-of {YEAR_NEW} · as-of {YEAR_OLD} · Δ absolut (€) · Δ relativ (%)** "
-                "(8.B/8.C zusätzlich **Δ Anteil (pp)**). Die beiden Spalten "
-                f"**Stay-Total {YEAR_NEW}/{YEAR_OLD}** zeigen das **volle "
-                "Stay-Fenster-Revenue ohne Erstellungs-Filter** - gerechnet mit "
-                "**derselben As-of-Logik** (Stichtag min(Fensterende, Snapshot), "
-                "gleicher Storno/No-Show-Toggle) wie die as-of-Spalten. Die "
-                "as-of-Spalten sind also die creation-gefilterte Teilmenge der "
-                "Stay-Total-Spalte."
-            )
-            st.markdown("**8.A · nach Standort** (YoY, ohne PLAN)")
-            st.dataframe(disp_sc_loc, hide_index=True, use_container_width=True)
-
-            st.markdown("**8.B · nach Buchungskanal**")
-            if disp_sc_chan.empty:
-                alert_card("Keine Channel-Daten im gewählten Fenster.", kind="info")
-            else:
-                st.dataframe(disp_sc_chan, hide_index=True, use_container_width=True)
-
-            st.markdown("**8.C · nach Stay-Segment** (kurz ≤6 / mittel 7-28 / lang 29+)")
-            if disp_sc_seg.empty:
-                alert_card("Keine Segment-Daten im gewählten Fenster.", kind="info")
-            else:
-                st.dataframe(disp_sc_seg, hide_index=True, use_container_width=True)
-
-            # 8.D · Liniengrafik: Revenue je Erstellungs-Tag, NEW vs OLD.
-            scope_new = GT.stay_created_scope(
-                nightly,
-                start_new,
-                end_new,
-                cre_start_new,
-                cre_end_new,
-                asof_new,
-                _include_cancellations,
-            )
-            scope_old = GT.stay_created_scope(
-                nightly,
-                start_old,
-                end_old,
-                cre_start_old,
-                cre_end_old,
-                asof_old,
-                _include_cancellations,
-            )
-
-            st.markdown(
-                f"**8.D · Revenue je Erstellungs-Tag** (NEW vs OLD)  nur Buchungen "
-                f"mit **Aufenthalt im Stay-Fenster** ({period_tag_new} vs {period_tag_old})"
-            )
-            st.caption(
-                "⚠️ Diese Grafik richtet NEW und OLD am Tages-Offset des "
-                "Erstellungs-Fensters aus und ist deshalb **nur für "
-                "Jahr-zu-Jahr-Vergleiche** sinnvoll (gleicher Monat/Tag, ein Jahr "
-                "versetzt). Für Vergleiche mit anderem Periodenzuschnitt ist sie "
-                "nicht aussagekräftig."
-            )
-
-            _sc_ck_base = _ck(
-                f"stay_created::{cre_start_new.date()}::{cre_end_new.date()}"
-                f"::{asof_new.date()}::{asof_old.date()}::c{int(_include_cancellations)}"
-            )
-
-            # Liniengrafik als @st.fragment: der Channel-/OTA-Filter aktualisiert
-            # NUR diesen Block - sofort und ohne Ganzseiten-Rerun (kein Hochspringen,
-            # kein Sidebar-Knopf nötig). Die Tabellen 8.A-8.C bleiben unberührt.
-            # Use-Case: Wirkung von Marketing-Maßnahmen je OTA über die Buchungstage.
-            # Daten werden als Default-Argumente „eingefroren", damit der Fragment-
-            # Rerun mit exakt den Werten des letzten Voll-Runs läuft.
-            @st.fragment
-            def _sc_line_fragment(
-                scope_new=scope_new,
-                scope_old=scope_old,
-                cre_start_new=cre_start_new,
-                cre_start_old=cre_start_old,
-                ck_base=_sc_ck_base,
-                year_old=YEAR_OLD,
-                year_new=YEAR_NEW,
-                label_dates=f"{cre_start_new:%d.%m.}–{cre_end_new:%d.%m.%Y}",
-            ):
-                ch_pool = pd.concat(
-                    [scope_new["channel_combo"], scope_old["channel_combo"]],
-                    ignore_index=True,
-                ).dropna()
-                ota_options = sorted({GT._channel_label(c) for c in ch_pool.unique()})
-                ota_pick = st.multiselect(
-                    "Channel-Filter – nur für die Liniengrafik (z.B. einzelne OTAs)",
-                    options=ota_options,
-                    default=[],
-                    key="global_sc_ota_pick",
-                    help="Aktualisiert NUR die Liniengrafik - sofort, ohne die Seite "
-                    "neu zu laden. Die Tabellen 8.A–8.C bleiben unverändert. Leer = "
-                    "alle Channels (Gesamt-Linie). Praktisch, um nach einer "
-                    "Marketing-Maßnahme die Entwicklung einzelner OTAs zu vergleichen.",
-                )
-                if ota_pick:
-                    m_new = scope_new["channel_combo"].map(GT._channel_label).isin(ota_pick)
-                    m_old = scope_old["channel_combo"].map(GT._channel_label).isin(ota_pick)
-                    ln_new, ln_old = scope_new[m_new], scope_old[m_old]
-                    ota_tag = ", ".join(ota_pick)
-                else:
-                    ln_new, ln_old = scope_new, scope_old
-                    ota_tag = "alle Channels"
-
-                ldf = GT.daily_created_line_data(ln_new, ln_old, cre_start_new, cre_start_old)
-                if ldf.empty:
-                    alert_card(
-                        "Keine Tages-Daten für die Liniengrafik (ggf. Channel-Filter "
-                        "zu eng gewählt).",
-                        kind="info",
-                    )
-                    st.session_state.pop("_sc_line_export", None)
-                    st.session_state.pop("_sc_purpose_export", None)
-                    st.session_state.pop("_sc_count_export", None)
-                    return
-                key = f"{ck_base}::ota={'+'.join(sorted(ota_pick)) if ota_pick else 'all'}"
-                png = CD.chart_png(
-                    key,
-                    GC.stay_created_daily_chart,
-                    ldf,
-                    year_old,
-                    year_new,
-                    f"{label_dates} · {ota_tag}",
-                )
-                st.image(png, use_container_width=False)
-                CD.data_table_expander(ldf, filename=f"global_stay_created_daily_{year_new}")
-                # Für den Markdown-Export zwischenspeichern; die Registrierung
-                # passiert im Haupt-Run außerhalb des Fragments (keine Duplikate).
-                st.session_state["_sc_line_export"] = {"png": png, "table": ldf}
-
-                # 8.E · Deep-Dive Channel: Composition Business vs Privat.
-                # Reagiert auf DENSELBEN OTA-/Channel-Filter wie die Liniengrafik
-                # (läuft auf ln_new/ln_old), zeigt die Reisezweck-Zusammensetzung
-                # je Erstellungs-Tag - absolutes Revenue (Flächenhöhe) + Anteile
-                # (Panel-Titel), OLD vs NEW deckungsgleich nebeneinander.
-                st.markdown(
-                    f"**8.E · Composition Business vs Privat je Erstellungs-Tag** "
-                    f"(NEW vs OLD)  {ota_tag}"
-                )
-                alert_card(
-                    "Der **Reisezweck** (Business/Privat) ist oft erst **nach "
-                    "Check-in** verlässlich bekannt - je nach OTA ist das Feld ein "
-                    "Pflichtfeld oder eben nicht. Buchungen **ohne** Reisezweck "
-                    "(sowie alles Nicht-Business) zählen hier zu **Privat** und "
-                    "können den Privat-Anteil überzeichnen - vor allem bei jungen "
-                    "Buchungstagen am rechten Rand. Anteile daher mit Vorsicht "
-                    "interpretieren.",
-                    kind="info",
-                    title="TravelPurpose oft erst nach Check-in bekannt",
-                )
-                adf = GT.purpose_daily_area_data(ln_new, ln_old, cre_start_new, cre_start_old)
-                if adf.empty:
-                    alert_card(
-                        "Keine Tages-Daten für die Composition-Grafik (ggf. "
-                        "Channel-Filter zu eng gewählt).",
-                        kind="info",
-                    )
-                    st.session_state.pop("_sc_purpose_export", None)
-                else:
-                    png_purpose = CD.chart_png(
-                        f"{key}::purpose",
-                        GC.purpose_composition_area_chart,
-                        adf,
-                        year_old,
-                        year_new,
-                        f"{label_dates} · {ota_tag}",
-                    )
-                    st.image(png_purpose, use_container_width=False)
-                    CD.data_table_expander(adf, filename=f"global_stay_created_purpose_{year_new}")
-                    st.session_state["_sc_purpose_export"] = {
-                        "png": png_purpose,
-                        "table": adf,
-                    }
-
-                # 8.F · gleiche Aufteilung, aber nach ANZAHL Buchungen statt
-                # Revenue (eindeutige Reservierungen). Gleicher OTA-/Channel-
-                # Filter wie 8.D/8.E; beide Jahre als gruppierte Balken vergleichbar.
-                st.markdown(f"**8.F · Anzahl Buchungen je Reisezweck** (NEW vs OLD) — {ota_tag}")
-                cdf = GT.purpose_booking_counts(ln_new, ln_old)
-                if cdf.empty:
-                    alert_card(
-                        "Keine Buchungen für die Count-Grafik (ggf. Channel-Filter "
-                        "zu eng gewählt).",
-                        kind="info",
-                    )
-                    st.session_state.pop("_sc_count_export", None)
-                else:
-                    png_count = CD.chart_png(
-                        f"{key}::count",
-                        GC.purpose_booking_count_chart,
-                        cdf,
-                        year_old,
-                        year_new,
-                        f"{label_dates} · {ota_tag}",
-                    )
-                    st.image(png_count, use_container_width=False)
-                    CD.data_table_expander(cdf, filename=f"global_stay_created_counts_{year_new}")
-                    st.session_state["_sc_count_export"] = {"png": png_count, "table": cdf}
-
-            _sc_line_fragment()
-
-            register_section(
-                "stay_created_loc",
-                "8.A · Stay × Creation (Standort)",
-                table_df=disp_sc_loc,
-                page=PAGE,
-            )
-            register_section(
-                "stay_created_chan",
-                "8.B · Stay × Creation (Channel)",
-                table_df=disp_sc_chan,
-                page=PAGE,
-            )
-            register_section(
-                "stay_created_seg",
-                "8.C · Stay × Creation (Stay-Segment)",
-                table_df=disp_sc_seg,
-                page=PAGE,
-            )
-            _sc_line_exp = st.session_state.get("_sc_line_export")
-            if _sc_line_exp:
-                register_section(
-                    "stay_created_daily",
-                    "8.D · Revenue je Erstellungs-Tag",
-                    chart_png=_sc_line_exp["png"],
-                    table_df=_sc_line_exp["table"],
-                    page=PAGE,
-                )
-            _sc_purpose_exp = st.session_state.get("_sc_purpose_export")
-            if _sc_purpose_exp:
-                register_section(
-                    "stay_created_purpose",
-                    "8.E · Composition Business vs Privat",
-                    chart_png=_sc_purpose_exp["png"],
-                    table_df=_sc_purpose_exp["table"],
-                    page=PAGE,
-                )
-            _sc_count_exp = st.session_state.get("_sc_count_export")
-            if _sc_count_exp:
-                register_section(
-                    "stay_created_counts",
-                    "8.F · Anzahl Buchungen je Reisezweck",
-                    chart_png=_sc_count_exp["png"],
-                    table_df=_sc_count_exp["table"],
-                    page=PAGE,
-                )
-
-            # 8.G · Roh-Download aller Timeslices dieser §8-Sicht (zum Selber-Filtern).
-            st.markdown(
-                "**8.G · Download** alle Timeslices dieser Sicht als Excel "
-                "(eine Zeile je Nacht). 4 Tabellenblätter + Info: Stay-Fenster (NEW/OLD) "
-                "und zusätzlich Creation-gefiltert (NEW/OLD), inkl. Flags "
-                "(teilweise im Stay-Fenster, Storno/No-Show vor/nach Stichtag, zählt in 8.A)."
-            )
-            _sc_xls_key = _ck(
-                f"sc_export::{cre_start_new.date()}::{cre_end_new.date()}"
-                f"::{asof_new.date()}::{asof_old.date()}"
-            )
-            _sc_xls = _sc_export_xlsx(
-                _sc_xls_key,
-                nightly,
-                props_pick,
-                start_new,
-                end_new,
-                start_old,
-                end_old,
-                cre_start_new,
-                cre_end_new,
-                cre_start_old,
-                cre_end_old,
-                asof_new,
-                asof_old,
-                _include_cancellations,
-            )
-            st.download_button(
-                "Excel Download",
-                data=_sc_xls,
-                file_name=f"global_stay_created_{start_new:%Y%m%d}_vs_{start_old:%Y%m%d}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-
-    chart_help("stay_created")
 
 
 # ===== Export ==============================================================
