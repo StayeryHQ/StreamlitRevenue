@@ -21,22 +21,27 @@ from revenueblindspots import helpers as H
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def channel_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                        year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
-    """Sektion 3 - Channel × LOS-Bucket Pivot (Revenue + YoY-%)."""
+    """Sektion 3 - Channel × LOS-Bucket Pivot (Revenue + YoY-%).
+
+    Gleiche 3er-Channel-Achse wie die Heatmap daneben (``H.channel_bucket``,
+    Review A12.5/D1) - vorher aggregierte die Tabelle nur Direct/OTA.
+    """
     cols = ["short_<=6", "mid_7-28", "long_29+"]
+    buckets = list(H.CHANNEL_BUCKETS)
 
     def piv(df):
-        r = df[df["is_realized"]] if realized_only else df
+        r = H.filter_realized(df, realized_only)
         if r.empty:
-            return pd.DataFrame(0.0, index=["Direct", "OTA"], columns=cols)
-        ch = np.where(r["channel_combo"].str.startswith("Direct"), "Direct", "OTA")
-        out = (pd.DataFrame({"ch": ch, "los": r["los_bucket"], "rev": r["revenue"]})
+            return pd.DataFrame(0.0, index=buckets, columns=cols)
+        out = (pd.DataFrame({"ch": H.channel_bucket(r["channel_combo"]),
+                             "los": r["los_bucket"], "rev": r["revenue"]})
                  .groupby(["ch", "los"], observed=True)["rev"].sum()
                  .unstack(fill_value=0.0))
-        return out.reindex(index=["Direct", "OTA"], columns=cols, fill_value=0.0)
+        return out.reindex(index=buckets, columns=cols, fill_value=0.0)
 
     a, b = piv(nig_old), piv(nig_new)
     rows = []
-    for ch in ["Direct", "OTA"]:
+    for ch in buckets:
         for los in cols:
             ro = float(a.loc[ch, los])
             rn = float(b.loc[ch, los])
@@ -61,11 +66,12 @@ def channel_purpose_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     cols = ["short_<=6", "mid_7-28", "long_29+"]
 
     def agg(nig):
-        d = (nig[nig["is_realized"]] if realized_only else nig).copy()
+        d = H.filter_realized(nig, realized_only).copy()
         if d.empty:
             return {}
-        d["ch"] = d["channel_combo"].where(
-            d["channel_combo"].isin(["Direct_Website", "Direct_Offline"]), "OTA")
+        d["ch"] = H.channel_bucket(d["channel_combo"])
+        # Konvention: unbekannter/leerer Reisezweck zählt als Leisure
+        # (kann den Leisure-Anteil überzeichnen - siehe Tooltip + Doku Kap. 11).
         d["purpose"] = np.where(
             d["travelPurpose"].astype(str).str.lower().eq("business"),
             "Business", "Leisure",
@@ -99,7 +105,7 @@ def los_yoy_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     order = ["short_<=6", "mid_7-28", "long_29+"]
 
     def agg(df):
-        r = df[df["is_realized"]] if realized_only else df
+        r = H.filter_realized(df, realized_only)
         if r.empty:
             return pd.Series(0.0, index=order)
         return r.groupby("los_bucket", observed=True)["revenue"].sum().reindex(order, fill_value=0.0)
@@ -125,7 +131,7 @@ def channel_mix_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     """Sektion 6 - Channel × Total-Revenue YoY (realized)."""
 
     def agg(df):
-        r = df[df["is_realized"]] if realized_only else df
+        r = H.filter_realized(df, realized_only)
         if r.empty:
             return pd.Series(dtype=float)
         return r.groupby("channel_combo", observed=True)["revenue"].sum()
@@ -153,14 +159,20 @@ def channel_mix_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def alos_channel_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                         year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
-    """Sektion 7 - ⌀ Nächte / Buchung pro Channel."""
+    """Sektion 7 - ALOS (volle Buchungs-LOS) pro Channel.
+
+    Nutzt dieselbe ALOS-Definition wie der Headline-KPI (Variante B:
+    ganze Buchungslänge, nicht nur Nächte im Fenster) - Review A5.
+    """
 
     def agg(df):
-        r = df[df["is_realized"]] if realized_only else df
+        r = H.filter_realized(df, realized_only)
         if r.empty:
             return pd.Series(dtype=float)
-        per_booking = r.groupby(["channel_combo", "id"], observed=True)["nights"].count()
-        return per_booking.groupby("channel_combo").mean()
+        # nights ist in den Timeslices die volle Booking-LOS (je Nacht-Zeile
+        # dupliziert) -> je Buchung deduplizieren, dann mitteln.
+        deduped = r.drop_duplicates("id")
+        return deduped.groupby("channel_combo", observed=True)["nights"].mean()
 
     a, b = agg(nig_old), agg(nig_new)
     chans = sorted(set(a.index) | set(b.index))
@@ -186,7 +198,7 @@ def weekday_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
           "Friday": "Fr", "Saturday": "Sa", "Sunday": "So"}
 
     def agg(df):
-        r = df[df["is_realized"]] if realized_only else df
+        r = H.filter_realized(df, realized_only)
         if r.empty or weekday_col not in r.columns:
             return pd.Series(0.0, index=order)
         return r.groupby(weekday_col, observed=True)["revenue"].sum().reindex(order, fill_value=0.0)
@@ -230,30 +242,37 @@ def group_size_table(res_old: pd.DataFrame, res_new: pd.DataFrame,
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def de_international_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                             year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
-    """Sektion 11 - DE vs International (Revenue + Nights + ADR)."""
+    """Sektion 11 - DE vs International vs Unbekannt (Revenue + Nights + ADR).
+
+    Fixes (Review A1 + A4): Nights = Zeilenanzahl der Timeslices (1 Zeile =
+    1 Nacht) - die ``nights``-Spalte trägt die volle Booking-LOS je Nacht-Zeile
+    und darf hier NICHT summiert werden. Herkunfts-Bucketing über
+    ``H.origin_bucket`` (identisch zum Chart, inkl. explizitem "Unbekannt").
+    """
 
     def agg(df):
-        r = df[df["is_realized"]] if realized_only else df
+        r = H.filter_realized(df, realized_only)
         if r.empty or "origin" not in r.columns:
             return pd.DataFrame()
-        r = r.copy()
-        r["bucket"] = np.where(r["origin"].astype(str).str.upper() == "DE",
-                                 "Deutschland", "International")
-        out = r.groupby("bucket", observed=True).agg(
-            revenue=("revenue", "sum"),
-            nights=("nights", "sum"),
-        ).reset_index()
-        return out
+        g = r.groupby(H.origin_bucket(r), observed=True)
+        out = pd.DataFrame({
+            "revenue": g["revenue"].sum(),
+            # 1 Timeslice-Zeile = 1 Nacht -> size, NICHT nights.sum() (A1).
+            "nights": g["revenue"].size(),
+        })
+        return out.rename_axis("bucket").reset_index()
 
     a, b = agg(nig_old), agg(nig_new)
     rows = []
-    for bucket in ["Deutschland", "International"]:
-        sa = a[a["bucket"] == bucket]
-        sb = b[b["bucket"] == bucket]
+    for bucket in H.ORIGIN_BUCKETS:
+        sa = a[a["bucket"] == bucket] if not a.empty else a
+        sb = b[b["bucket"] == bucket] if not b.empty else b
         ra = float(sa["revenue"].iloc[0]) if len(sa) else 0.0
         na = float(sa["nights"].iloc[0]) if len(sa) else 0.0
         rb = float(sb["revenue"].iloc[0]) if len(sb) else 0.0
         nb = float(sb["nights"].iloc[0]) if len(sb) else 0.0
+        if bucket == "Unbekannt" and na == 0 and nb == 0:
+            continue  # leere Unbekannt-Zeile nicht anzeigen
         rows.append({
             "Markt": bucket,
             f"Revenue {year_old} (€)": round(ra, 2),
@@ -272,7 +291,7 @@ def top_countries_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     """Sektion 12 - Top-Herkunftsländer Revenue YoY."""
 
     def agg(df):
-        r = df[df["is_realized"]] if realized_only else df
+        r = H.filter_realized(df, realized_only)
         if r.empty or "origin" not in r.columns:
             return pd.Series(dtype=float)
         return r.groupby("origin", observed=True)["revenue"].sum()
@@ -297,18 +316,25 @@ def top_countries_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def leadtime_table(res_old: pd.DataFrame, res_new: pd.DataFrame,
                     year_old: int, year_new: int) -> pd.DataFrame:
-    """Sektion 13 - Revenue + Storno-Quote pro Lead-Time-Bucket."""
+    """Sektion 13 - Revenue (realized) + Storno-Quote pro Lead-Time-Bucket.
+
+    Revenue ist realized-only - identisch zum Chart daneben (Review A7);
+    die Buchungs-/Storno-Counts laufen bewusst über ALLE Buchungen
+    (sonst gäbe es keine Storno-Quote).
+    """
     order = list(getattr(H, "LEAD_LABELS", []) or [])
 
     def agg(df):
         if df.empty or "lead_time_bucket" not in df.columns:
             return pd.DataFrame()
-        return df.groupby("lead_time_bucket", observed=True).agg(
+        out = df.groupby("lead_time_bucket", observed=True).agg(
             buchungen=("id", "count"),
-            realisiert=("is_realized", "sum") if "is_realized" in df.columns else ("id", "count"),
             storniert=("is_cancelled", "sum") if "is_cancelled" in df.columns else ("id", "count"),
-            revenue=("revenue", "sum"),
-        ).reindex(order, fill_value=0).reset_index()
+        )
+        rev = (H.filter_realized(df, True)
+               .groupby("lead_time_bucket", observed=True)["revenue"].sum())
+        out["revenue"] = rev.reindex(out.index).fillna(0.0)
+        return out.reindex(order, fill_value=0).reset_index()
 
     a, b = agg(res_old), agg(res_new)
     if a.empty and b.empty:
@@ -330,8 +356,8 @@ def leadtime_table(res_old: pd.DataFrame, res_new: pd.DataFrame,
             f"Buchungen {year_new}": n_b,
             f"Storno-Quote {year_old} (%)": round(s_a / n_a * 100, 1) if n_a else None,
             f"Storno-Quote {year_new} (%)": round(s_b / n_b * 100, 1) if n_b else None,
-            f"Revenue {year_old} (€)": round(get(ra, "revenue"), 2),
-            f"Revenue {year_new} (€)": round(get(rb, "revenue"), 2),
+            f"Revenue realisiert {year_old} (€)": round(get(ra, "revenue"), 2),
+            f"Revenue realisiert {year_new} (€)": round(get(rb, "revenue"), 2),
         })
     return pd.DataFrame(rows)
 

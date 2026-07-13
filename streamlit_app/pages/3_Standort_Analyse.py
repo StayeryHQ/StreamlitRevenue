@@ -818,7 +818,8 @@ if lazy_section(
 # ===== 14 · Daily Occupancy nach LOS ======================================
 if lazy_section(14, "Daily Occupancy nach LOS"):
     png = CD.chart_png(
-        _ck("daily_occ"), charts.daily_occupancy_los, nightly, units, start_new, end_new, LABEL
+        _ck("daily_occ"), charts.daily_occupancy_los, nightly, units, start_new, end_new, LABEL,
+        realized_only=_realized_only,  # folgt dem Toggle - wie die Tabelle (Review A7)
     )
     st.image(png, use_container_width=False)
     # Daily-Occupancy-Summary: pro Tag im NEW-Window aggregierte Nights pro LOS-Bucket.

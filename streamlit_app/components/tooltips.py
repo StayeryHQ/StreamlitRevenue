@@ -52,13 +52,6 @@ KPI_GLOBAL_SALES = (
     "Volumen wurde gewonnen durch erstellte Buchungen im Fenster."
 )
 
-KPI_LIFETIME_REVENUE = (
-    "Summe aller realisierten Revenue dieser Firma über die gesamte Historie im Snapshot."
-)
-KPI_CANCEL_RATE = (
-    "Anzahl stornierter Buchungen ÷ Gesamt-Buchungen × 100. Schwelle aus dem Sidebar-Slider."
-)
-
 
 # ============================== Chart-Tooltips ============================
 # Pro Sektion eine kurze Lesehilfe. Wird via chart_help() als Expander
@@ -90,7 +83,10 @@ CHART_TOOLTIPS: dict[str, str] = {
     ),
     "heat_ch_purpose_los": (
         "Wie Heatmap Channel × LOS, aber zusätzlich nach Reisezweck aufgesplittet "
-        "(Business links, Leisure rechts). Zeigt ob B oder L-Segmente das YoY-Δ treiben."
+        "(Business links, Leisure rechts). Zeigt ob B oder L-Segmente das YoY-Δ treiben.\n\n"
+        "**Achtung:** Fehlender/leerer `travelPurpose` zählt als **Leisure** - "
+        "der Leisure-Anteil kann dadurch überzeichnet sein (v.a. bei OTAs, wo der "
+        "Reisezweck oft nicht durchgereicht wird; siehe Doku Kap. 11)."
     ),
     "los_yoy": (
         "Revenue pro LOS-Bucket (short ≤6 / mid 7-28 / long 29+). "
@@ -102,7 +98,9 @@ CHART_TOOLTIPS: dict[str, str] = {
         "**Rechts:** YoY-Vergleich pro Channel mit %-Veränderung als Label."
     ),
     "alos_channel": (
-        "⌀ Nächte je Buchung, granular pro Channel"
+        "⌀ Nächte je Buchung, granular pro Channel. Gemessen wird die **volle "
+        "Buchungs-LOS** (wie der Headline-ALOS, Variante B) - auch wenn nur ein "
+        "Teil der Buchung im Filterfenster liegt, zählt die ganze Länge."
     ),
     "weekday_stay": (
         "Revenue je Wochentag (gestapelt nach Channel-Gruppe), OLD vs NEW "
@@ -113,14 +111,18 @@ CHART_TOOLTIPS: dict[str, str] = {
         "Front-Desk-Staffing und Channel-spezifische An-/Abreise-Muster."
     ),
     "group_size": (
-        "Revenue nach Anzahl Zimmer je Buchung (1 / 2 / 3+). Single-Room-Buchungen "
-        "vs Multi-Room-Buchungen zeigen Geschäftsreise- vs Gruppen-/Familien-Mix.\n\n"
+        "Revenue nach Anzahl Zimmer je Buchung (single / 2 / 3-4 / 5+). "
+        "Single-Room-Buchungen vs Multi-Room-Buchungen zeigen Geschäftsreise- "
+        "vs Gruppen-/Familien-Mix.\n\n"
         "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto · Counts = Buchungen."
     ),
     "de_intl": (
-        "DE vs International: Revenue absolut, Anteil in %, "
+        "DE vs International vs **Unbekannt**: Revenue absolut, Anteil in %, "
         "Room-Nights (mit ADR als Annotation). ADR-Unterschied zeigt ob "
-        "Internationale teurer/günstiger buchen."
+        "Internationale teurer/günstiger buchen.\n\n"
+        "**Unbekannt** = weder Ländercode noch Sprache erfasst (wird explizit "
+        "ausgewiesen statt einem Lager zugeschlagen). Herkunft ist ein "
+        "Misch-Feld aus Land + Sprach-Fallback - als Tendenz lesen (Doku Kap. 10b)."
     ),
     "top_countries": (
         "Top 10 Herkunftsländer nach Revenue. Gelb = Deutschland, Blau = Ausland. "
@@ -136,7 +138,8 @@ CHART_TOOLTIPS: dict[str, str] = {
     "daily_occ": (
         "Daily Occupancy in % der Kapazität, gestapelt nach LOS-Bucket. "
         "100%-Linie (rot gepunktet) = volle Auslastung. Wenn Long-Stays viel "
-        "Platz wegnehmen, sieht man's hier zuerst."
+        "Platz wegnehmen, sieht man's hier zuerst. Chart UND Tabelle folgen "
+        "dem Storno/No-Show-Toggle."
     ),
     "corp_overview": (
         "**Links:** Firmen-Revenue vs Privat-Revenue (YoY in % darüber).\n\n"

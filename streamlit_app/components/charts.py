@@ -197,10 +197,8 @@ def channel_los_heatmap(nig_a, nig_b, year_old, year_new, label, realized_only: 
     cols = ["short_<=6", "mid_7-28", "long_29+"]
 
     def agg(nig):
-        d = (nig[nig["is_realized"]] if realized_only else nig).copy()
-        d["row"] = d["channel_combo"].where(
-            d["channel_combo"].isin(["Direct_Website", "Direct_Offline"]), "OTA"
-        )
+        d = H.filter_realized(nig, realized_only).copy()
+        d["row"] = H.channel_bucket(d["channel_combo"])
         return (
             d.groupby(["row", "los_bucket"], observed=True)["revenue"]
             .sum()
@@ -290,10 +288,9 @@ def channel_purpose_los_heatmap(nig_a, nig_b, year_old, year_new, label, realize
     rows = [(c, p) for c in channels for p in purposes]
 
     def agg(nig):
-        d = (nig[nig["is_realized"]] if realized_only else nig).copy()
-        d["ch"] = d["channel_combo"].where(
-            d["channel_combo"].isin(["Direct_Website", "Direct_Offline"]), "OTA"
-        )
+        d = H.filter_realized(nig, realized_only).copy()
+        d["ch"] = H.channel_bucket(d["channel_combo"])
+        # Unbekannter/leerer Reisezweck zählt als Leisure (siehe Tooltip/Doku).
         d["purpose"] = np.where(
             d["travelPurpose"].astype(str).str.lower().eq("business"),
             "Business",
@@ -475,21 +472,22 @@ def channel_mix(nig_a, nig_b, full_nightly, year_old, year_new, label, top_n=6, 
     return fig
 
 
-# Backward-compatible alias used by older code
-channel_mix_monthly = channel_mix
-
-
 # =============================================================================
 # 6 · ALOS pro Channel - granular über alle channel_combo
 # =============================================================================
 def alos_per_channel(nig_a, nig_b, year_old, year_new, label, realized_only: bool = True):
+    """ALOS pro Channel = volle Buchungs-LOS (Variante B, wie Headline-KPI).
+
+    Vorher zählte diese Grafik nur die Nächte IM Filterfenster je Buchung -
+    dieselbe Bezeichnung wie der Headline-ALOS, aber eine andere Definition
+    (Review A5). Jetzt: je Buchung deduplizieren, volle ``nights`` mitteln.
+    """
     pal = palette()
 
     def alos(nig):
-        d = nig[nig["is_realized"]] if realized_only else nig
-        nights = d.groupby("channel_combo", observed=True)["revenue"].size()
-        books = d.groupby("channel_combo", observed=True)["id"].nunique()
-        return nights / books
+        d = H.filter_realized(nig, realized_only)
+        deduped = d.drop_duplicates("id")
+        return deduped.groupby("channel_combo", observed=True)["nights"].mean()
 
     a, b = alos(nig_a), alos(nig_b)
     chans = sorted(set(a.index) | set(b.index))
@@ -522,7 +520,7 @@ def alos_per_channel(nig_a, nig_b, year_old, year_new, label, realized_only: boo
     ax.set_yticks(y)
     ax.set_yticklabels(chans, fontsize=9)
     ax.invert_yaxis()
-    ax.set_xlabel("ALOS (Ø Nächte je Buchung)")
+    ax.set_xlabel("ALOS (Ø Nächte je Buchung, volle Buchungs-LOS)")
     ax.set_title(f"{label} - ALOS pro Channel (granular, Realized)", fontsize=13, weight="bold")
     ax.legend(frameon=False, fontsize=9)
     fig.tight_layout()
@@ -599,22 +597,34 @@ def group_size_yoy(res_a, res_b, year_old, year_new, label, realized_only: bool 
 # 10 · Inland vs. Ausland - 3-Panel: Revenue abs · Anteil · Room-Nights (ADR)
 # =============================================================================
 def de_vs_international(nig_a, nig_b, year_old, year_new, label, realized_only: bool = True):
+    """Inland vs. Ausland vs. Unbekannt - 3 Panels.
+
+    Herkunfts-Bucketing über ``H.origin_bucket`` - identisch zur Datentabelle
+    (Review A4: vorher zählte der Chart unbekannte Herkunft als DE, die
+    Tabelle als International). "Unbekannt" wird nur gezeigt, wenn vorhanden.
+    """
     pal = palette()
-    cats = ["DE", "International"]
-    x = np.arange(2)
+
+    def agg(nig):
+        d = H.filter_realized(nig, realized_only)
+        g = d.groupby(H.origin_bucket(d), observed=True)
+        rev = g["revenue"].sum()
+        n = g["revenue"].size()
+        return rev, n
+
+    rev_a, n_a = agg(nig_a)
+    rev_b, n_b = agg(nig_b)
+    cats = [
+        c for c in H.ORIGIN_BUCKETS
+        if not (c == "Unbekannt" and int(n_a.get(c, 0)) == 0 and int(n_b.get(c, 0)) == 0)
+    ]
+    ra = [float(rev_a.get(c, 0.0)) for c in cats]
+    rb = [float(rev_b.get(c, 0.0)) for c in cats]
+    na = [int(n_a.get(c, 0)) for c in cats]
+    nb = [int(n_b.get(c, 0)) for c in cats]
+    x = np.arange(len(cats))
     w = 0.35
     fig, axes = plt.subplots(1, 3, figsize=(17, 4.4))
-
-    def rev(nig):
-        g = (nig[nig["is_realized"]] if realized_only else nig).groupby("is_international")["revenue"].sum()
-        return [float(g.get(False, 0)), float(g.get(True, 0))]
-
-    def nights(nig):
-        g = (nig[nig["is_realized"]] if realized_only else nig).groupby("is_international")["revenue"].size()
-        return [int(g.get(False, 0)), int(g.get(True, 0))]
-
-    ra, rb = rev(nig_a), rev(nig_b)
-    na, nb = nights(nig_a), nights(nig_b)
 
     ax = axes[0]
     ax.bar(
@@ -672,7 +682,7 @@ def de_vs_international(nig_a, nig_b, year_old, year_new, label, realized_only: 
     ax.bar(
         x + w / 2, nb, w, color=pal[0], edgecolor=color("black"), linewidth=0.4, label=str(year_new)
     )
-    for i in range(2):
+    for i in range(len(cats)):
         adr_o = ra[i] / na[i] if na[i] else 0
         adr_n = rb[i] / nb[i] if nb[i] else 0
         ax.text(
@@ -693,7 +703,7 @@ def de_vs_international(nig_a, nig_b, year_old, year_new, label, realized_only: 
         )
     ax.set_xticks(x)
     ax.set_xticklabels(cats)
-    ax.set_ylabel("Room-Nights (Realized)")
+    ax.set_ylabel("Room-Nights" + (" (Realized)" if realized_only else ""))
     ax.set_ylim(0, max(max(na), max(nb), 1) * 1.28)
     ax.set_title("Room-Nights (ADR annotiert)")
     ax.legend(frameon=False, fontsize=9)
@@ -829,9 +839,14 @@ def leadtime_storno(res_a, res_b, year_old, year_new, label):
 # =============================================================================
 # 14 · Daily Occupancy nach LOS
 # =============================================================================
-def daily_occupancy_los(full_nightly, units, start_ts, end_ts, label):
+def daily_occupancy_los(full_nightly, units, start_ts, end_ts, label, realized_only: bool = True):
+    """Daily Occupancy nach LOS - folgt jetzt dem Storno/No-Show-Toggle.
+
+    Vorher filterte der Chart hart auf realized, die Datentabelle darunter
+    folgte dem Toggle -> Chart und Tabelle konnten abweichen (Review A7).
+    """
     pal = palette()
-    nig = full_nightly[full_nightly["is_realized"]].dropna(subset=["stay_date", "los_bucket"])
+    nig = H.filter_realized(full_nightly, realized_only).dropna(subset=["stay_date", "los_bucket"])
     nig = nig[(nig["stay_date"] >= start_ts) & (nig["stay_date"] <= end_ts)]
     calendar = pd.date_range(start_ts, end_ts, freq="D")
     los_order = ["long_29+", "mid_7-28", "short_<=6"]
@@ -872,8 +887,9 @@ def daily_occupancy_los(full_nightly, units, start_ts, end_ts, label):
     ax.set_ylim(0, max(110, occ.sum(axis=1).max() * 1.12))
     ax.set_ylabel("Occupancy (%) - gestapelt nach LOS")
     ax.set_xlabel("Stay-Datum")
+    _scope = "Realized" if realized_only else "inkl. Storno+No-Show"
     ax.set_title(
-        f"{label} - Daily Occupancy × LOS  {start_ts:%d.%m.%Y} – {end_ts:%d.%m.%Y} (Realized)",
+        f"{label} - Daily Occupancy × LOS  {start_ts:%d.%m.%Y} – {end_ts:%d.%m.%Y} ({_scope})",
         fontsize=12,
         weight="bold",
     )
@@ -959,9 +975,7 @@ def corporate_overview(res_a, res_b, year_old, year_new, label, realized_only: b
         if realized_only:
             mask &= df["is_realized"]
         d = df[mask].copy()
-        d["ch"] = d["channel_combo"].where(
-            d["channel_combo"].isin(["Direct_Website", "Direct_Offline"]), "OTA"
-        )
+        d["ch"] = H.channel_bucket(d["channel_combo"])
         return d.groupby("ch")["revenue"].sum()
 
     order = ["Direct_Website", "Direct_Offline", "OTA"]
@@ -1095,11 +1109,7 @@ def _per_channel_revenue(res_df, realized_only: bool = True):
         return pd.DataFrame(columns=["company", "ch", "revenue"]).set_index(["company", "ch"])[
             "revenue"
         ]
-    d["ch"] = np.where(
-        d["channel_combo"] == "Direct_Offline",
-        "Direct_Offline",
-        np.where(d["channel_combo"] == "Direct_Website", "Direct_Website", "OTA"),
-    )
+    d["ch"] = H.channel_bucket(d["channel_combo"])
     return d.groupby(["company", "ch"])["revenue"].sum()
 
 

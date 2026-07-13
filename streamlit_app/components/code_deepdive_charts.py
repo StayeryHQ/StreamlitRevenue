@@ -128,11 +128,7 @@ def channel_evolution(
         ax.set_axis_off()
         return fig, None, None
     d["ym"] = d["arrival"].dt.to_period("M").dt.to_timestamp()
-    d["ch"] = np.where(
-        d["channel_combo"] == "Direct_Offline",
-        "Direct_Offline",
-        np.where(d["channel_combo"] == "Direct_Website", "Direct_Website", "OTA"),
-    )
+    d["ch"] = H.channel_bucket(d["channel_combo"])
     monthly_ch = d.groupby(["ym", "ch"])["revenue"].sum().unstack(fill_value=0.0).sort_index()
     full_idx = pd.date_range(monthly_ch.index.min(), monthly_ch.index.max(), freq="MS")
     monthly_ch = monthly_ch.reindex(full_idx, fill_value=0.0)
