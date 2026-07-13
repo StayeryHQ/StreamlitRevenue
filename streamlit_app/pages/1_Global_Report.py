@@ -204,8 +204,9 @@ with st.sidebar:
 
         st.form_submit_button("Recap aktualisieren", use_container_width=True)
 
-    GT.GREEN_PCT = green_threshold
-    GT.RED_PCT = red_threshold
+    # Ampel-Schwellen laufen als Funktionsparameter in die Tabellen-Builder
+    # (Review A3): so landen sie im st.cache_data-Key (Slider wirken sofort)
+    # und mutieren keine Modul-Globals, die sich alle Sessions teilen würden.
 
     st.divider()
     st.caption("Sektionen 6-7 laden erst auf Klick.")
@@ -350,6 +351,8 @@ disp_stay, raw_stay = GT.performance_by_stay(
     period_tag_old,
     plan=plan_dict,
     include_cancellations=_include_cancellations,
+    green_pct=green_threshold,
+    red_pct=red_threshold,
 )
 disp_chan_stay, raw_chan_stay = GT.channel_volume_by_stay(
     nightly,
@@ -360,6 +363,8 @@ disp_chan_stay, raw_chan_stay = GT.channel_volume_by_stay(
     YEAR_OLD,
     YEAR_NEW,
     include_cancellations=_include_cancellations,
+    green_pct=green_threshold,
+    red_pct=red_threshold,
 )
 disp_created, raw_created = GT.performance_by_created(
     nightly,
@@ -371,6 +376,8 @@ disp_created, raw_created = GT.performance_by_created(
     YEAR_OLD,
     YEAR_NEW,
     include_cancellations=_include_cancellations,
+    green_pct=green_threshold,
+    red_pct=red_threshold,
 )
 disp_chan_created, raw_chan_created = GT.channel_volume_by_created(
     nightly,
@@ -381,6 +388,8 @@ disp_chan_created, raw_chan_created = GT.channel_volume_by_created(
     YEAR_OLD,
     YEAR_NEW,
     include_cancellations=_include_cancellations,
+    green_pct=green_threshold,
+    red_pct=red_threshold,
 )
 
 
@@ -460,6 +469,8 @@ alerts = GT.auto_alerts(
     YEAR_OLD,
     YEAR_NEW,
     include_cancellations=_include_cancellations,
+    green_pct=green_threshold,
+    red_pct=red_threshold,
 )
 st.markdown("**Automatische Alerts & Highlights**")
 alert_cards(alerts)

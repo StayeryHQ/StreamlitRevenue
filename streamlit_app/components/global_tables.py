@@ -7,70 +7,39 @@ Timeslices-/Nightly-Basis (Netto-Revenue pro Nacht, ``baseAmount_netAmount``).
 
 from __future__ import annotations
 
-from enum import Enum
-
 import numpy as np
 import pandas as pd
 import streamlit as st
 
 from revenueblindspots import helpers as H
+from revenueblindspots.helpers import CancelMode  # re-export (lebt jetzt im Data-Layer)
 
-
-class CancelMode(str, Enum):  # noqa: UP042  (StrEnum erst ab 3.11; Runtime = 3.10)
-    """Storno-/No-Show-Behandlung für die Stay×Creation-Sichten (Pickup-Seite).
-
-    - ``ALL_IN``: jede Buchung im Fenster zählt (inkl. später storniert / No-Show),
-      finaler Status, KEIN Stichtag-Cutoff.
-    - ``ALL_OUT``: realized-only (finaler ``is_realized``), KEIN Stichtag-Cutoff.
-    - ``AS_OF``: point-in-time zum Stichtag - Storno bis ``cancel_time``, No-Show bis
-      ``arrival`` (``H.asof_on_the_books_mask``). Die bisherige „§8-Logik".
-
-    ``str, Enum`` → hashbar & cache-key-freundlich für ``@st.cache_data``.
-    """
-
-    ALL_IN = "all_in"
-    ALL_OUT = "all_out"
-    AS_OF = "as_of"
-
-
-def _apply_cancel_mode(
-    df: pd.DataFrame, asof: pd.Timestamp, mode: CancelMode
-) -> pd.DataFrame:
-    """Wende den Storno-Modus auf einen bereits fenster-gefilterten Frame an.
-
-    Nur ``AS_OF`` ist point-in-time (nutzt den Stichtag); ``ALL_IN``/``ALL_OUT``
-    sind finale Status-Sichten ohne Stichtag-Cutoff.
-    """
-    if df is None or df.empty:
-        return df
-    if mode == CancelMode.ALL_OUT:
-        return df[df["is_realized"]] if "is_realized" in df.columns else df
-    if mode == CancelMode.AS_OF:
-        mask = H.asof_on_the_books_mask(df, asof, include_cancellations=False)
-        return df[mask]
-    return df  # ALL_IN - nichts filtern (Datenbasis ist ohnehin ≤ Snapshot)
+__all__ = ["CancelMode"]
 
 # ============================== Tendency thresholds ========================
+# Default-Schwellen. KEINE Modul-Global-Mutation mehr durch die Pages -
+# die Global-Report-Slider laufen als Funktionsparameter durch (Review A3),
+# damit sie (a) im st.cache_data-Key landen und (b) nicht andere Sessions
+# desselben Servers beeinflussen.
 GREEN_PCT = 2.0  # ≥ green → 🟢
 RED_PCT = -10.0  # ≤ red → 🔴  (between → 🟠)
 
 
-def tendency_icon(diff_pct: float) -> str:
-    """🟢🟠🔴 based on % deviation."""
+def tendency_icon(
+    diff_pct: float,
+    green_pct: "float | None" = None,
+    red_pct: "float | None" = None,
+) -> str:
+    """🟢🟠🔴 based on % deviation (Schwellen optional pro Aufruf)."""
+    g = GREEN_PCT if green_pct is None else green_pct
+    r = RED_PCT if red_pct is None else red_pct
     if pd.isna(diff_pct):
         return "-"
-    if diff_pct >= GREEN_PCT:
+    if diff_pct >= g:
         return "🟢"
-    if diff_pct <= RED_PCT:
+    if diff_pct <= r:
         return "🔴"
     return "🟠"
-
-
-def tendency_icon_abs(diff_eur: float) -> str:
-    """🟢🟠🔴 just by sign + magnitude (for non-relative comparisons)."""
-    if pd.isna(diff_eur) or diff_eur == 0:
-        return "-"
-    return "🟢" if diff_eur > 0 else "🔴"
 
 
 def with_code_labels(raw: pd.DataFrame) -> pd.DataFrame:
@@ -124,6 +93,8 @@ def performance_by_stay(
     period_tag_old: str = "",
     plan: dict | None = None,
     include_cancellations: bool = False,
+    green_pct: "float | None" = None,
+    red_pct: "float | None" = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Standort-Performance nach Aufenthaltsdatum - IST vs PLAN vs LY.
 
@@ -132,16 +103,14 @@ def performance_by_stay(
 
     include_cancellations=False (default) → realized-only (Storno + No-Show raus).
     include_cancellations=True            → alle Buchungen werden gezählt.
+    ``green_pct``/``red_pct``: Ampel-Schwellen (Sidebar-Slider) - als Parameter,
+    damit sie im Cache-Key landen (Review A3).
     """
     nig_new = H.filter_period(nightly, start_new, end_new, "stay_date")
     nig_old = H.filter_period(nightly, start_old, end_old, "stay_date")
 
-    if include_cancellations:
-        nig_new_r = nig_new
-        nig_old_r = nig_old
-    else:
-        nig_new_r = nig_new[nig_new["is_realized"]]
-        nig_old_r = nig_old[nig_old["is_realized"]]
+    nig_new_r = H.filter_realized(nig_new, not include_cancellations)
+    nig_old_r = H.filter_realized(nig_old, not include_cancellations)
 
     ist_new = nig_new_r.groupby("property_code", observed=True)["revenue"].sum()
     ist_old = nig_old_r.groupby("property_code", observed=True)["revenue"].sum()
@@ -206,11 +175,11 @@ def performance_by_stay(
             c_plan: raw["plan_new"].map(H.fmt_eur),
             c_ly: raw["ist_old"].map(lambda v: H.fmt_eur(v) if v > 0 else "-"),
             "DIFF IST vs. PLAN (€)": [
-                f"{tendency_icon(p)} {H.fmt_eur(e)}"
+                f"{tendency_icon(p, green_pct, red_pct)} {H.fmt_eur(e)}"
                 for e, p in zip(raw["d_plan_eur"], raw["d_plan_pct"])
             ],
             "DIFF IST vs. LY (€)": [
-                f"{tendency_icon(p)} {H.fmt_eur(e)}" if pd.notna(p) else "-"
+                f"{tendency_icon(p, green_pct, red_pct)} {H.fmt_eur(e)}" if pd.notna(p) else "-"
                 for e, p in zip(raw["d_ly_eur"], raw["d_ly_pct"])
             ],
         }
@@ -229,6 +198,8 @@ def channel_volume_by_stay(
     year_old: int,
     year_new: int,
     include_cancellations: bool = False,
+    green_pct: "float | None" = None,
+    red_pct: "float | None" = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """3.B - Channel-Volumen nach Aufenthaltsdatum.
 
@@ -239,6 +210,7 @@ def channel_volume_by_stay(
     return _build_channel_table(
         nig_new, nig_old, year_old, year_new,
         realized_only=not include_cancellations,
+        green_pct=green_pct, red_pct=red_pct,
     )
 
 
@@ -254,6 +226,8 @@ def performance_by_created(
     year_old: int,
     year_new: int,
     include_cancellations: bool = True,
+    green_pct: "float | None" = None,
+    red_pct: "float | None" = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Standort-Performance nach Erstellungsdatum - IST vs LY (KEIN PLAN).
 
@@ -268,9 +242,8 @@ def performance_by_created(
     nig_new = H.filter_period(nightly, start_new, end_new, "created")
     nig_old = H.filter_period(nightly, start_old, end_old, "created")
 
-    if not include_cancellations:
-        nig_new = nig_new[nig_new["is_realized"]]
-        nig_old = nig_old[nig_old["is_realized"]]
+    nig_new = H.filter_realized(nig_new, not include_cancellations)
+    nig_old = H.filter_realized(nig_old, not include_cancellations)
 
     ist_new = nig_new.groupby("property_code", observed=True)["revenue"].sum()
     ist_old = nig_old.groupby("property_code", observed=True)["revenue"].sum()
@@ -323,7 +296,7 @@ def performance_by_created(
             c_ist: raw["ist_new"].map(lambda v: H.fmt_eur(v, 2) if v > 0 else "-"),
             c_ly: raw["ist_old"].map(lambda v: H.fmt_eur(v, 2) if v > 0 else "-"),
             f"DIFF {year_new} vs {year_old} (€)": [
-                f"{tendency_icon(p)} {H.fmt_eur(e, 2)}" if pd.notna(p) else "-"
+                f"{tendency_icon(p, green_pct, red_pct)} {H.fmt_eur(e, 2)}" if pd.notna(p) else "-"
                 for e, p in zip(raw["d_eur"], raw["d_pct"])
             ],
         }
@@ -342,6 +315,8 @@ def channel_volume_by_created(
     year_old: int,
     year_new: int,
     include_cancellations: bool = True,
+    green_pct: "float | None" = None,
+    red_pct: "float | None" = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """2.B - Channel-Volumen nach Erstellungsdatum.
 
@@ -355,6 +330,7 @@ def channel_volume_by_created(
     return _build_channel_table(
         nig_new, nig_old, year_old, year_new,
         realized_only=not include_cancellations,
+        green_pct=green_pct, red_pct=red_pct,
     )
 
 
@@ -365,11 +341,12 @@ def _build_channel_table(
     year_old: int,
     year_new: int,
     realized_only: bool,
+    green_pct: "float | None" = None,
+    red_pct: "float | None" = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the channel volume table"""
-    if realized_only:
-        df_new = df_new[df_new["is_realized"]]
-        df_old = df_old[df_old["is_realized"]]
+    df_new = H.filter_realized(df_new, realized_only)
+    df_old = H.filter_realized(df_old, realized_only)
 
     def agg(df):
         if df.empty:
@@ -438,7 +415,7 @@ def _build_channel_table(
             f"Revenue {year_old} (€)": raw["rev_old"].map(H.fmt_eur),
             f"Anteil {year_old} (%)": raw["share_old"].map(lambda v: f"{v:.2f}"),
             "Δ Anteil (pp)": raw["d_share_pp"].map(lambda v: f"{v:+.2f}"),
-            "Tendenz": [tendency_icon(p) for p in raw["d_pct"]],
+            "Tendenz": [tendency_icon(p, green_pct, red_pct) for p in raw["d_pct"]],
         }
     )
     return disp, raw
@@ -646,7 +623,7 @@ def stay_created_scope(
     if sc.empty:
         return sc
     if cancel_mode is not None:
-        return _apply_cancel_mode(sc, asof, cancel_mode)
+        return H.apply_cancel_mode(sc, cancel_mode, asof)
     mask = H.asof_on_the_books_mask(sc, asof, include_cancellations=include_cancellations)
     return sc[mask]
 
@@ -689,7 +666,7 @@ def stay_only_scope(
     if stay.empty:
         return stay
     if cancel_mode is not None:
-        return _apply_cancel_mode(stay, asof, cancel_mode)
+        return H.apply_cancel_mode(stay, cancel_mode, asof)
     mask = H.asof_on_the_books_mask(stay, asof, include_cancellations=include_cancellations)
     return stay[mask]
 
@@ -1376,17 +1353,20 @@ def auto_alerts(
     year_old: int,
     year_new: int,
     include_cancellations: bool = False,
+    green_pct: "float | None" = None,
+    red_pct: "float | None" = None,
 ) -> list[dict]:
     """Generate alert dicts (kind / title / message) from the raw tables.
 
-    Schwellen:
-      - alert    < RED_PCT (default -10 %)
-      - warning  zwischen RED_PCT und -2 %
-      - success  ≥ GREEN_PCT
+    Schwellen (per Parameter, Default = Modul-Konstanten):
+      - alert    < red_pct (default -10 %)
+      - success  ≥ green_pct
 
     include_cancellations wird in den Message-Body geschrieben, damit der User
     sieht ob die Zahl Storno + No-Show enthält oder nicht (realized-only).
     """
+    _green = GREEN_PCT if green_pct is None else green_pct
+    _red = RED_PCT if red_pct is None else red_pct
     alerts: list[dict] = []
     # Scope-Marker hängt am Ende jeder Message - macht klar woher die Zahl kommt.
     _scope_stay = (
@@ -1405,7 +1385,7 @@ def auto_alerts(
             & (raw_stay["ist_old"] > 0)
         ]
         misses = valid_stay[
-            (valid_stay["d_plan_pct"].notna()) & (valid_stay["d_plan_pct"] < RED_PCT)
+            (valid_stay["d_plan_pct"].notna()) & (valid_stay["d_plan_pct"] < _red)
         ]
         for _, r in misses.sort_values("d_plan_pct").head(3).iterrows():
             alerts.append(
@@ -1422,7 +1402,7 @@ def auto_alerts(
 
         # YoY-Misses (Aufenthaltsdatum)
         yoy_misses = valid_stay[
-            (valid_stay["d_ly_pct"].notna()) & (valid_stay["d_ly_pct"] < RED_PCT)
+            (valid_stay["d_ly_pct"].notna()) & (valid_stay["d_ly_pct"] < _red)
         ]
         for _, r in yoy_misses.sort_values("d_ly_pct").head(2).iterrows():
             alerts.append(
@@ -1439,7 +1419,7 @@ def auto_alerts(
 
         # Erfolge
         wins = valid_stay[
-            (valid_stay["d_plan_pct"].notna()) & (valid_stay["d_plan_pct"] >= GREEN_PCT)
+            (valid_stay["d_plan_pct"].notna()) & (valid_stay["d_plan_pct"] >= _green)
         ]
         for _, r in wins.sort_values("d_plan_pct", ascending=False).head(2).iterrows():
             alerts.append(
@@ -1462,7 +1442,7 @@ def auto_alerts(
             & (raw_created["ist_old"] > 0)
         ]
         cmisses = valid_created[
-            (valid_created["d_pct"].notna()) & (valid_created["d_pct"] < RED_PCT)
+            (valid_created["d_pct"].notna()) & (valid_created["d_pct"] < _red)
         ]
         for _, r in cmisses.sort_values("d_pct").head(2).iterrows():
             alerts.append(
