@@ -14,7 +14,6 @@ import streamlit as st
 
 from components import cached_data as CD
 from components import chart_data as CDT
-from components import charts as C  # Pace-Chart shared with Standort
 from components import (
     download_button,
     inject_brand_css,
@@ -397,7 +396,6 @@ disp_chan_created, raw_chan_created = GT.channel_volume_by_created(
 # ============================== TOC ========================================
 _TOC = [
     (1, "Visual Scorecard"),
-    (2, "Pace by Month"),
     ("3.A", "Performance Standorte (Erstellung)"),
     ("3.B", "Buchungskanäle (Erstellung)"),
     ("4.A", "Performance Standorte (Aufenthalt)"),
@@ -528,27 +526,11 @@ with section(
     )
 
     chart_help("scorecard")
-# ===== 2 · Pace by Month (NEU) ============================================
-with section(
-    2,
-    "Pace by Month",
-    subtitle=f"Alle gewählten Standorte · {YEAR_OLD} vs {YEAR_NEW} · Stand {SNAP_DATE:%d.%m.%Y}",
-    description=(
-        f"Pro Monat: **{YEAR_OLD}/EoM** = finale Vorjahres-Realität · "
-        f"**{YEAR_OLD}/Today** = Stand `{SNAP_DATE:%d.%m.%Y}` im Vorjahr "
-        f"(was war on-the-books) · **{YEAR_NEW}/Today** = aktueller Stand."
-    ),
-):
-    pace_df = H.pace_by_month(nightly, YEAR_OLD, YEAR_NEW, SNAP_DATE, properties=props_pick)
-    label = (
-        "Alle Standorte" if len(props_pick) == len(all_props) else f"{len(props_pick)} Standorte"
-    )
-    png = CD.chart_png(_ck("pace"), C.pace_by_month_chart, pace_df, label, YEAR_OLD, YEAR_NEW)
-    st.image(png, use_container_width=False)
-    CD.data_table_expander(pace_df, filename=f"global_pace_{YEAR_NEW}")
-    register_section("pace_month", "2 · Pace by Month", chart_png=png, table_df=pace_df, page=PAGE)
+# ===== 2 · Pace by Month: umgezogen auf die Pickup-Seite (§6) =============
+# Die Monats-Pace-Sicht (EoM final · OTB Vorjahres-Stichtag · OTB heute)
+# lebt jetzt auf 'Pickup / Vorlauf-Analyse' - dort mit frei wählbarem
+# Stichtag, Vergleichsjahr und Tag-für-Tag-Verlauf je Monat.
 
-    chart_help("pace_month")
 # ===== 3 · Nach Erstellungsdatum ==========================================
 st.markdown("# 3 · Performance nach Erstellungsdatum")
 st.caption("Sales-Sicht: alles was im Zeitraum gebucht wurde. ")

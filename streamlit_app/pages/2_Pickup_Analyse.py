@@ -550,16 +550,23 @@ else:
         st.image(_pace_png, use_container_width=False)
 
 
-# ============================== 5b · OTB je Stay-Monat (As-of) =============
-st.markdown("### OTB je Stay-Monat · Stichtags-Vergleich")
+# ============================== 6 · Pace by Month ==========================
+# (migriert aus Global Report §2 - dort ersatzlos raus; hier lebt die Sicht
+#  mit frei wählbarem Stichtag + Vergleichsjahr weiter.)
+st.markdown(f"## 6 · Pace by Month · {YEAR_NEW} vs {YEAR_OLD}")
+st.markdown("*OTB je Stay-Monat zum Stichtag - plus finale Vorjahres-Realität.*")
 st.caption(
-    f"On-the-books je **Stay-Monat {YEAR_NEW}** am Stichtag **{asof_new:%d.%m.%Y}** "
-    f"vs. Vorjahres-Monat am gespiegelten Stichtag **{asof_old:%d.%m.%Y}** - "
-    "reine **As-of-Logik** (No-Shows raus, Storno löst zu `cancel_time` auf), "
-    "unabhängig vom Storno-Modus-Schalter und vom Erstellungs-Fenster. "
-    "**Stichtag-Konvention:** ganzer Kalendertag ohne Uhrzeit - am Stichtag "
-    "erstellte Buchungen zählen **mit**, ein Storno mit Zeitstempel am Stichtag "
-    "gilt als bereits bekannt (zählt **raus**). "
+    f"Je Stay-Monat drei Werte: **IST {YEAR_OLD} final** = finale realisierte "
+    f"Realität des Vorjahres-Monats (EoM, realized-only) · **OTB {YEAR_OLD}** = "
+    f"was am gespiegelten Stichtag **{asof_old:%d.%m.%Y}** im Vorjahr on-the-books "
+    f"war · **OTB {YEAR_NEW}** = aktueller Stand am Stichtag **{asof_new:%d.%m.%Y}**. "
+    "Δ vergleicht die beiden OTB-Stände (gleicher Buchungsvorlauf); der Abstand "
+    f"zwischen OTB {YEAR_OLD} und IST final zeigt, was im Vorjahr nach dem "
+    "Stichtag noch dazukam. Reine **As-of-Logik** (No-Shows raus, Storno löst zu "
+    "`cancel_time` auf), unabhängig vom Storno-Modus-Schalter und vom "
+    "Erstellungs-Fenster. **Stichtag-Konvention:** ganzer Kalendertag ohne "
+    "Uhrzeit - am Stichtag erstellte Buchungen zählen **mit**, ein Storno mit "
+    "Zeitstempel am Stichtag zählt **raus**. "
     "**Zeile eines offenen Monats anklicken** → rechts erscheint der "
     "Tag-für-Tag-Verlauf des As-of-Vergleichs."
 )
@@ -589,18 +596,26 @@ def _monthly_asof(sig: str, year_new: int, year_old: int,
     rev = df["revenue"].astype(float)
     on_new = H.asof_on_the_books_mask(df, asof_n, include_cancellations=False)
     on_old = H.asof_on_the_books_mask(df, asof_o, include_cancellations=False)
-    m_new = rev[on_new & (stay.dt.year == year_new)].groupby(month[on_new & (stay.dt.year == year_new)]).sum()
-    m_old = rev[on_old & (stay.dt.year == year_old)].groupby(month[on_old & (stay.dt.year == year_old)]).sum()
+    is_new_y = stay.dt.year == year_new
+    is_old_y = stay.dt.year == year_old
+    m_new = rev[on_new & is_new_y].groupby(month[on_new & is_new_y]).sum()
+    m_old = rev[on_old & is_old_y].groupby(month[on_old & is_old_y]).sum()
+    # Finale Vorjahres-Realität (EoM): realized-only, KEIN Stichtag-Cutoff -
+    # dieselbe Konvention wie ist_eom_old in H.pace_by_month (Global §2 alt).
+    realized = df["is_realized"].astype(bool) if "is_realized" in df.columns else ~df["is_cancelled"].astype(bool)
+    m_eom = rev[realized & is_old_y].groupby(month[realized & is_old_y]).sum()
     rows = []
     for m in range(1, 13):
         v_new = float(m_new.get(m, 0.0))
         v_old = float(m_old.get(m, 0.0))
-        if v_new == 0.0 and v_old == 0.0:
+        v_eom = float(m_eom.get(m, 0.0))
+        if v_new == 0.0 and v_old == 0.0 and v_eom == 0.0:
             continue
         month_end = pd.Timestamp(year=year_new, month=m, day=1) + pd.offsets.MonthEnd(0)
         rows.append({
             "month_num": m,
             "Monat": _MONTH_NAMES_DE[m - 1],
+            f"IST {year_old} final (€)": round(v_eom, 0),
             f"OTB {year_old} (€)": round(v_old, 0),
             f"OTB {year_new} (€)": round(v_new, 0),
             "Δ (€)": round(v_new - v_old, 0),
@@ -647,43 +662,42 @@ def _asof_evolution(sig: str, month: int, year_new: int, year_old: int,
 
 
 def _evolution_fig(ev: pd.DataFrame, month_name: str, year_new: int, year_old: int):
-    """Plotly-Figur: absolute OTB-Linien + Wedge (oben), Δ % je Tag (unten)."""
+    """Plotly-Figur: absolute OTB-Linien + Wedge (oben), Δ % je Tag (unten).
+
+    Styling über ``plotly_theme.brand_figure`` - der 1:1 aus der Overbooking-
+    Dash-App portierte Brand-Standard (Schrift, Farben, Margins, Legende).
+    """
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
 
-    from revenueblindspots.theming import color as _bc
+    from components import plotly_theme as PT
 
     fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                         row_heights=[0.66, 0.34], vertical_spacing=0.07)
     fig.add_trace(go.Scatter(
         x=ev["date"], y=ev["otb_old"], name=f"OTB {year_old} (gespiegelt)",
-        line=dict(color="#666666", width=2, dash="dot"),
+        line=dict(color=PT.GREY, width=2, dash="dot"),
         hovertemplate="%{y:,.0f} €<extra>" + str(year_old) + "</extra>",
     ), row=1, col=1)
     fig.add_trace(go.Scatter(
         x=ev["date"], y=ev["otb_new"], name=f"OTB {year_new}",
-        line=dict(color=_bc("blue"), width=2.6),
+        line=dict(color=PT.BLUE, width=2.6),
         fill="tonexty", fillcolor="rgba(255, 230, 80, 0.35)",  # Brand-Yellow-Wedge = Δ absolut
         hovertemplate="%{y:,.0f} €<extra>" + str(year_new) + "</extra>",
     ), row=1, col=1)
-    _cols = [(_bc("green") if (pd.notna(v) and v >= 0) else _bc("red")) for v in ev["delta_pct"]]
+    _cols = [(PT.GREEN if (pd.notna(v) and v >= 0) else PT.RED) for v in ev["delta_pct"]]
     fig.add_trace(go.Bar(
         x=ev["date"], y=ev["delta_pct"], name="Δ vs Vorjahr (%)",
         marker_color=_cols, customdata=ev["delta_abs"],
         hovertemplate="Δ %{y:+.1f} %<br>Δ %{customdata:+,.0f} €<extra></extra>",
     ), row=2, col=1)
-    fig.add_hline(y=0, line_width=1, line_color="#000000", row=2, col=1)
-    fig.update_yaxes(title_text="OTB (€)", row=1, col=1, gridcolor="#EEEEEE", zeroline=False)
-    fig.update_yaxes(title_text="Δ %", row=2, col=1, gridcolor="#EEEEEE", zeroline=False)
-    fig.update_xaxes(gridcolor="#EEEEEE")
+    fig.add_hline(y=0, line_width=1, line_color=PT.BLACK, row=2, col=1)
+    PT.brand_figure(fig)
+    fig.update_yaxes(title_text="OTB (€)", row=1, col=1)
+    fig.update_yaxes(title_text="Δ %", row=2, col=1)
     fig.update_layout(
         height=520,
-        paper_bgcolor="#FFFFFF", plot_bgcolor="#FFFFFF",
-        font=dict(family="Neue Haas Grotesk Display Pro, Helvetica Neue, Helvetica, Arial, sans-serif",
-                  color="#000000", size=13),
         hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0),
-        margin=dict(l=55, r=15, t=30, b=40),
         title=dict(text=f"{month_name} {year_new} · As-of-Verlauf (Tag für Tag)",
                    font=dict(size=15)),
     )
@@ -702,6 +716,10 @@ else:
     _mcolcfg = {
         "month_num": None,
         "Monat": st.column_config.TextColumn("Monat"),
+        f"IST {YEAR_OLD} final (€)": st.column_config.NumberColumn(
+            format="localized",
+            help="Finale realisierte Realität des Vorjahres-Monats (kein Stichtag-Cutoff).",
+        ),
         f"OTB {YEAR_OLD} (€)": st.column_config.NumberColumn(format="localized"),
         f"OTB {YEAR_NEW} (€)": st.column_config.NumberColumn(format="localized"),
         "Δ (€)": st.column_config.NumberColumn(format="localized"),
@@ -762,9 +780,10 @@ else:
                 _mccol.info("Kein Tages-Verlauf verfügbar (keine Buchungen).")
             else:
                 _last = _ev_df.iloc[-1]
+                from components import plotly_theme as PT
                 _mccol.plotly_chart(
                     _evolution_fig(_ev_df, _mname, YEAR_NEW, YEAR_OLD),
-                    use_container_width=True, config={"displaylogo": False},
+                    use_container_width=True, config=PT.PLOTLY_CONFIG,
                 )
                 _mccol.caption(
                     f"**Heute ({asof_new:%d.%m.%Y}):** OTB {YEAR_NEW} "
@@ -874,7 +893,7 @@ def _curve_csv() -> bytes:
     return out.to_csv(index=False).encode("utf-8")
 
 
-st.markdown("## 6 · Downloads")
+st.markdown("## 7 · Downloads")
 st.markdown("*Drei getrennte Exporte - genau für diese Sicht.*")
 st.caption(
     "**Pickup-Tabellen (Excel)** = die drei aggregierten Tabellen oben, fertig "
