@@ -402,3 +402,55 @@ def cache_clear_button() -> None:
             if str(k).startswith("_stayery_style_applied") or str(k).startswith("_chart_"):
                 del st.session_state[k]
         st.rerun()
+
+
+# ============================== Freshness-Badge ===========================
+# Ampel-Schwellen (Stunden seit letztem Snapshot-Refresh).
+_FRESH_GREEN_H = 5.0
+_FRESH_YELLOW_H = 15.0
+
+
+def freshness_badge(container=None) -> None:
+    """Farbiger Sidebar-Indikator: wann die Daten zuletzt aktualisiert wurden.
+
+    Grün < 5 h · Gelb 5-15 h · Rot > 15 h (Alter = jetzt − ``refreshed_at``,
+    beides Europe/Berlin). Zeigt Datum + Uhrzeit des Refreshs und das Alter.
+    Auf jeder Seite in der Sidebar aufrufen.
+    """
+    from revenueblindspots.theming import color as _brand_color
+
+    target = container if container is not None else st.sidebar
+
+    meta = get_metadata()
+    raw = str(meta.get("refreshed_at") or "").strip()
+    ts = pd.to_datetime(raw, errors="coerce") if raw else pd.NaT
+
+    if pd.isna(ts):
+        dot, label = "#666666", "<strong>Daten-Stand:</strong> unbekannt - bitte Refresh ausführen"
+    else:
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("Europe/Berlin")
+        ts = ts.tz_convert("Europe/Berlin")
+        now = pd.Timestamp.now(tz="Europe/Berlin")
+        age_h = max((now - ts).total_seconds() / 3600.0, 0.0)
+        if age_h < _FRESH_GREEN_H:
+            dot = _brand_color("green")
+        elif age_h <= _FRESH_YELLOW_H:
+            dot = _brand_color("yellow")
+        else:
+            dot = _brand_color("red")
+        age_txt = f"vor {age_h:.1f} h" if age_h < 48 else f"vor {age_h / 24:.1f} Tagen"
+        label = (
+            f"<strong>Daten-Stand:</strong> {ts:%d.%m.%Y}, {ts:%H:%M} Uhr"
+            f"<br><span style='color:#666666'>{age_txt} aktualisiert</span>"
+        )
+
+    target.markdown(
+        '<div style="display:flex;align-items:flex-start;gap:8px;font-size:0.8rem;'
+        "color:#000;background:#FAFAF5;border:1px solid #ECEAE0;border-radius:10px;"
+        'padding:7px 10px;margin:6px 0;line-height:1.35;">'
+        f'<span style="width:10px;height:10px;border-radius:50%;background:{dot};'
+        'border:1px solid rgba(0,0,0,0.25);flex:0 0 auto;margin-top:2px;"></span>'
+        f"<span>{label}</span></div>",
+        unsafe_allow_html=True,
+    )

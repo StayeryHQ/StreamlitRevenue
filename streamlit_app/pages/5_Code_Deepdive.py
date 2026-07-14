@@ -124,7 +124,8 @@ with st.sidebar:
 
     st.divider()
     CD.cache_clear_button()
-    st.caption(f"Snapshot vom **{str(meta.get('refreshed_at', '?'))[:10]}**")
+    # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
+    CD.freshness_badge()
 
 render_notepad(PAGE)
 

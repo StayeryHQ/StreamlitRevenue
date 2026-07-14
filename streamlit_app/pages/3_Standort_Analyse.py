@@ -133,7 +133,8 @@ with st.sidebar:
     st.caption("Sektionen 6-17 laden erst auf Klick.")
     preload_all_button(list(range(6, 18)), label="Alle Sektionen laden")
     CD.cache_clear_button()
-    st.caption(f"Snapshot vom **{str(meta.get('refreshed_at', '?'))[:10]}**")
+    # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
+    CD.freshness_badge()
 
 # Notepad in der Sidebar
 render_notepad(PAGE)

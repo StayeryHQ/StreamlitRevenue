@@ -46,6 +46,7 @@ st.set_page_config(
 )
 inject_brand_css()
 CD.keep_session_state_alive()
+CD.freshness_badge()  # Freshness-Ampel in der Sidebar
 
 hero(
     eyebrow="Daten",

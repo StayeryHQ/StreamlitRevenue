@@ -18,6 +18,7 @@ from components.brand import hero
 st.set_page_config(page_title="Dokumentation · Stayery", page_icon="📚", layout="wide")
 inject_brand_css()
 CD.apply_stayery_style_once()
+CD.freshness_badge()  # Freshness-Ampel in der Sidebar
 
 hero(
     eyebrow="Dokumentation · Datenbasis & Logik",

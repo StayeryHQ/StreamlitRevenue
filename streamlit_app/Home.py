@@ -37,6 +37,7 @@ st.subheader("Datenstand")
 
 from components import cached_data as _CD
 
+_CD.freshness_badge()  # Freshness-Ampel in der Sidebar
 meta = _CD.get_metadata()
 if not meta:
     st.error(

@@ -225,7 +225,8 @@ with st.sidebar:
         "BigQuery-Snapshot (plan.parquet)" if CD.get_active_plan() else "– (kein Plan-Snapshot)"
     )
     st.caption(f"Plan: {_plan_status}")
-    st.caption(f"Snapshot vom **{str(meta.get('refreshed_at', '?'))[:10]}**")
+    # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
+    CD.freshness_badge()
 
 render_notepad(PAGE)
 
