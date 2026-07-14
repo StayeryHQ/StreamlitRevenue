@@ -394,6 +394,30 @@ def load_snapshot_metadata(snapshot_dir: "Path | str | None" = None) -> dict[str
         return {}
 
 
+def _optimize_string_memory(df: pd.DataFrame) -> pd.DataFrame:
+    """Object-String-Spalten auf Arrow-backed ``string[pyarrow]`` umstellen (RAM-Fix).
+
+    Der 32-MB-Parquet-Snapshot bläht sich mit ``object``-Strings im Speicher auf
+    ~2 GB auf (~85 Bytes Python-Overhead pro String). Arrow-Strings speichern
+    nur die tatsächlichen Bytes + Offsets und sind für die hier genutzten
+    Operationen (``.str``-Accessor, ``groupby``, ``isin``, ``astype(str)``,
+    ``np.where``, Anzeige in ``st.dataframe``) semantisch identisch zu object -
+    insbesondere OHNE die Category-Falle, dass ``groupby`` ohne
+    ``observed=True`` leere Kategorien materialisiert.
+
+    Spalten, die sich nicht sauber konvertieren lassen (gemischte Nicht-String-
+    Objekte), bleiben defensiv unverändert. In-place auf der übergebenen Kopie.
+    """
+    for col in df.columns:
+        if df[col].dtype != object:
+            continue
+        try:
+            df[col] = df[col].astype("string[pyarrow]")
+        except (TypeError, ValueError, ImportError):  # pragma: no cover - defensiv
+            continue
+    return df
+
+
 def _read_parquet_with_filter(
     path,
     date_col: str,
@@ -409,7 +433,7 @@ def _read_parquet_with_filter(
     The date filter is normalised to the calendar day on both ends - same
     semantics as ``filter_period()``.
     """
-    df = pd.read_parquet(str(path))
+    df = _optimize_string_memory(pd.read_parquet(str(path)))
     if start is not None or end is not None:
         # Ensure date_col is datetime; engineered snapshots already are.
         if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
@@ -1310,6 +1334,12 @@ def pace_by_month(
     properties: list[str] | None = None,
 ) -> pd.DataFrame:
     """Pace by month - 3 Revenue-Werte je **Übernachtungs-Monat** (1-12).
+
+    Hinweis: Die UI-Sicht dazu lebt jetzt auf der Pickup-Seite (§6) mit frei
+    wählbarem Stichtag/Vergleichsjahr und rechnet dort direkt über
+    ``asof_on_the_books_mask`` (dieser Helper spiegelt fest -1 Jahr). Diese
+    Funktion bleibt als dokumentierte Referenz-Implementierung der
+    Pace-Konvention im Data-Layer erhalten.
 
     Läuft auf den **Timeslices** (``nightly``): eine Zeile = eine Nacht,
     ``revenue`` = Nacht-Netto (``baseAmount_netAmount``). Jede Nacht wird ihrem
