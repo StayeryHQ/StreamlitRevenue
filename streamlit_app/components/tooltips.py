@@ -64,17 +64,6 @@ CHART_TOOLTIPS: dict[str, str] = {
         "Linien = Monatswerte (NEW oben, OLD darunter).\n\n"
         "**Filter:** realized only - Storno + No-Show fallen raus."
     ),
-    "pace_month": (
-        "**3 Bars pro Monat:**\n"
-        "- 🟡 `Jahr/EoM` = finale Realität im Vorjahr (alle Buchungen)\n"
-        "- ⚪ `Jahr/Today` = was war zum gleichen Snapshot-Tag im Vorjahr on-the-books\n"
-        "- 🔵 `aktJahr/Today` = aktueller Stand on-the-books\n\n"
-        "**Pacing-Logik:** Vergleich Grau vs Blau zeigt ob wir besser/schlechter "
-        "stehen als zum gleichen Zeitpunkt letztes Jahr. Vergleich Grau vs Gelb "
-        "zeigt was nach dem Stichtag noch reinkam im Vorjahr.\n\n"
-        "**Storno-Zeitpunkt** für die OTB-Rekonstruktion: `cancellationTime` "
-        "(Fallback `modified` als Proxy, falls leer)."
-    ),
     "heat_ch_los": (
         "**Links:** YoY-Veränderung je Channel × LOS-Bucket. Rot = Verlust, "
         "Grün = Wachstum. Zahl in Klammern = absolute Δ in EUR.\n\n"
@@ -96,11 +85,6 @@ CHART_TOOLTIPS: dict[str, str] = {
         "**Links:** Monatsverlauf gestapelt nach Channel (Top-6) - zeigt "
         "Saisonalität pro Channel.\n\n"
         "**Rechts:** YoY-Vergleich pro Channel mit %-Veränderung als Label."
-    ),
-    "alos_channel": (
-        "⌀ Nächte je Buchung, granular pro Channel. Gemessen wird die **volle "
-        "Buchungs-LOS** (wie der Headline-ALOS, Variante B) - auch wenn nur ein "
-        "Teil der Buchung im Filterfenster liegt, zählt die ganze Länge."
     ),
     "weekday_stay": (
         "Revenue je Wochentag (gestapelt nach Channel-Gruppe), OLD vs NEW "
@@ -127,19 +111,6 @@ CHART_TOOLTIPS: dict[str, str] = {
     "top_countries": (
         "Top 10 Herkunftsländer nach Revenue. Gelb = Deutschland, Blau = Ausland. "
         "OLD links, NEW rechts"
-    ),
-    "leadtime": (
-        "**Links:** Revenue pro Vorlaufzeit-Bucket (wie lange vor Anreise gebucht). "
-        "n = Anzahl Buchungen.\n\n"
-        "**Rechts:** Realized vs Storniert pro Bucket.\n\n"
-        "**Filter:** nach Erstellungsdatum (created) · Nacht-Netto · Counts = Buchungen "
-        "(Vorlaufzeit = arrival − created)."
-    ),
-    "daily_occ": (
-        "Daily Occupancy in % der Kapazität, gestapelt nach LOS-Bucket. "
-        "100%-Linie (rot gepunktet) = volle Auslastung. Wenn Long-Stays viel "
-        "Platz wegnehmen, sieht man's hier zuerst. Chart UND Tabelle folgen "
-        "dem Storno/No-Show-Toggle."
     ),
     "corp_overview": (
         "**Links:** Firmen-Revenue vs Privat-Revenue (YoY in % darüber).\n\n"

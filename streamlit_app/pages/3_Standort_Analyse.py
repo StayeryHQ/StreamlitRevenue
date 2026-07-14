@@ -130,8 +130,8 @@ with st.sidebar:
         st.form_submit_button("Filter anwenden", use_container_width=True)
 
     st.divider()
-    st.caption("Sektionen 6-17 laden erst auf Klick.")
-    preload_all_button(list(range(6, 18)), label="Alle Sektionen laden")
+    st.caption("Sektionen 6-13 laden erst auf Klick.")
+    preload_all_button(list(range(6, 14)), label="Alle Sektionen laden")
     CD.cache_clear_button()
     # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
     CD.freshness_badge()
@@ -192,31 +192,28 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
 # ============================== TOC ========================================
 _TOC = [
     (1, "Landscape KPIs"),
-    (2, "Pace by Month"),
+    (2, "Channel-Mix monatlich & YoY"),
     (3, "Heatmap Channel × LOS"),
     (4, "Heatmap Channel × Reisezweck × LOS"),
     (5, "LOS Revenue YoY"),
-    (6, "Channel-Mix monatlich & YoY"),
-    (7, "ALOS pro Channel"),
-    (8, "Wochentag · Stay"),
-    (9, "Wochentag · Anreise"),
+    (6, "Wochentag · Stay"),
+    (7, "Wochentag · Anreise"),
+    (8, "Inland vs. Ausland"),
+    (9, "Top-Herkunftsländer"),
     (10, "Gruppen-Größe · Erstellung"),
-    (11, "Inland vs. Ausland"),
-    (12, "Top-Herkunftsländer"),
-    (13, "Vorlaufzeit & Storno-Risiko · Erstellung"),
-    (14, "Daily Occupancy nach LOS"),
-    (15, "Firmenkunden · Erstellung"),
-    (16, "Direct Offline · Erstellung"),
-    (17, "Top Vertragscodes · Erstellung"),
+    (11, "Firmenkunden · Erstellung"),
+    (12, "Direct Offline · Erstellung"),
+    (13, "Top Vertragscodes · Erstellung"),
 ]
 render_toc(_TOC)
 
 st.caption(
     "**Datenbasis & Filter:** alle €-Werte = Staydate-Netto exkl. extra Services. "
-    "**Aufenthalts-Sektionen** (KPIs, Pace, Channels, LOS, Wochentag, Inland/Ausland, "
-    "Länder, Occupancy) → **Aufenthalt**. **Reservation-Sektionen** "
-    "(Gruppen-Größe, Vorlaufzeit/Storno, Firmenkunden, Direct-Offline, Vertragscodes) → "
-    "**Erstellungsdatum** (created). Storno/No-Show via Sidebar-Toggle einstellbar."
+    "Badge je Sektion zeigt die Datumsachse: **📅 Aufenthalt** (KPIs, Channels, LOS, "
+    "Wochentag, Inland/Ausland, Länder) vs. **🖊 Erstellung** (Gruppen-Größe, "
+    "Firmenkunden, Direct-Offline, Vertragscodes). Storno/No-Show via Sidebar-Toggle. "
+    "Pace by Month lebt auf der Pickup-Seite (§6); Vorlaufzeit/Storno & Daily "
+    "Occupancy ziehen ins Overbooking-Tool um."
 )
 
 # ============================== Highlights =================================
@@ -378,6 +375,7 @@ with section(
     subtitle=f"{LABEL} · {PERIOD_TAG_OLD} vs {PERIOD_TAG_NEW}",
     description="Headline-KPIs - folgen dem Storno/No-Show-Toggle (Default: realized, "
     "d.h. Storno + No-Show ausgeschlossen).",
+    basis="stay",
 ):
     _plan_active = CD.get_active_plan()
     plan_new_eur = H.plan_revenue(property_code, start_new, end_new, plan=_plan_active)
@@ -546,28 +544,35 @@ with section(
             f"- ALOS: {kpi_new['alos_nights']:.1f} N."
         ),
     )
-# ===== 2 · Pace by Month (NEU) ============================================
-with section(
-    2,
-    "Pace by Month",
-    subtitle=f"{LABEL} · {YEAR_OLD} vs {YEAR_NEW} · Stand {SNAP_DATE:%d.%m.%Y}",
-    description=(
-        f"Pro Monat: **{YEAR_OLD}/EoM** = finale Vorjahres-Realität · "
-        f"**{YEAR_OLD}/Today** = Stand `{SNAP_DATE:%d.%m.%Y}` "
-        f"im Vorjahr (was war on-the-books) · "
-        f"**{YEAR_NEW}/Today** = aktueller Stand on-the-books."
-    ),
-):
-    pace_df = H.pace_by_month(nightly, YEAR_OLD, YEAR_NEW, SNAP_DATE, properties=[property_code])
-    png = CD.chart_png(_ck("pace"), charts.pace_by_month_chart, pace_df, LABEL, YEAR_OLD, YEAR_NEW)
+# ===== 2 · Channel-Mix monatlich & YoY ====================================
+with section(2, "Channel-Mix - monatlich & YoY", basis="stay"):
+    png = CD.chart_png(
+        _ck("channel_mix"),
+        charts.channel_mix,
+        nig_old,
+        nig_new,
+        nightly,
+        YEAR_OLD,
+        YEAR_NEW,
+        LABEL,
+        realized_only=_realized_only,
+    )
     st.image(png, use_container_width=False)
-    CD.data_table_expander(pace_df, filename=f"{property_code}_pace_by_month")
-    register_section("pace_month", "2 · Pace by Month", chart_png=png, table_df=pace_df, page=PAGE)
+    _tbl_chmix = CDT.channel_mix_table(
+        nig_old, nig_new, YEAR_OLD, YEAR_NEW, realized_only=_realized_only
+    )
+    CD.data_table_expander(_tbl_chmix, filename=f"{property_code}_channel_mix")
+    register_section(
+        "channel_mix",
+        "2 · Channel-Mix - monatlich & YoY",
+        chart_png=png,
+        table_df=_tbl_chmix,
+        page=PAGE,
+    )
 
-    chart_help("pace_month")
-
+    chart_help("channel_mix")
 # ===== 3 · Heatmap Channel × LOS ==========================================
-with section(3, "Heatmap Channel × Aufenthaltsdauer"):
+with section(3, "Heatmap Channel × Aufenthaltsdauer", basis="stay"):
     png = CD.chart_png(
         _ck("ch_los"),
         charts.channel_los_heatmap,
@@ -589,7 +594,7 @@ with section(3, "Heatmap Channel × Aufenthaltsdauer"):
 
     chart_help("heat_ch_los")
 # ===== 4 · Heatmap Channel × Reisezweck × LOS =============================
-with section(4, "Heatmap Channel × Business/Leisure × LOS"):
+with section(4, "Heatmap Channel × Business/Leisure × LOS", basis="stay"):
     png = CD.chart_png(
         _ck("ch_purp_los"),
         charts.channel_purpose_los_heatmap,
@@ -619,7 +624,7 @@ with section(4, "Heatmap Channel × Business/Leisure × LOS"):
 
     chart_help("heat_ch_purpose_los")
 # ===== 5 · LOS Revenue YoY ================================================
-with section(5, "Aufenthaltsdauer (LOS) - Revenue YoY"):
+with section(5, "Aufenthaltsdauer (LOS) - Revenue YoY", basis="stay"):
     png = CD.chart_png(
         _ck("los_yoy"),
         charts.los_yoy,
@@ -636,57 +641,8 @@ with section(5, "Aufenthaltsdauer (LOS) - Revenue YoY"):
     register_section("los_yoy", "5 · LOS Revenue YoY", chart_png=png, table_df=_tbl_los, page=PAGE)
 
     chart_help("los_yoy")
-# ===== 6 · Channel-Mix monatlich & YoY ====================================
-if lazy_section(6, "Channel-Mix - monatlich & YoY"):
-    png = CD.chart_png(
-        _ck("channel_mix"),
-        charts.channel_mix,
-        nig_old,
-        nig_new,
-        nightly,
-        YEAR_OLD,
-        YEAR_NEW,
-        LABEL,
-        realized_only=_realized_only,
-    )
-    st.image(png, use_container_width=False)
-    _tbl_chmix = CDT.channel_mix_table(
-        nig_old, nig_new, YEAR_OLD, YEAR_NEW, realized_only=_realized_only
-    )
-    CD.data_table_expander(_tbl_chmix, filename=f"{property_code}_channel_mix")
-    register_section(
-        "channel_mix",
-        "6 · Channel-Mix - monatlich & YoY",
-        chart_png=png,
-        table_df=_tbl_chmix,
-        page=PAGE,
-    )
-
-    chart_help("channel_mix")
-# ===== 7 · ALOS pro Channel ===============================================
-if lazy_section(7, "ALOS pro Channel"):
-    png = CD.chart_png(
-        _ck("alos_ch"),
-        charts.alos_per_channel,
-        nig_old,
-        nig_new,
-        YEAR_OLD,
-        YEAR_NEW,
-        LABEL,
-        realized_only=_realized_only,
-    )
-    st.image(png, use_container_width=False)
-    _tbl_aloc = CDT.alos_channel_table(
-        nig_old, nig_new, YEAR_OLD, YEAR_NEW, realized_only=_realized_only
-    )
-    CD.data_table_expander(_tbl_aloc, filename=f"{property_code}_alos_channel")
-    register_section(
-        "alos_channel", "7 · ALOS pro Channel", chart_png=png, table_df=_tbl_aloc, page=PAGE
-    )
-
-    chart_help("alos_channel")
-# ===== 8 · Wochentag-Pattern Stay =========================================
-if lazy_section(8, "Wochentag-Pattern - Stay"):
+# ===== 6 · Wochentag-Pattern Stay =========================================
+if lazy_section(6, "Wochentag-Pattern - Stay", basis="stay"):
     png = CD.chart_png(
         _ck("wd_stay"),
         charts.weekday_pattern,
@@ -705,12 +661,12 @@ if lazy_section(8, "Wochentag-Pattern - Stay"):
     )
     CD.data_table_expander(_tbl_wds, filename=f"{property_code}_weekday_stay")
     register_section(
-        "weekday_stay", "8 · Wochentag-Pattern - Stay", chart_png=png, table_df=_tbl_wds, page=PAGE
+        "weekday_stay", "6 · Wochentag-Pattern - Stay", chart_png=png, table_df=_tbl_wds, page=PAGE
     )
 
     chart_help("weekday_stay")
-# ===== 9 · Check-in-Pattern Anreise =======================================
-if lazy_section(9, "Check-in-Pattern - Anreise"):
+# ===== 7 · Check-in-Pattern Anreise =======================================
+if lazy_section(7, "Check-in-Pattern - Anreise", basis="stay"):
     png = CD.chart_png(
         _ck("wd_arr"),
         charts.weekday_pattern,
@@ -729,12 +685,56 @@ if lazy_section(9, "Check-in-Pattern - Anreise"):
     )
     CD.data_table_expander(_tbl_wda, filename=f"{property_code}_weekday_arrival")
     register_section(
-        "weekday_arr", "9 · Check-in-Pattern - Anreise", chart_png=png, table_df=_tbl_wda, page=PAGE
+        "weekday_arr", "7 · Check-in-Pattern - Anreise", chart_png=png, table_df=_tbl_wda, page=PAGE
     )
 
     chart_help("weekday_arr")
+# ===== 8 · Inland vs. Ausland ============================================
+if lazy_section(8, "Inland vs. Ausland", basis="stay"):
+    png = CD.chart_png(
+        _ck("de_intl"),
+        charts.de_vs_international,
+        nig_old,
+        nig_new,
+        YEAR_OLD,
+        YEAR_NEW,
+        LABEL,
+        realized_only=_realized_only,
+    )
+    st.image(png, use_container_width=False)
+    _tbl_de = CDT.de_international_table(
+        nig_old, nig_new, YEAR_OLD, YEAR_NEW, realized_only=_realized_only
+    )
+    CD.data_table_expander(_tbl_de, filename=f"{property_code}_de_international")
+    register_section(
+        "de_intl", "8 · Inland vs. Ausland", chart_png=png, table_df=_tbl_de, page=PAGE
+    )
+
+    chart_help("de_intl")
+# ===== 9 · Top-Herkunftsländer ===========================================
+if lazy_section(9, "Top-Herkunftsländer", basis="stay"):
+    png = CD.chart_png(
+        _ck("countries"),
+        charts.top_countries,
+        nig_old,
+        nig_new,
+        YEAR_OLD,
+        YEAR_NEW,
+        LABEL,
+        realized_only=_realized_only,
+    )
+    st.image(png, use_container_width=False)
+    _tbl_ctry = CDT.top_countries_table(
+        nig_old, nig_new, YEAR_OLD, YEAR_NEW, realized_only=_realized_only
+    )
+    CD.data_table_expander(_tbl_ctry, filename=f"{property_code}_top_countries")
+    register_section(
+        "top_countries", "9 · Top-Herkunftsländer", chart_png=png, table_df=_tbl_ctry, page=PAGE
+    )
+
+    chart_help("top_countries")
 # ===== 10 · Gruppen-Größe =================================================
-if lazy_section(10, "Gruppen-Größe", subtitle="nach Erstellungsdatum · Stay-Date"):
+if lazy_section(10, "Gruppen-Größe", subtitle="nach Erstellungsdatum · Stay-Date", basis="created"):
     png = CD.chart_png(
         _ck("grp"),
         charts.group_size_yoy,
@@ -755,107 +755,12 @@ if lazy_section(10, "Gruppen-Größe", subtitle="nach Erstellungsdatum · Stay-D
     )
 
     chart_help("group_size")
-# ===== 11 · Inland vs. Ausland ============================================
-if lazy_section(11, "Inland vs. Ausland"):
-    png = CD.chart_png(
-        _ck("de_intl"),
-        charts.de_vs_international,
-        nig_old,
-        nig_new,
-        YEAR_OLD,
-        YEAR_NEW,
-        LABEL,
-        realized_only=_realized_only,
-    )
-    st.image(png, use_container_width=False)
-    _tbl_de = CDT.de_international_table(
-        nig_old, nig_new, YEAR_OLD, YEAR_NEW, realized_only=_realized_only
-    )
-    CD.data_table_expander(_tbl_de, filename=f"{property_code}_de_international")
-    register_section(
-        "de_intl", "11 · Inland vs. Ausland", chart_png=png, table_df=_tbl_de, page=PAGE
-    )
-
-    chart_help("de_intl")
-# ===== 12 · Top-Herkunftsländer ===========================================
-if lazy_section(12, "Top-Herkunftsländer"):
-    png = CD.chart_png(
-        _ck("countries"),
-        charts.top_countries,
-        nig_old,
-        nig_new,
-        YEAR_OLD,
-        YEAR_NEW,
-        LABEL,
-        realized_only=_realized_only,
-    )
-    st.image(png, use_container_width=False)
-    _tbl_ctry = CDT.top_countries_table(
-        nig_old, nig_new, YEAR_OLD, YEAR_NEW, realized_only=_realized_only
-    )
-    CD.data_table_expander(_tbl_ctry, filename=f"{property_code}_top_countries")
-    register_section(
-        "top_countries", "12 · Top-Herkunftsländer", chart_png=png, table_df=_tbl_ctry, page=PAGE
-    )
-
-    chart_help("top_countries")
-# ===== 13 · Vorlaufzeit & Storno-Risiko ===================================
+# ===== 11 · Firmenkunden Überblick & Channel-Split ========================
 if lazy_section(
-    13,
-    "Vorlaufzeit & Storno-Risiko",
-    subtitle="nach Erstellungsdatum · Stay-Date · n = Anzahl Buchungen pro Bucket",
-):
-    png = CD.chart_png(
-        _ck("leadtime"), charts.leadtime_storno, res_old, res_new, YEAR_OLD, YEAR_NEW, LABEL
-    )
-    st.image(png, use_container_width=False)
-    _tbl_lt = CDT.leadtime_table(res_old, res_new, YEAR_OLD, YEAR_NEW)
-    CD.data_table_expander(_tbl_lt, filename=f"{property_code}_leadtime")
-    register_section(
-        "leadtime", "13 · Vorlaufzeit & Storno-Risiko", chart_png=png, table_df=_tbl_lt, page=PAGE
-    )
-
-    chart_help("leadtime")
-# ===== 14 · Daily Occupancy nach LOS ======================================
-if lazy_section(14, "Daily Occupancy nach LOS"):
-    png = CD.chart_png(
-        _ck("daily_occ"), charts.daily_occupancy_los, nightly, units, start_new, end_new, LABEL,
-        realized_only=_realized_only,  # folgt dem Toggle - wie die Tabelle (Review A7)
-    )
-    st.image(png, use_container_width=False)
-    # Daily-Occupancy-Summary: pro Tag im NEW-Window aggregierte Nights pro LOS-Bucket.
-    _daily_mask = (nightly["stay_date"] >= start_new) & (nightly["stay_date"] <= end_new)
-    if _realized_only:
-        _daily_mask &= nightly["is_realized"]
-    _daily = nightly[_daily_mask].copy()
-    if not _daily.empty:
-        _piv = (
-            _daily.groupby(["stay_date", "los_bucket"], observed=True)
-            .size()
-            .unstack(fill_value=0)
-            .sort_index()
-        )
-        _piv["Sold Nights"] = _piv.sum(axis=1)
-        _piv["Occupancy (%)"] = (_piv["Sold Nights"] / max(units, 1) * 100).round(1)
-        _occ_tbl = _piv.reset_index().rename(columns={"stay_date": "Datum"})
-        _occ_tbl["Datum"] = pd.to_datetime(_occ_tbl["Datum"]).dt.date
-        CD.data_table_expander(_occ_tbl, filename=f"{property_code}_daily_occupancy")
-        register_section(
-            "daily_occ",
-            "14 · Daily Occupancy nach LOS",
-            chart_png=png,
-            table_df=_occ_tbl,
-            page=PAGE,
-        )
-    else:
-        register_section("daily_occ", "14 · Daily Occupancy nach LOS", chart_png=png, page=PAGE)
-
-    chart_help("daily_occ")
-# ===== 15 · Firmenkunden Überblick & Channel-Split ========================
-if lazy_section(
-    15,
+    11,
     "Firmenkunden - Überblick & Channel-Split",
     subtitle="nach Erstellungsdatum · Stay-Date",
+    basis="created",
 ):
     png = CD.chart_png(
         _ck("corp_ov"),
@@ -892,18 +797,19 @@ if lazy_section(
 
     register_section(
         "corp_overview",
-        "15 · Firmenkunden - Überblick & Channel-Split",
+        "11 · Firmenkunden - Überblick & Channel-Split",
         chart_png=png,
         table_df=top_firm,
         page=PAGE,
     )
 
     chart_help("corp_overview")
-# ===== 16 · Direct Offline - Detail-Segmente ==============================
+# ===== 12 · Direct Offline - Detail-Segmente ==============================
 if lazy_section(
-    16,
+    12,
     "Direct Offline - Detail-Segmente",
     subtitle="nach Erstellungsdatum · Stay-Date",
+    basis="created",
 ):
     st.markdown("""
 #### Wichtiger Unterschied zur Tabelle weiter oben
@@ -992,19 +898,20 @@ Sortiert wird nach Total New (Direct_Offline + Direct_Website + OTA zusammen).
 
     register_section(
         "do_waterfall",
-        "16 · Direct Offline - Detail-Segmente",
+        "12 · Direct Offline - Detail-Segmente",
         chart_png=png_wf,
         table_df=table_for_export,
         page=PAGE,
     )
 
     chart_help("do_waterfall")
-# ===== 17 · Top Vertragscodes =============================================
+# ===== 13 · Top Vertragscodes =============================================
 if lazy_section(
-    17,
+    13,
     "Top Vertragscodes (aktuelle Periode)",
     subtitle="nach Erstellungsdatum · Stay-Date · welche `corporateCode` "
     "haben am meisten Revenue generiert?",
+    basis="created",
 ):
     top_codes = charts.top_codes_in_period(res_new, realized_only=_realized_only)
     if top_codes.empty:
@@ -1015,7 +922,7 @@ if lazy_section(
         )
         register_section(
             "codes",
-            "17 · Top Vertragscodes",
+            "13 · Top Vertragscodes",
             body_markdown="Keine Vertragscodes in der Periode.",
             page=PAGE,
         )
@@ -1034,7 +941,7 @@ if lazy_section(
                 )
         st.dataframe(display_codes, hide_index=True, use_container_width=True)
         register_section(
-            "codes", "17 · Top Vertragscodes (aktuelle Periode)", table_df=show, page=PAGE
+            "codes", "13 · Top Vertragscodes (aktuelle Periode)", table_df=show, page=PAGE
         )
 
 

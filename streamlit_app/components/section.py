@@ -54,6 +54,34 @@ def render_toc(entries: Iterable[tuple[int | str, str]]) -> None:
     )
 
 
+# ============================== Datumsbasis-Badges ========================
+# Farbiges Chip je Sektion: auf welcher Datumsachse rechnet die Sektion?
+# (Standort-Analyse-Umbau: „📅 Aufenthalt" vs. „🖊 Erstellung" auf einen Blick.)
+_BASIS_BADGES: dict[str, tuple[str, str, str]] = {
+    # kind -> (Label, Hintergrund, Textfarbe)
+    "stay": ("📅 Aufenthalt", "#EAF0FA", "#1E4BA1"),
+    "created": ("🖊 Erstellung", "#FFF7D6", "#7A6200"),
+}
+
+
+def _badge_html(basis: str | None) -> str | None:
+    if not basis or basis not in _BASIS_BADGES:
+        return None
+    label, bg, fg = _BASIS_BADGES[basis]
+    return (
+        f'<span style="display:inline-block;background:{bg};color:{fg};'
+        f"border:1px solid {fg}33;border-radius:999px;padding:1px 10px;"
+        f'font-size:0.72rem;font-weight:600;letter-spacing:0.03em;'
+        f'vertical-align:middle;">{label}</span>'
+    )
+
+
+def _render_badge(basis: str | None, target=None) -> None:
+    html = _badge_html(basis)
+    if html:
+        (target or st).markdown(html, unsafe_allow_html=True)
+
+
 # ============================== Section wrappers ==========================
 @contextmanager
 def section(
@@ -62,6 +90,7 @@ def section(
     *,
     subtitle: str | None = None,
     description: str | None = None,
+    basis: str | None = None,
 ):
     if num is not None and num != 0:
         st.markdown(_anchor_html(num), unsafe_allow_html=True)
@@ -69,6 +98,7 @@ def section(
     else:
         header = title
     st.markdown(f"## {header}")
+    _render_badge(basis)
     if subtitle:
         st.markdown(f"*{subtitle}*")
     if description:
@@ -85,6 +115,7 @@ def lazy_section(
     *,
     subtitle: str | None = None,
     description: str | None = None,
+    basis: str | None = None,
 ) -> bool:
     key = _key(num)
     loaded = st.session_state.get(key, False)
@@ -92,6 +123,7 @@ def lazy_section(
     if loaded:
         st.markdown(_anchor_html(num), unsafe_allow_html=True)
         st.markdown(f"## {num} · {title}")
+        _render_badge(basis)
         if subtitle:
             st.markdown(f"*{subtitle}*")
         if description:
@@ -101,6 +133,7 @@ def lazy_section(
     st.markdown(_anchor_html(num), unsafe_allow_html=True)
     cols = st.columns([5, 1])
     cols[0].markdown(f"### {num} · {title}")
+    _render_badge(basis, cols[0])
     if subtitle:
         cols[0].caption(subtitle)
     if cols[1].button("Laden", key=f"_btn_{key}", use_container_width=True):

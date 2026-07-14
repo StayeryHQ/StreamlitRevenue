@@ -157,39 +157,6 @@ def channel_mix_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 
 
 @st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
-def alos_channel_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
-                        year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
-    """Sektion 7 - ALOS (volle Buchungs-LOS) pro Channel.
-
-    Nutzt dieselbe ALOS-Definition wie der Headline-KPI (Variante B:
-    ganze Buchungslänge, nicht nur Nächte im Fenster) - Review A5.
-    """
-
-    def agg(df):
-        r = H.filter_realized(df, realized_only)
-        if r.empty:
-            return pd.Series(dtype=float)
-        # nights ist in den Timeslices die volle Booking-LOS (je Nacht-Zeile
-        # dupliziert) -> je Buchung deduplizieren, dann mitteln.
-        deduped = r.drop_duplicates("id")
-        return deduped.groupby("channel_combo", observed=True)["nights"].mean()
-
-    a, b = agg(nig_old), agg(nig_new)
-    chans = sorted(set(a.index) | set(b.index))
-    rows = []
-    for ch in chans:
-        va = float(a.get(ch, float("nan")))
-        vb = float(b.get(ch, float("nan")))
-        rows.append({
-            "Channel": ch,
-            f"ALOS {year_old} (Nächte)": round(va, 2) if pd.notna(va) else None,
-            f"ALOS {year_new} (Nächte)": round(vb, 2) if pd.notna(vb) else None,
-            "Δ (Nächte)": round(vb - va, 2) if pd.notna(va) and pd.notna(vb) else None,
-        })
-    return pd.DataFrame(rows)
-
-
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
 def weekday_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                     weekday_col: str, year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektionen 8 / 9 - Revenue je Wochentag (Stay oder Anreise)."""
@@ -309,55 +276,6 @@ def top_countries_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
             f"Revenue {year_new} (€)": round(rb, 2),
             "Δ (€)": round(rb - ra, 2),
             "Δ (%)": round(d_pct, 1) if pd.notna(d_pct) else None,
-        })
-    return pd.DataFrame(rows)
-
-
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
-def leadtime_table(res_old: pd.DataFrame, res_new: pd.DataFrame,
-                    year_old: int, year_new: int) -> pd.DataFrame:
-    """Sektion 13 - Revenue (realized) + Storno-Quote pro Lead-Time-Bucket.
-
-    Revenue ist realized-only - identisch zum Chart daneben (Review A7);
-    die Buchungs-/Storno-Counts laufen bewusst über ALLE Buchungen
-    (sonst gäbe es keine Storno-Quote).
-    """
-    order = list(getattr(H, "LEAD_LABELS", []) or [])
-
-    def agg(df):
-        if df.empty or "lead_time_bucket" not in df.columns:
-            return pd.DataFrame()
-        out = df.groupby("lead_time_bucket", observed=True).agg(
-            buchungen=("id", "count"),
-            storniert=("is_cancelled", "sum") if "is_cancelled" in df.columns else ("id", "count"),
-        )
-        rev = (H.filter_realized(df, True)
-               .groupby("lead_time_bucket", observed=True)["revenue"].sum())
-        out["revenue"] = rev.reindex(out.index).fillna(0.0)
-        return out.reindex(order, fill_value=0).reset_index()
-
-    a, b = agg(res_old), agg(res_new)
-    if a.empty and b.empty:
-        return pd.DataFrame()
-    rows = []
-    for lt in order:
-        ra = a[a["lead_time_bucket"] == lt]
-        rb = b[b["lead_time_bucket"] == lt]
-
-        def get(df, col, default=0.0):
-            if df.empty:
-                return default
-            return float(df[col].iloc[0])
-        n_a, n_b = int(get(ra, "buchungen")), int(get(rb, "buchungen"))
-        s_a, s_b = int(get(ra, "storniert")), int(get(rb, "storniert"))
-        rows.append({
-            "Lead-Bucket": lt,
-            f"Buchungen {year_old}": n_a,
-            f"Buchungen {year_new}": n_b,
-            f"Storno-Quote {year_old} (%)": round(s_a / n_a * 100, 1) if n_a else None,
-            f"Storno-Quote {year_new} (%)": round(s_b / n_b * 100, 1) if n_b else None,
-            f"Revenue realisiert {year_old} (€)": round(get(ra, "revenue"), 2),
-            f"Revenue realisiert {year_new} (€)": round(get(rb, "revenue"), 2),
         })
     return pd.DataFrame(rows)
 
