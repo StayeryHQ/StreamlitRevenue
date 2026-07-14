@@ -47,26 +47,4 @@ Standardmäßig läuft die App auf <http://localhost:8501>.
 5. Requirements file: `requirements-app.txt`
 6. Secrets (kommt in den Streamlit-Cloud-Dialog):
    - GCP-Service-Account-JSON für Drive- / GCS-Snapshot-Zugriff
-   - Notion-API-Token (Phase 2)
 7. Restrict-Access: `@stayery.com` Google-Emails (Settings → Sharing)
-
-## Was die App heute kann (Day 1)
-
-- ✓ Schwarz-weiß-Theme, kein Streamlit-Branding
-- ✓ Multi-Page-Sidebar
-- ✓ Snapshot-Status oben auf der Home
-- ✓ Standort-Analyse vollständig (Filter, KPIs, Channel-Mix, LOS, Storno, Top-Firmen, Top-Codes)
-- ✓ Loading-Status mit Section-Progress
-- ✓ Auto-erkannte Highlights / Alarme oben auf der Page
-- ✓ Notiz-Felder pro Sektion mit Session-State
-- ✓ Markdown-Download für Notion (mit Auto-Insights, Bildern als base64, Tabellen, User-Notizen)
-- ✓ Copy-to-Clipboard-Block für schnelles Einfügen
-
-## Was Day 2 kommt
-
-- Global Report Page (Recap, Scorecard, Pace-to-Plan)
-- B2B Deep-Dive Page
-- Code Deep-Dive Page
-- Excel-Plan-Upload
-- Notion-API-Block-Export
-- Deployment auf Streamlit Cloud + Google SSO

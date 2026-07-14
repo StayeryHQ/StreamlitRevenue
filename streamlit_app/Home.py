@@ -87,7 +87,7 @@ with cols[0]:
         """
         ### Pickup / Vorlauf-Analyse
         Stay × Creation: Wie viel eines Aufenthalts-Zeitraums bis zum Stichtag
-        gebucht war — Pickup-Anteil, Buchungskurve, YoY-Vorlauf. Vor- & rückwärts.
+        gebucht war - Pickup-Anteil, Buchungskurve, YoY-Vorlauf. Vor- & rückwärts.
         """
     )
     st.page_link("pages/2_Pickup_Analyse.py", label="→ Pickup-Analyse öffnen")
