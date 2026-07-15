@@ -1,8 +1,3 @@
-ndiff==7.99
-numpy==2.4.6
-pillow==12.2.0
-scipy==1.17.1
-wheel==0.47.0
 # Runtime-Dependencies für Streamlit Community Cloud.
 # Single source of truth bleibt pyproject.toml — diese Datei spiegelt nur
 # die [project.dependencies] Sektion für den Cloud-Build. Bei lokalen
@@ -10,6 +5,7 @@ wheel==0.47.0
 
 streamlit>=1.37
 pandas>=2.2
+numpy>=1.26
 matplotlib>=3.8
 pyarrow>=15.0
 openpyxl>=3.1
