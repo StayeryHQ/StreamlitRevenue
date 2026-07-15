@@ -55,7 +55,7 @@ hero(
     eyebrow="Portfolio · Revenue-Recap",
     title="Global Report",
     subtitle="Standortübergreifend - IST vs. PLAN vs. Vorjahr, "
-    "Pace-by-Month, Channel-Mix, Heatmaps.",
+    "Channel-Mix, Heatmaps. (Pace by Month: siehe Pickup-Seite §2.)",
 )
 
 
@@ -208,9 +208,9 @@ with st.sidebar:
     # und mutieren keine Modul-Globals, die sich alle Sessions teilen würden.
 
     st.divider()
-    st.caption("Sektionen 6-7 laden erst auf Klick.")
+    st.caption("Sektionen 5-6 laden erst auf Klick.")
     preload_all_button(
-        [6, "7.A", "7.B", "7.C", "7.D"],
+        [5, "6.A", "6.B", "6.C", "6.D"],
         label="Alle Sektionen laden",
     )
     CD.cache_clear_button()
@@ -396,24 +396,24 @@ disp_chan_created, raw_chan_created = GT.channel_volume_by_created(
 # ============================== TOC ========================================
 _TOC = [
     (1, "Visual Scorecard"),
-    ("3.A", "Performance Standorte (Erstellung)"),
-    ("3.B", "Buchungskanäle (Erstellung)"),
-    ("4.A", "Performance Standorte (Aufenthalt)"),
-    ("4.B", "Buchungskanäle (Aufenthalt)"),
-    (5, "IST vs PLAN → Pickup-Seite"),
-    (6, "Channel-Mix Detail"),
-    ("7.A", "Revenue-Heatmap Standort × Monat"),
-    ("7.B", "Channel-Mix je Standort"),
-    ("7.C", "Top-Movers"),
-    ("7.D", "Channel × LOS (granular)"),
+    ("2.A", "Performance Standorte (Erstellung)"),
+    ("2.B", "Buchungskanäle (Erstellung)"),
+    ("3.A", "Performance Standorte (Aufenthalt)"),
+    ("3.B", "Buchungskanäle (Aufenthalt)"),
+    (4, "IST vs PLAN → Pickup-Seite"),
+    (5, "Channel-Mix Detail"),
+    ("6.A", "Revenue-Heatmap Standort × Monat"),
+    ("6.B", "Channel-Mix je Standort"),
+    ("6.C", "Top-Movers"),
+    ("6.D", "Channel × LOS (granular)"),
 ]
 render_toc(_TOC)
 
 st.caption(
     "**Datenbasis & Filter:** alle €-Werte = Stay-Date (`baseAmount_netAmount`). "
-    "**§3** → **Erstellungsdatum** (created, Sales-Sicht). "
-    "**§4 + Heatmaps/§7** → **Aufenthalt** (serviceDate, §4 mit PLAN). "
-    "**Pace** = OTB-Rekonstruktion am Snapshot-Stichtag. Storno/No-Show + späte "
+    "**§2** → **Erstellungsdatum** (created, Sales-Sicht). "
+    "**§3 + Heatmaps/§6** → **Aufenthalt** (serviceDate, §3 mit PLAN). "
+    "Pace by Month: Pickup-Seite §2. Storno/No-Show + späte "
     "Öffner via Sidebar-Toggle."
 )
 
@@ -526,18 +526,18 @@ with section(
     )
 
     chart_help("scorecard")
-# ===== 2 · Pace by Month: umgezogen auf die Pickup-Seite (§6) =============
+# ===== Pace by Month: umgezogen auf die Pickup-Seite (§2) =================
 # Die Monats-Pace-Sicht (EoM final · OTB Vorjahres-Stichtag · OTB heute)
 # lebt jetzt auf 'Pickup / Vorlauf-Analyse' - dort mit frei wählbarem
 # Stichtag, Vergleichsjahr und Tag-für-Tag-Verlauf je Monat.
 
 # ===== 3 · Nach Erstellungsdatum ==========================================
-st.markdown("# 3 · Performance nach Erstellungsdatum")
+st.markdown("# 2 · Performance nach Erstellungsdatum")
 st.caption("Sales-Sicht: alles was im Zeitraum gebucht wurde. ")
 
 
 with section(
-    "3.A",
+    "2.A",
     "Performance Standorte nach Erstellungsdatum",
     subtitle=f"IST {period_tag_new} vs IST {period_tag_old}",
 ):
@@ -562,29 +562,29 @@ with section(
                         " · ".join(txts), kind="info", title="Sales-Bewegungen (nach Erstellung)"
                     )
     register_section(
-        "perf_created", "3.A · Performance Standorte (Erstellung)", table_df=disp_created, page=PAGE
+        "perf_created", "2.A · Performance Standorte (Erstellung)", table_df=disp_created, page=PAGE
     )
     chart_help("perf_created")
 
 
-with section("3.B", "Buchungskanäle nach Erstellungsdatum"):
+with section("2.B", "Buchungskanäle nach Erstellungsdatum"):
     if disp_chan_created.empty:
         alert_card("Keine Channel-Daten nach Erstellungsdatum.", kind="info")
     else:
         st.dataframe(disp_chan_created, hide_index=True, use_container_width=True)
     register_section(
-        "chan_created", "3.B · Buchungskanäle (Erstellung)", table_df=disp_chan_created, page=PAGE
+        "chan_created", "2.B · Buchungskanäle (Erstellung)", table_df=disp_chan_created, page=PAGE
     )
     chart_help("chan_created")
 
 
 # ===== 4 · Nach Aufenthaltsdatum ==========================================
-st.markdown("# 4 · Performance nach Aufenthaltsdatum")
+st.markdown("# 3 · Performance nach Aufenthaltsdatum")
 st.caption("PLAN-Vergleich.")
 
 
 with section(
-    "4.A",
+    "3.A",
     "Performance Standorte nach Aufenthalt",
     subtitle=f"IST {period_tag_new} vs PLAN vs IST {period_tag_old}",
 ):
@@ -593,25 +593,25 @@ with section(
     else:
         st.dataframe(disp_stay, hide_index=True, use_container_width=True)
     register_section(
-        "perf_stay", "4.A · Performance Standorte (Aufenthalt)", table_df=disp_stay, page=PAGE
+        "perf_stay", "3.A · Performance Standorte (Aufenthalt)", table_df=disp_stay, page=PAGE
     )
     chart_help("perf_stay")
 
 
-with section("4.B", "Buchungskanäle nach Aufenthaltsdatum"):
+with section("3.B", "Buchungskanäle nach Aufenthaltsdatum"):
     if disp_chan_stay.empty:
         alert_card("Keine Channel-Daten nach Aufenthaltsdatum.", kind="info")
     else:
         st.dataframe(disp_chan_stay, hide_index=True, use_container_width=True)
     register_section(
-        "chan_stay", "4.B · Buchungskanäle (Aufenthalt)", table_df=disp_chan_stay, page=PAGE
+        "chan_stay", "3.B · Buchungskanäle (Aufenthalt)", table_df=disp_chan_stay, page=PAGE
     )
     chart_help("chan_stay")
 
 
 # ===== 5 · IST vs PLAN · Pace-Fortschritt (umgezogen) =====================
 with section(
-    5,
+    4,
     "IST vs PLAN · Pace-Fortschritt",
     subtitle="Auf die eigene Seite Pickup / Vorlauf-Analyse umgezogen.",
 ):
@@ -624,7 +624,7 @@ with section(
     st.page_link("pages/2_Pickup_Analyse.py", label="→ Pickup / Vorlauf-Analyse öffnen")
 
 # ===== 6 · Channel-Mix Detail =============================================
-if lazy_section(6, "Channel-Mix Detail", subtitle="Donut + horizontale Top-Bars (nach Aufenthalt)"):
+if lazy_section(5, "Channel-Mix Detail", subtitle="Donut + horizontale Top-Bars (nach Aufenthalt)"):
     if not raw_chan_stay.empty:
         png_donut = CD.chart_png(
             _ck("ch_donut"), GC.channel_mix_donuts, raw_chan_stay, YEAR_OLD, YEAR_NEW
@@ -637,7 +637,7 @@ if lazy_section(6, "Channel-Mix Detail", subtitle="Donut + horizontale Top-Bars 
         CD.data_table_expander(disp_chan_stay, filename=f"global_channel_detail_{YEAR_NEW}")
         register_section(
             "channel_detail",
-            "6 · Channel-Mix Detail",
+            "5 · Channel-Mix Detail",
             chart_png=png_donut,
             table_df=disp_chan_stay,
             page=PAGE,
@@ -645,11 +645,11 @@ if lazy_section(6, "Channel-Mix Detail", subtitle="Donut + horizontale Top-Bars 
 
         chart_help("channel_detail")
 # ===== 7 · Supporting Insights ============================================
-st.markdown("# 7 · Supporting Insights")
+st.markdown("# 6 · Supporting Insights")
 st.caption("Heatmaps und Top-Movers.")
 
 
-if lazy_section("7.A", "Revenue-Heatmap Standort × Monat"):
+if lazy_section("6.A", "Revenue-Heatmap Standort × Monat"):
     png = CD.chart_png(
         _ck("heat_loc_month"),
         GC.location_revenue_heatmap,
@@ -671,14 +671,14 @@ if lazy_section("7.A", "Revenue-Heatmap Standort × Monat"):
     CD.data_table_expander(_tbl_locrev, filename="global_loc_x_month")
     register_section(
         "heat_loc_month",
-        "7.A · Revenue-Heatmap Standort × Monat",
+        "6.A · Revenue-Heatmap Standort × Monat",
         chart_png=png,
         table_df=_tbl_locrev,
         page=PAGE,
     )
 
     chart_help("heat_loc_month")
-if lazy_section("7.B", "Channel-Mix je Standort"):
+if lazy_section("6.B", "Channel-Mix je Standort"):
     png = CD.chart_png(
         _ck("heat_chan_loc"),
         GC.channel_x_location_heatmap,
@@ -694,14 +694,14 @@ if lazy_section("7.B", "Channel-Mix je Standort"):
     CD.data_table_expander(_tbl_chloc, filename="global_channel_x_location")
     register_section(
         "heat_chan_loc",
-        "7.B · Channel-Mix je Standort",
+        "6.B · Channel-Mix je Standort",
         chart_png=png,
         table_df=_tbl_chloc,
         page=PAGE,
     )
 
     chart_help("heat_chan_loc")
-if lazy_section("7.C", "Top-Movers · Δ Revenue YoY"):
+if lazy_section("6.C", "Top-Movers · Δ Revenue YoY"):
     png = CD.chart_png(
         _ck("top_movers"), GC.top_movers, GT.with_code_labels(raw_stay), YEAR_OLD, YEAR_NEW
     )
@@ -722,12 +722,12 @@ if lazy_section("7.C", "Top-Movers · Δ Revenue YoY"):
         "Δ Revenue (%)",
     ]
     CD.data_table_expander(_tbl_mv, filename="global_top_movers")
-    register_section("top_movers", "7.C · Top-Movers", chart_png=png, table_df=_tbl_mv, page=PAGE)
+    register_section("top_movers", "6.C · Top-Movers", chart_png=png, table_df=_tbl_mv, page=PAGE)
     chart_help("top_movers")
 
 
 if lazy_section(
-    "7.D",
+    "6.D",
     "Channel × LOS · granular",
     subtitle="Top-Channels (Booking.com, Expedia, HRS, IBE, …) nach Aufenthaltsdauer",
 ):
@@ -757,7 +757,7 @@ if lazy_section(
     CD.data_table_expander(_tbl_chlosg, filename="global_channel_los_granular")
     register_section(
         "heat_ch_los_granular",
-        "7.D · Channel × LOS (granular)",
+        "6.D · Channel × LOS (granular)",
         chart_png=png,
         table_df=_tbl_chlosg,
         page=PAGE,

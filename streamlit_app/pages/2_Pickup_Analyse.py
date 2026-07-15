@@ -158,6 +158,16 @@ with st.sidebar:
             "mit Zeitstempel am Stichtag gilt als bereits bekannt (zählt raus).",
         )
 
+        st.checkbox(
+            "Späte Öffner einbeziehen",
+            value=False,
+            key="pu_include_late_openers",
+            help="Standorte, deren Eröffnung nach dem OLD-Periodenende liegt, "
+            "werden standardmäßig ausgeschlossen - sonst verfälschen "
+            "0-€-Zeilen die Totale & YoY-Vergleiche (gilt auch für Pace by "
+            "Month). Aktivieren, wenn du sie trotzdem sehen willst.",
+        )
+
         st.markdown("**Storno-Modus**")
         cmode_label = st.radio(
             "Storno / No-Show",
@@ -232,6 +242,39 @@ st.caption(
     "ohne Erstellungs-Filter) - beide zum selben Stichtag, daher ≤ 100 %. "
     "Zähler und Nenner sind YoY auf denselben Vorlauf gespiegelt."
 )
+
+# Proactive (wie Global Report): Standorte, die in der OLD-Periode noch nicht
+# offen waren, werden standardmäßig aus der Analyse entfernt + Warnung oben.
+_late_openers = H.properties_without_old_data(props_pick, end_old)
+if _late_openers:
+    _lines = "  · ".join(
+        f"{pc} ({H.city(pc)}, eröffnet {H.opening_date(pc):%d.%m.%Y})" for pc in _late_openers
+    )
+    _include_late = st.session_state.get("pu_include_late_openers", False)
+    if _include_late:
+        alert_card(
+            f"{_lines}\n\nDiese Standorte sind in {period_tag_old} noch nicht "
+            f"offen - OLD-Werte zeigen 0 €. Toggle in der Sidebar "
+            f'„Späte Öffner einbeziehen" zum Ausschluss.',
+            kind="warning",
+            title=f"Späte Öffner einbezogen ({period_tag_old})",
+        )
+    else:
+        alert_card(
+            f"{_lines}\n\nWurden für diese Analyse automatisch ausgeschlossen, "
+            f"weil in {period_tag_old} noch nicht offen. Toggle in der "
+            f'Sidebar „Späte Öffner einbeziehen" um sie trotzdem zu zeigen.',
+            kind="info",
+            title=f"Späte Öffner ausgeschlossen ({period_tag_old})",
+        )
+        props_pick = [p for p in props_pick if p not in _late_openers]
+        if not props_pick:
+            st.error(
+                "Nach Ausschluss der späten Öffner ist die Standort-Auswahl "
+                'leer. Bitte Perioden anpassen oder „Späte Öffner einbeziehen" '
+                "in der Sidebar aktivieren."
+            )
+            st.stop()
 
 # ============================== Daten laden ================================
 with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
@@ -336,10 +379,10 @@ st.caption(
     "**im Erstellungs-Fenster** (z.B. 01.–30.06.) erstellte Umsatz ÷ OTB. "
     "**OTB Δ heute** = OTB des Stay-Fensters am Stichtag vs. Vorjahres-Stichtag "
     "(reine As-of-Logik: No-Shows raus, Storno bis `cancel_time` - unabhängig vom "
-    "Storno-Modus-Schalter; identisch zu Tabelle + Tages-Verlauf in §5). "
+    "Storno-Modus-Schalter - dieselbe Konvention wie Pace by Month, §2). "
     "**OTB gesamt** = zum Stichtag gebuchter Stay-Umsatz (NEW), unabhängig vom "
     "Erstellungs-Fenster. Endet das Fenster am/nach dem Stichtag, ist kumuliert = 100 %. "
-    "Die Δ-Pickup-Werte (pp) stehen weiterhin in den Tabellen (§4)."
+    "Die Δ-Pickup-Werte (pp) stehen weiterhin in den Tabellen (§5)."
 )
 k1, k2, k3, k4 = st.columns(4)
 k1.metric(
@@ -362,6 +405,187 @@ k3.metric(
 k4.metric(f"OTB gesamt {YEAR_NEW}", H.fmt_eur(_otb_new))
 
 
+# ============================== 2 · Pace by Month ==========================
+# Migriert aus Global Report. EIGENE Einstellungen - die Seiten-Filter
+# (Stay-/Erstellungs-Fenster, Stichtag, Vergleichsjahr, Storno-Modus) greifen
+# hier NICHT: immer aktuelles Kalenderjahr vs. Vorjahr, Stichtag = Snapshot.
+# Standort-Basis = Sidebar-Auswahl (inkl. Späte-Öffner-Ausschluss).
+st.markdown("## 2 · Pace by Month")
+
+_PACE_YEAR = int(pd.Timestamp.today().year)
+_PACE_SNAP = SNAP_DATE.normalize()
+_PACE_SNAP_OLD = H.mirror_years(_PACE_SNAP, 1)
+
+st.caption(
+    f"**Eigene Einstellungen:** {_PACE_YEAR} vs {_PACE_YEAR - 1} · Stichtag = "
+    f"Snapshot ({_PACE_SNAP:%d.%m.%Y}, Vorjahr tagesgenau gespiegelt: "
+    f"{_PACE_SNAP_OLD:%d.%m.%Y}) · Standorte = Sidebar-Auswahl. "
+    "**Storno-Modus ist hier immer As-of** (No-Shows raus, Storno löst zu "
+    "`cancel_time` auf) - der Schalter der Seite greift nicht. "
+    "**Stichtag-Konvention: Tagesende (24:00 Berlin)** - alles, was bis "
+    "einschließlich des Stichtags erstellt oder storniert wurde, ist berücksichtigt."
+)
+
+_MONTH_ABBR_DE = ("Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
+                  "Jul", "Aug", "Sep", "Okt", "Nov", "Dez")
+_MONTH_NAMES_DE = ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
+                   "August", "September", "Oktober", "November", "Dezember")
+_WD_DE = ("Mo", "Di", "Mi", "Do", "Fr", "Sa", "So")
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+def _pace_df_cached(sig: str, year: int, snap: pd.Timestamp,
+                    props: tuple, _nig: pd.DataFrame) -> pd.DataFrame:
+    """Monats-Pace über die bewährte Helper-Funktion (unverändert)."""
+    return H.pace_by_month(_nig, year - 1, year, snap, properties=list(props))
+
+
+def _pace_fig(pace_df: pd.DataFrame, year: int):
+    """Die Global-Grafik als Plotly: 3 Balken je Monat (kein Figur-Titel -
+    Kontext steht in Überschrift + Caption). Brand-Look via plotly_theme."""
+    import plotly.graph_objects as go
+
+    from components import plotly_theme as PT
+
+    months = list(range(1, 13))
+    d = pace_df.set_index("month").reindex(months, fill_value=0.0)
+    x = [_MONTH_ABBR_DE[m - 1] for m in months]
+    fig = go.Figure()
+    fig.add_bar(x=x, y=d["ist_eom_old"], name=f"{year - 1}/EoM (final)",
+                marker_color=PT.YELLOW, marker_line=dict(color=PT.BLACK, width=0.4),
+                hovertemplate="%{y:,.0f} €<extra>" + f"{year - 1}/EoM" + "</extra>")
+    fig.add_bar(x=x, y=d["ist_asof_old"], name=f"{year - 1}/Stichtag",
+                marker_color=PT.GREY, marker_line=dict(color=PT.BLACK, width=0.4),
+                hovertemplate="%{y:,.0f} €<extra>" + f"{year - 1}/Stichtag" + "</extra>")
+    fig.add_bar(x=x, y=d["ist_asof_new"], name=f"{year}/Stichtag",
+                marker_color=PT.BLUE, marker_line=dict(color=PT.BLACK, width=0.4),
+                hovertemplate="%{y:,.0f} €<extra>" + f"{year}/Stichtag" + "</extra>")
+    PT.brand_figure(fig)
+    fig.update_layout(barmode="group", height=420, hovermode="x unified",
+                      yaxis_title="Revenue (€, netto)")
+    return fig
+
+
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+def _pace_stichtag_table(sig: str, year: int, month_: int, snap: pd.Timestamp,
+                         props: tuple, _nig: pd.DataFrame) -> pd.DataFrame:
+    """Stichtagsblick auf den AKTUELLEN Monat: eine Zeile = EIN As-of-Stichtag.
+
+    Zeile „01.07." = Stand am Tagesende des 01.07.: wie viel des kompletten
+    Stay-Monats {year}-{month_} war da on the books - daneben derselbe Blick
+    im Vorjahr (Stichtag tagesgenau gespiegelt) plus die finale
+    Vorjahres-Realität (EoM) als konstante Referenz. Δ vergleicht die beiden
+    As-of-Stände.
+
+    Zeilen laufen nur bis min(Monatsende, Snapshot-Datum): ein Stichtag ist
+    erst „fertig", wenn der Tag komplett im Snapshot ist. Deshalb ändern sich
+    beim Daten-Refresh NUR die jüngsten/zukünftigen Zeilen - vergangene
+    Stichtage sind eingefrorene Point-in-time-Rekonstruktionen.
+    """
+    df = _nig
+    if props:
+        df = df[df["property_code"].isin(list(props))]
+    if "is_no_show" in df.columns:
+        df = df[~df["is_no_show"].astype(bool)]
+    if df.empty:
+        return pd.DataFrame()
+    stay = pd.to_datetime(df["stay_date"]).dt.normalize()
+    sub_new = df[(stay.dt.year == year) & (stay.dt.month == month_)]
+    sub_old = df[(stay.dt.year == year - 1) & (stay.dt.month == month_)]
+
+    realized_old = (sub_old["is_realized"].astype(bool)
+                    if "is_realized" in sub_old.columns
+                    else ~sub_old["is_cancelled"].astype(bool))
+    eom_old = float(sub_old.loc[realized_old, "revenue"].sum()) if len(sub_old) else 0.0
+
+    month_start = pd.Timestamp(year=year, month=month_, day=1)
+    month_end = month_start + pd.offsets.MonthEnd(0)
+    last_day = min(month_end, pd.Timestamp(snap).normalize())
+    if last_day < month_start:
+        return pd.DataFrame()  # Snapshot älter als Monatsbeginn
+
+    rows = []
+    for d in pd.date_range(month_start, last_day, freq="D"):
+        d_old = H.mirror_years(d, 1)
+        v_new = (float(sub_new.loc[
+            H.asof_on_the_books_mask(sub_new, d, include_cancellations=False),
+            "revenue"].sum()) if len(sub_new) else 0.0)
+        v_old = (float(sub_old.loc[
+            H.asof_on_the_books_mask(sub_old, d_old, include_cancellations=False),
+            "revenue"].sum()) if len(sub_old) else 0.0)
+        rows.append({
+            "Stichtag": f"{_WD_DE[d.weekday()]} {d:%d.%m.}",
+            f"OTB {year - 1} (€)": round(v_old, 0),
+            f"OTB {year} (€)": round(v_new, 0),
+            "Δ (€)": round(v_new - v_old, 0),
+            "Δ (%)": round((v_new / v_old - 1) * 100.0, 1) if v_old > 0 else None,
+            f"IST {year - 1} final (€)": round(eom_old, 0),
+        })
+    return pd.DataFrame(rows)
+
+
+if props_pick:
+    # Eigener Daten-Load (unabhängig vom Seiten-Fenster): aktuelles + Vorjahr.
+    _pace_nig = CD.get_timeslices(
+        start=pd.Timestamp(year=_PACE_YEAR - 1, month=1, day=1),
+        end=None,
+        properties=props_pick,
+    )
+    _pace_sig = f"{CD.snapshot_tag()}::{'+'.join(sorted(props_pick))}::{_PACE_SNAP.date()}"
+
+    from components import plotly_theme as PT
+    _pdf = _pace_df_cached(_pace_sig, _PACE_YEAR, _PACE_SNAP,
+                           tuple(sorted(props_pick)), _pace_nig)
+    st.plotly_chart(_pace_fig(_pdf, _PACE_YEAR),
+                    use_container_width=True, config=PT.PLOTLY_CONFIG)
+    st.caption(
+        f"🟡 {_PACE_YEAR - 1}/EoM = finale Vorjahres-Realität (realized) · "
+        f"⚪ {_PACE_YEAR - 1}/Stichtag = on-the-books am {_PACE_SNAP_OLD:%d.%m.%Y} · "
+        f"🔵 {_PACE_YEAR}/Stichtag = on-the-books am {_PACE_SNAP:%d.%m.%Y}. "
+        "Grau vs. Blau = besser/schlechter als zum gleichen Zeitpunkt im "
+        "Vorjahr · Grau vs. Gelb = was im Vorjahr nach dem Stichtag noch reinkam."
+    )
+
+    _cur_month = int(pd.Timestamp.today().month)
+    st.markdown(
+        f"**Stichtagsblick {_MONTH_NAMES_DE[_cur_month - 1]} {_PACE_YEAR}** - "
+        "jede Zeile = ein As-of-Stichtag (Tagesende): Stand des kompletten "
+        f"Stay-Monats an diesem Tag, Vorjahr tagesgenau gespiegelt. Beim "
+        "Daten-Refresh ändern sich nur die jüngsten Zeilen - vergangene "
+        "Stichtage bleiben eingefroren."
+    )
+    _daily = _pace_stichtag_table(
+        _pace_sig, _PACE_YEAR, _cur_month, _PACE_SNAP,
+        tuple(sorted(props_pick)), _pace_nig,
+    )
+    if _daily.empty:
+        alert_card(
+            f"Der Snapshot ({_PACE_SNAP:%d.%m.%Y}) liegt vor dem Beginn des "
+            f"aktuellen Monats - Stichtage erscheinen nach dem nächsten "
+            f"Daten-Refresh.",
+            kind="info",
+        )
+    else:
+        _dc = {
+            f"OTB {_PACE_YEAR - 1} (€)": st.column_config.NumberColumn(
+                format="localized",
+                help="On-the-books am tagesgenau gespiegelten Vorjahres-Stichtag."),
+            f"OTB {_PACE_YEAR} (€)": st.column_config.NumberColumn(
+                format="localized", help="On-the-books an diesem Stichtag (Tagesende)."),
+            "Δ (€)": st.column_config.NumberColumn(
+                format="localized", help="OTB aktuell − OTB Vorjahr (beide as-of)."),
+            "Δ (%)": st.column_config.NumberColumn(format="%+.1f %%"),
+            f"IST {_PACE_YEAR - 1} final (€)": st.column_config.NumberColumn(
+                format="localized",
+                help="Finale realisierte Vorjahres-Realität des Monats (konstant, als Referenz)."),
+        }
+        try:
+            st.dataframe(_daily, hide_index=True, use_container_width=True,
+                         height=min(38 * (len(_daily) + 1), 640), column_config=_dc)
+        except Exception:
+            st.dataframe(_daily, hide_index=True, use_container_width=True)
+
+
 # ============================== Buchungskurve ==============================
 # Creation-day-Scopes + Linien-Daten immer berechnen (Chart + CSV-Download).
 _scope_new = GT.stay_created_scope(
@@ -372,7 +596,7 @@ _scope_old = GT.stay_created_scope(
 )
 _line_df = GT.daily_created_line_data(_scope_new, _scope_old, cre_start_new, cre_start_old)
 
-st.markdown("## 2 · Buchungskurve")
+st.markdown("## 3 · Buchungskurve")
 st.markdown("*Wie sich der gebuchte Anteil über die Zeit aufbaut - NEW vs. OLD.*")
 _curve_axis = st.radio(
     "X-Achse",
@@ -421,7 +645,7 @@ else:
 
 
 # ============================== Pickup-Balken ==============================
-st.markdown("## 3 · Pickup-Anteil je Kategorie")
+st.markdown("## 4 · Pickup-Anteil je Kategorie")
 st.markdown("*Wer liegt im Vorlauf vorn, wer hinkt hinterher?*")
 st.caption(
     "Pickup-Anteil je Standort / Buchungskanal / Stay-Segment (ohne Total), "
@@ -448,7 +672,7 @@ else:
 
 
 # ============================== Tabellen ===================================
-st.markdown("## 4 · Tabellen")
+st.markdown("## 5 · Tabellen")
 st.markdown("*Dieselbe Struktur je Kategorie - Detail hinter den Charts.*")
 with st.expander("Spalten einfach erklärt (Klartext)", expanded=False):
     st.markdown(
@@ -504,7 +728,7 @@ else:
 
 
 # ============================== Pace-to-PLAN ===============================
-st.markdown("## 5 · Pace-to-PLAN · OTB vs. Ziel")
+st.markdown("## 6 · Pace-to-PLAN · OTB vs. Ziel")
 st.markdown("*Wie viel des Stay-PLANs ist zum Stichtag on-the-books?*")
 st.caption(
     "IST = **OTB gesamt** (aktueller Stay-Umsatz zum Stichtag, gem. Storno-Modus) "
@@ -548,258 +772,6 @@ else:
             _pace_key, GC.pace_to_plan_chart, _pace_df, YEAR_NEW, period_tag_new
         )
         st.image(_pace_png, use_container_width=False)
-
-
-# ============================== 6 · Pace by Month ==========================
-# (migriert aus Global Report §2 - dort ersatzlos raus; hier lebt die Sicht
-#  mit frei wählbarem Stichtag + Vergleichsjahr weiter.)
-st.markdown(f"## 6 · Pace by Month · {YEAR_NEW} vs {YEAR_OLD}")
-st.markdown("*OTB je Stay-Monat zum Stichtag - plus finale Vorjahres-Realität.*")
-st.caption(
-    f"Je Stay-Monat drei Werte: **IST {YEAR_OLD} final** = finale realisierte "
-    f"Realität des Vorjahres-Monats (EoM, realized-only) · **OTB {YEAR_OLD}** = "
-    f"was am gespiegelten Stichtag **{asof_old:%d.%m.%Y}** im Vorjahr on-the-books "
-    f"war · **OTB {YEAR_NEW}** = aktueller Stand am Stichtag **{asof_new:%d.%m.%Y}**. "
-    "Δ vergleicht die beiden OTB-Stände (gleicher Buchungsvorlauf); der Abstand "
-    f"zwischen OTB {YEAR_OLD} und IST final zeigt, was im Vorjahr nach dem "
-    "Stichtag noch dazukam. Reine **As-of-Logik** (No-Shows raus, Storno löst zu "
-    "`cancel_time` auf), unabhängig vom Storno-Modus-Schalter und vom "
-    "Erstellungs-Fenster. **Stichtag-Konvention:** ganzer Kalendertag ohne "
-    "Uhrzeit - am Stichtag erstellte Buchungen zählen **mit**, ein Storno mit "
-    "Zeitstempel am Stichtag zählt **raus**. "
-    "**Zeile eines offenen Monats anklicken** → rechts erscheint der "
-    "Tag-für-Tag-Verlauf des As-of-Vergleichs."
-)
-
-_MONTH_NAMES_DE = ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
-                   "August", "September", "Oktober", "November", "Dezember")
-
-
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
-def _monthly_asof(sig: str, year_new: int, year_old: int,
-                  asof_n: pd.Timestamp, asof_o: pd.Timestamp,
-                  _nig: pd.DataFrame) -> pd.DataFrame:
-    """OTB je Stay-Monat am jeweiligen Stichtag (As-of, No-Shows raus).
-
-    Bewusst NICHT über ``H.pace_by_month`` gebaut (Helper bleibt unangetastet):
-    dessen Vorjahres-Stichtag ist fest auf −1 Jahr gespiegelt, hier gilt der
-    frei gewählte ``asof_old`` (beliebiges Vergleichsjahr). Rechenkern ist
-    dieselbe ``H.asof_on_the_books_mask``.
-    """
-    df = _nig
-    if "is_no_show" in df.columns:
-        df = df[~df["is_no_show"].astype(bool)]
-    if df is None or df.empty:
-        return pd.DataFrame()
-    stay = pd.to_datetime(df["stay_date"]).dt.normalize()
-    month = stay.dt.month
-    rev = df["revenue"].astype(float)
-    on_new = H.asof_on_the_books_mask(df, asof_n, include_cancellations=False)
-    on_old = H.asof_on_the_books_mask(df, asof_o, include_cancellations=False)
-    is_new_y = stay.dt.year == year_new
-    is_old_y = stay.dt.year == year_old
-    m_new = rev[on_new & is_new_y].groupby(month[on_new & is_new_y]).sum()
-    m_old = rev[on_old & is_old_y].groupby(month[on_old & is_old_y]).sum()
-    # Finale Vorjahres-Realität (EoM): realized-only, KEIN Stichtag-Cutoff -
-    # dieselbe Konvention wie ist_eom_old in H.pace_by_month (Global §2 alt).
-    realized = df["is_realized"].astype(bool) if "is_realized" in df.columns else ~df["is_cancelled"].astype(bool)
-    m_eom = rev[realized & is_old_y].groupby(month[realized & is_old_y]).sum()
-    rows = []
-    for m in range(1, 13):
-        v_new = float(m_new.get(m, 0.0))
-        v_old = float(m_old.get(m, 0.0))
-        v_eom = float(m_eom.get(m, 0.0))
-        if v_new == 0.0 and v_old == 0.0 and v_eom == 0.0:
-            continue
-        month_end = pd.Timestamp(year=year_new, month=m, day=1) + pd.offsets.MonthEnd(0)
-        rows.append({
-            "month_num": m,
-            "Monat": _MONTH_NAMES_DE[m - 1],
-            f"IST {year_old} final (€)": round(v_eom, 0),
-            f"OTB {year_old} (€)": round(v_old, 0),
-            f"OTB {year_new} (€)": round(v_new, 0),
-            "Δ (€)": round(v_new - v_old, 0),
-            "Δ (%)": round((v_new / v_old - 1) * 100.0, 1) if v_old > 0 else None,
-            "offen": bool(month_end >= asof_n.normalize()),
-        })
-    return pd.DataFrame(rows)
-
-
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=16)
-def _asof_evolution(sig: str, month: int, year_new: int, year_old: int,
-                    year_delta: int, asof_n: pd.Timestamp,
-                    _nig: pd.DataFrame, days_back: int = 90) -> pd.DataFrame:
-    """Tages-Verlauf des As-of-OTB für EINEN Stay-Monat (NEW vs. gespiegeltes OLD).
-
-    Für jeden As-of-Tag d (letzte ``days_back`` Tage bis zum Stichtag) wird der
-    OTB des Monats mit ``H.asof_on_the_books_mask`` rekonstruiert; der
-    OLD-Vergleichstag ist tagesgenau um ``year_delta`` Jahre gespiegelt.
-    """
-    df = _nig
-    if "is_no_show" in df.columns:
-        df = df[~df["is_no_show"].astype(bool)]
-    if df is None or df.empty:
-        return pd.DataFrame()
-    stay = pd.to_datetime(df["stay_date"]).dt.normalize()
-    sub_n = df[(stay.dt.year == year_new) & (stay.dt.month == month)]
-    sub_o = df[(stay.dt.year == year_old) & (stay.dt.month == month)]
-    days = pd.date_range(end=pd.Timestamp(asof_n).normalize(), periods=int(days_back), freq="D")
-    rows = []
-    for d in days:
-        d_old = H.mirror_years(d, year_delta)
-        v_n = (float(sub_n.loc[H.asof_on_the_books_mask(sub_n, d, include_cancellations=False),
-                               "revenue"].sum()) if len(sub_n) else 0.0)
-        v_o = (float(sub_o.loc[H.asof_on_the_books_mask(sub_o, d_old, include_cancellations=False),
-                               "revenue"].sum()) if len(sub_o) else 0.0)
-        rows.append({
-            "date": d,
-            "otb_new": v_n,
-            "otb_old": v_o,
-            "delta_abs": v_n - v_o,
-            "delta_pct": (v_n / v_o - 1) * 100.0 if v_o > 0 else float("nan"),
-        })
-    return pd.DataFrame(rows)
-
-
-def _evolution_fig(ev: pd.DataFrame, month_name: str, year_new: int, year_old: int):
-    """Plotly-Figur: absolute OTB-Linien + Wedge (oben), Δ % je Tag (unten).
-
-    Styling über ``plotly_theme.brand_figure`` - der 1:1 aus der Overbooking-
-    Dash-App portierte Brand-Standard (Schrift, Farben, Margins, Legende).
-    """
-    import plotly.graph_objects as go
-    from plotly.subplots import make_subplots
-
-    from components import plotly_theme as PT
-
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                        row_heights=[0.66, 0.34], vertical_spacing=0.07)
-    fig.add_trace(go.Scatter(
-        x=ev["date"], y=ev["otb_old"], name=f"OTB {year_old} (gespiegelt)",
-        line=dict(color=PT.GREY, width=2, dash="dot"),
-        hovertemplate="%{y:,.0f} €<extra>" + str(year_old) + "</extra>",
-    ), row=1, col=1)
-    fig.add_trace(go.Scatter(
-        x=ev["date"], y=ev["otb_new"], name=f"OTB {year_new}",
-        line=dict(color=PT.BLUE, width=2.6),
-        fill="tonexty", fillcolor="rgba(255, 230, 80, 0.35)",  # Brand-Yellow-Wedge = Δ absolut
-        hovertemplate="%{y:,.0f} €<extra>" + str(year_new) + "</extra>",
-    ), row=1, col=1)
-    _cols = [(PT.GREEN if (pd.notna(v) and v >= 0) else PT.RED) for v in ev["delta_pct"]]
-    fig.add_trace(go.Bar(
-        x=ev["date"], y=ev["delta_pct"], name="Δ vs Vorjahr (%)",
-        marker_color=_cols, customdata=ev["delta_abs"],
-        hovertemplate="Δ %{y:+.1f} %<br>Δ %{customdata:+,.0f} €<extra></extra>",
-    ), row=2, col=1)
-    fig.add_hline(y=0, line_width=1, line_color=PT.BLACK, row=2, col=1)
-    PT.brand_figure(fig)
-    fig.update_yaxes(title_text="OTB (€)", row=1, col=1)
-    fig.update_yaxes(title_text="Δ %", row=2, col=1)
-    fig.update_layout(
-        height=520,
-        hovermode="x unified",
-        title=dict(text=f"{month_name} {year_new} · As-of-Verlauf (Tag für Tag)",
-                   font=dict(size=15)),
-    )
-    return fig
-
-
-_masof_sig = (
-    f"{CD.snapshot_tag()}::{'+'.join(sorted(props_pick))}"
-    f"::{asof_new.date()}::{asof_old.date()}::{YEAR_NEW}::{YEAR_OLD}"
-)
-_masof = _monthly_asof(_masof_sig, YEAR_NEW, YEAR_OLD, asof_new, asof_old, nightly)
-
-if _masof.empty:
-    alert_card("Keine OTB-Daten für die Monats-Sicht.", kind="info")
-else:
-    _mcolcfg = {
-        "month_num": None,
-        "Monat": st.column_config.TextColumn("Monat"),
-        f"IST {YEAR_OLD} final (€)": st.column_config.NumberColumn(
-            format="localized",
-            help="Finale realisierte Realität des Vorjahres-Monats (kein Stichtag-Cutoff).",
-        ),
-        f"OTB {YEAR_OLD} (€)": st.column_config.NumberColumn(format="localized"),
-        f"OTB {YEAR_NEW} (€)": st.column_config.NumberColumn(format="localized"),
-        "Δ (€)": st.column_config.NumberColumn(format="localized"),
-        "Δ (%)": st.column_config.NumberColumn(format="%+.1f %%"),
-        "offen": st.column_config.CheckboxColumn(
-            "offen?", help="Monatsende liegt am/nach dem Stichtag - der Monat füllt sich noch."
-        ),
-    }
-
-    def _sel_rows(ev) -> list[int]:
-        try:
-            return list(ev.selection.rows)
-        except Exception:
-            try:
-                return list(ev["selection"]["rows"])
-            except Exception:
-                return []
-
-    _m_has_sel = bool(st.session_state.get("_pu_month_has_sel", False))
-    if _m_has_sel:
-        _mtcol, _mccol = st.columns([2, 3], gap="large")
-    else:
-        _mtcol, _mccol = st.container(), None
-
-    with _mtcol:
-        try:
-            _mev = st.dataframe(
-                _masof, hide_index=True, use_container_width=True,
-                key="_pu_month_tbl", on_select="rerun", selection_mode="single-row",
-                column_config=_mcolcfg,
-            )
-        except Exception:
-            # Fallback ohne column_config (ältere Streamlit-Versionen).
-            _mev = st.dataframe(
-                _masof, hide_index=True, use_container_width=True,
-                key="_pu_month_tbl_fb", on_select="rerun", selection_mode="single-row",
-            )
-
-    _mrows = _sel_rows(_mev)
-    _sel_month = (
-        int(_masof.iloc[_mrows[0]]["month_num"])
-        if _mrows and 0 <= _mrows[0] < len(_masof)
-        else None
-    )
-    _new_m_has = _sel_month is not None
-    if _new_m_has != _m_has_sel:
-        st.session_state["_pu_month_has_sel"] = _new_m_has
-        st.rerun()
-
-    if _sel_month is not None and _mccol is not None:
-        _mrow = _masof[_masof["month_num"] == _sel_month].iloc[0]
-        _mname = str(_mrow["Monat"])
-        if bool(_mrow["offen"]):
-            _ev_df = _asof_evolution(
-                _masof_sig, _sel_month, YEAR_NEW, YEAR_OLD, YEAR_DELTA, asof_new, nightly
-            )
-            if _ev_df.empty:
-                _mccol.info("Kein Tages-Verlauf verfügbar (keine Buchungen).")
-            else:
-                _last = _ev_df.iloc[-1]
-                from components import plotly_theme as PT
-                _mccol.plotly_chart(
-                    _evolution_fig(_ev_df, _mname, YEAR_NEW, YEAR_OLD),
-                    use_container_width=True, config=PT.PLOTLY_CONFIG,
-                )
-                _mccol.caption(
-                    f"**Heute ({asof_new:%d.%m.%Y}):** OTB {YEAR_NEW} "
-                    f"{H.fmt_eur(float(_last['otb_new']))} vs. {YEAR_OLD} "
-                    f"{H.fmt_eur(float(_last['otb_old']))} → "
-                    f"Δ {float(_last['delta_abs']):+,.0f} € "
-                    f"({float(_last['delta_pct']):+.1f} %). "
-                    "Gelber Keil = Δ absolut; Balken unten = Δ relativ je As-of-Tag."
-                    .replace(",", ".")
-                )
-        else:
-            _mccol.info(
-                f"**{_mname} {YEAR_NEW}** liegt vollständig vor dem Stichtag - "
-                "der As-of-Wert ist final. Den Tag-für-Tag-Aufbau gibt es für "
-                "offene/zukünftige Monate."
-            )
 
 
 # ============================== Downloads (3 separate) =====================

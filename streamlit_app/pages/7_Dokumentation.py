@@ -467,63 +467,64 @@ erst auf Klick; Sidebar-Buttons „Alle laden" / „Cache leeren".
 with st.expander("12b · Seiten & Sektionen im Detail"):
     st.markdown(
         """
-**Standort-Analyse (Einzelstandort, YoY)** – 17 Sektionen. Datumsbasis je Sektion:
+**Standort-Analyse (Einzelstandort, YoY)** - 13 Sektionen, je Sektion ein
+Datumsbasis-Badge (📅 Aufenthalt / 🖊 Erstellung):
 
 | # | Sektion | Basis |
 |---|---|---|
-| 1 | Landscape KPIs (Revenue, ADR, Occupancy, ALOS) + Monatstrend | Aufenthalt |
-| 2 | Pace by Month (OTB-Rekonstruktion zum Stichtag) | Aufenthalt (eigene As-of-Logik) |
+| 1 | Landscape KPIs + Monatstrend | Aufenthalt |
+| 2 | Channel-Mix monatlich & YoY | Aufenthalt |
 | 3 | Heatmap Channel × LOS | Aufenthalt |
 | 4 | Heatmap Channel × Reisezweck × LOS | Aufenthalt |
 | 5 | LOS-Revenue YoY | Aufenthalt |
-| 6 | Channel-Mix monatlich & YoY | Aufenthalt |
-| 7 | ALOS pro Channel | Aufenthalt |
-| 8 / 9 | Wochentag (Stay) / (Anreise) | Aufenthalt |
+| 6 / 7 | Wochentag (Stay) / (Anreise) | Aufenthalt |
+| 8 | Inland vs. Ausland (inkl. Unbekannt) | Aufenthalt |
+| 9 | Top-Herkunftsländer | Aufenthalt |
 | 10 | Gruppen-Größe | **Erstellung** |
-| 11 | Inland vs. Ausland | Aufenthalt (Herkunft, Kap. 10b) |
-| 12 | Top-Herkunftsländer | Aufenthalt (Herkunft, Kap. 10b) |
-| 13 | Vorlaufzeit & Storno-Risiko | **Erstellung** (eigene Storno-Logik) |
-| 14 | Daily Occupancy nach LOS | Aufenthalt |
-| 15 | Firmenkunden | **Erstellung** |
-| 16 | Direct Offline | **Erstellung** |
-| 17 | Top Vertragscodes | **Erstellung** |
+| 11 | Firmenkunden | **Erstellung** |
+| 12 | Direct Offline | **Erstellung** |
+| 13 | Top Vertragscodes | **Erstellung** |
 
-**Global Report (Portfolio)** – 7 Sektionen:
+(Pace by Month, ALOS je Channel, Vorlaufzeit/Storno und Daily Occupancy sind
+hier entfernt - Pace lebt auf der Pickup-Seite §2; Vorlaufzeit/Storno und
+Daily Occupancy ziehen ins Overbooking-Tool um.)
+
+**Global Report (Portfolio)** - 6 Sektionen:
 
 | # | Sektion | Basis |
 |---|---|---|
 | 1 | Visual Scorecard (IST vs PLAN je Standort) | Aufenthalt + PLAN |
-| 2 | Pace by Month | Aufenthalt (As-of) |
-| 3.A/3.B | Performance / Channels **nach Erstellung** | **Erstellung** |
-| 4.A/4.B | Performance / Channels **nach Aufenthalt** (mit PLAN) | Aufenthalt |
-| 5 | IST vs PLAN · Pace-Fortschritt | Aufenthalt |
-| 6 | Channel-Mix Detail | Aufenthalt |
-| 7.A–7.D | Heatmaps (Standort×Monat, Channel×Standort, Top-Movers, Channel×LOS) | Aufenthalt |
+| 2.A/2.B | Performance / Channels **nach Erstellung** | **Erstellung** |
+| 3.A/3.B | Performance / Channels **nach Aufenthalt** (mit PLAN) | Aufenthalt |
+| 4 | IST vs PLAN · Pace-Fortschritt → Verweis Pickup-Seite | - |
+| 5 | Channel-Mix Detail | Aufenthalt |
+| 6.A-6.D | Heatmaps (Standort×Monat, Channel×Standort, Top-Movers, Channel×LOS) | Aufenthalt |
 
-Der frühere §8 „Stay × Creation" ist auf die **eigene Seite Pickup / Vorlauf-Analyse**
-umgezogen; der Sidebar-Toggle im Global Report ist damit wieder rein binär.
+**Pickup / Vorlauf-Analyse** - 7 Sektionen:
 
-**Pickup / Vorlauf-Analyse** (eigene Seite, Position 2):
-
-| Block | Inhalt | Basis |
+| # | Block | Inhalt |
 |---|---|---|
-| Headline | Pickup-Anteil NEW/OLD + Δ pp + OTB | Stay × Creation |
-| Buchungskurve | kumulierter Pickup-Anteil je Erstellungs-Tag | Doppelfilter |
-| Kategorie-Balken | Pickup-Anteil je Standort/Kanal/Segment | Doppelfilter |
-| Tabellen | Erstellt · OTB · Pickup-Anteil · Δ Pickup, je Kategorie | Doppelfilter |
-| Downloads | 3 separate: Tabellen, Roh-Timeslices, Kurve | – |
+| 1 | Headline | Pickup kumuliert NEW/OLD (+ Fenster) · OTB Δ heute · OTB gesamt |
+| 2 | **Pace by Month** | EIGENE Einstellungen: aktuelles Jahr vs Vorjahr, Stichtag = Snapshot, Storno immer As-of; Standorte = Sidebar (inkl. Späte-Öffner-Ausschluss). Grafik: EoM-final / Vorjahr-Stichtag / aktuell-Stichtag je Monat. Darunter **Stichtagsblick** auf den aktuellen Monat: eine Zeile = ein As-of-Stichtag (Tagesende); vergangene Zeilen ändern sich bei einem Refresh nicht mehr |
+| 3 | Buchungskurve | kumulierter Pickup-Anteil je Erstellungs-Tag / Lead-Time |
+| 4 | Kategorie-Balken | Pickup-Anteil je Standort/Kanal/Segment |
+| 5 | Tabellen | Erstellt · OTB · Pickup-Anteil · Δ Pickup, je Kategorie |
+| 6 | Pace-to-PLAN | OTB vs. Ziel + Zeit-Fortschritt |
+| 7 | Downloads | Tabellen-Excel, Roh-Timeslices, Kurven-CSV |
 
-Storno-Modus hier **3-fach** (All in / All out / As-of, Kap. 7c). Nenner (OTB) =
-voller Stay-Umsatz zum **selben** Stichtag → Pickup-Anteil ≤ 100 %. Funktioniert
-vorwärts (Zukunftsmonat) wie rückwärts (vergangenen Monat auswerten).
+**Stichtag-Konvention (überall):** Stichtag = ganzer Kalendertag, d.h.
+Tagesende 24:00 Europe/Berlin. Am Stichtag erstellte Buchungen zählen mit;
+ein Storno mit Zeitstempel am Stichtag zählt raus. Ein As-of-Tag ist erst
+final, wenn der Snapshot nach diesem Tag gezogen wurde.
 
-**Weitere Seiten:** *Daten aktualisieren* (BigQuery-Refresh), *B2B Deep-Dive*
-(company_code / corporateCode / fuzzy-Firmen + Excel), *Code Deep-Dive* (eine Firma 360°),
-*Promo-Codes* (Promo→Firmencode-Reklassifizierung), *Plan-Upload*.
+**Weitere Seiten:** *Daten aktualisieren* (BigQuery-Refresh), *B2B Deep-Dive*,
+*Code Deep-Dive*, *Promo-Codes* (Promo→Firmencode-Reklassifizierung).
 
-**Querschnitt:** Der Sidebar-Toggle „Storno + No-Show einbeziehen" wirkt in allen
-„normalen" Sektionen (Default realized-only, binär). Eigene Logik behalten: Pace (§2 beide
-Seiten), Storno-Risiko (Standort §13) und die As-of-/3-fach-Sicht der **Pickup-Analyse**.
+**Querschnitt:** Der Sidebar-Toggle „Storno + No-Show einbeziehen" wirkt in
+allen „normalen" Sektionen (Default realized-only, binär). Eigene Logik:
+Pace by Month (Pickup §2, immer As-of) und die As-of-/3-fach-Sicht der
+übrigen Pickup-Blöcke. Der Späte-Öffner-Ausschluss (Toggle + Warnbanner)
+existiert im Global Report UND in der Pickup-Analyse.
 """
     )
 

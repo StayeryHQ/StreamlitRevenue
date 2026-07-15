@@ -79,7 +79,7 @@ with cols[0]:
         """
         ### Global Report
         Standortübergreifender Quartal-Recap mit IST vs. PLAN vs. Vorjahr.
-        Auto-Alerts, Pace-by-Month, Heatmaps, Top-Movers.
+        Auto-Alerts, Heatmaps, Top-Movers.
         """
     )
     st.page_link("pages/1_Global_Report.py", label="→ Global Report öffnen")
@@ -88,7 +88,7 @@ with cols[0]:
         """
         ### Pickup / Vorlauf-Analyse
         Stay × Creation: Wie viel eines Aufenthalts-Zeitraums bis zum Stichtag
-        gebucht war - Pickup-Anteil, Buchungskurve, YoY-Vorlauf. Vor- & rückwärts.
+        gebucht war - Pace by Month, Pickup-Anteil, Buchungskurve, YoY-Vorlauf.
         """
     )
     st.page_link("pages/2_Pickup_Analyse.py", label="→ Pickup-Analyse öffnen")

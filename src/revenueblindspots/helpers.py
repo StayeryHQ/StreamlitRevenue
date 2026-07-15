@@ -1982,6 +1982,15 @@ def asof_on_the_books_mask(
 ) -> pd.Series:
     """Boolean mask of rows that were on the books at ``asof`` (point-in-time).
 
+    **Stichtag-Konvention (festgelegt): der Stichtag ist der KOMPLETTE
+    Kalendertag - Tagesende 24:00 Europe/Berlin.** Alle Zeitstempel werden auf
+    den Kalendertag normalisiert: Buchungen, die irgendwann am Stichtag
+    erstellt wurden, zählen MIT (``created <= asof``); Stornos mit Zeitstempel
+    am Stichtag gelten als bereits bekannt und zählen RAUS. Konsequenz: Ein
+    As-of-Tag D ist erst „fertig", wenn der Snapshot NACH D gezogen wurde -
+    vergangene Stichtage sind eingefrorene Rekonstruktionen, die sich bei
+    einem Daten-Refresh nicht mehr ändern.
+
     A row counts as on the books at the cutoff when it was already created
     (``created <= asof``) and - unless cancellations are included - had at that
     date neither been cancelled nor resolved as a no-show. Both the cancellation

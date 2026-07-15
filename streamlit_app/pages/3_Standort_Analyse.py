@@ -212,7 +212,7 @@ st.caption(
     "Badge je Sektion zeigt die Datumsachse: **📅 Aufenthalt** (KPIs, Channels, LOS, "
     "Wochentag, Inland/Ausland, Länder) vs. **🖊 Erstellung** (Gruppen-Größe, "
     "Firmenkunden, Direct-Offline, Vertragscodes). Storno/No-Show via Sidebar-Toggle. "
-    "Pace by Month lebt auf der Pickup-Seite (§6); Vorlaufzeit/Storno & Daily "
+    "Pace by Month lebt auf der Pickup-Seite (§2); Vorlaufzeit/Storno & Daily "
     "Occupancy ziehen ins Overbooking-Tool um."
 )
 
