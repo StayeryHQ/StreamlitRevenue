@@ -245,6 +245,15 @@ def apply_code_overrides(df: pd.DataFrame) -> pd.DataFrame:
         out.loc[sel, "effective_code"] = target_code[sel]
 
     if "has_code" in out.columns:
+        if out["has_code"].dtype not in (bool, "boolean"):
+            # Defensiv: falls die Spalte NULLs enthält (z.B. Timeslices, wo
+            # `has_code` nicht für jede Zeile gesetzt ist), kommt sie als
+            # object oder - nach `_optimize_string_memory` - als
+            # string[pyarrow] an. Auf die nullable "boolean"-Dtype casten
+            # (erhält NA statt sie in bool zu erzwingen); ein direktes
+            # `= True` auf einer Arrow-String-Spalte würde sonst TypeError
+            # werfen.
+            out["has_code"] = out["has_code"].astype("boolean")
         out.loc[sel, "has_code"] = True
 
     if "firm_by_code" in out.columns:
@@ -260,6 +269,8 @@ def apply_code_overrides(df: pd.DataFrame) -> pd.DataFrame:
                 m = firm_mask & _empty_mask(out[col])
                 out.loc[m, col] = firm_for[m]
         if "has_company" in out.columns:
+            if out["has_company"].dtype not in (bool, "boolean"):
+                out["has_company"] = out["has_company"].astype("boolean")
             out.loc[firm_mask, "has_company"] = True
 
     return out

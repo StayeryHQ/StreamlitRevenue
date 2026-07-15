@@ -407,9 +407,23 @@ def _optimize_string_memory(df: pd.DataFrame) -> pd.DataFrame:
 
     Spalten, die sich nicht sauber konvertieren lassen (gemischte Nicht-String-
     Objekte), bleiben defensiv unverändert. In-place auf der übergebenen Kopie.
+
+    WICHTIG: object-Spalten mit Bool/None-Werten (z.B. ``has_code`` mit echten
+    NULLs im Parquet-Snapshot) werden NICHT konvertiert. ``pd.read_parquet``
+    liefert eine nullable-bool-Spalte mit fehlenden Werten als object-dtype
+    (True/False/None gemischt) zurück - ein blindes ``astype("string[pyarrow]")``
+    würde daraus eine Arrow-String-Spalte machen. Ein späteres
+    ``df.loc[sel, "has_code"] = True`` (z.B. in ``overrides.apply_code_overrides``)
+    crasht dann mit ``TypeError: Invalid value 'True' for dtype 'str'`` - reine
+    pandas/pyarrow-Bugfix-Historie, kein Python-Versionsproblem. Deshalb wird
+    der tatsächliche Inhalt jeder object-Spalte per ``infer_dtype`` geprüft und
+    nur "echte" String-Spalten werden konvertiert.
     """
     for col in df.columns:
         if df[col].dtype != object:
+            continue
+        non_null = df[col].dropna()
+        if len(non_null) and pd.api.types.infer_dtype(non_null, skipna=True) != "string":
             continue
         try:
             df[col] = df[col].astype("string[pyarrow]")
