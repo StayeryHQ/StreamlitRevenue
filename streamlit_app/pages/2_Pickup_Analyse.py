@@ -21,9 +21,8 @@ import pandas as pd
 import streamlit as st
 
 from components import cached_data as CD
-from components import global_charts as GC
+from components import filter_flags, inject_brand_css, sync_snapshot_override
 from components import global_tables as GT
-from components import inject_brand_css, sync_snapshot_override
 from components.alerts import alert_card
 from components.brand import hero
 from components.global_tables import CancelMode
@@ -41,41 +40,42 @@ st.session_state["__page"] = PAGE
 hero(
     eyebrow="Portfolio · Booking-Pace",
     title="Pickup / Vorlauf-Analyse",
-    subtitle="Stay × Creation: Wie viel Umsatz eines Aufenthalts-Zeitraums war "
-    "zu einem Stichtag schon gebucht - im Jahresvergleich auf denselben Vorlauf "
-    "normiert. Vorwärts (füllender Zukunftsmonat) wie rückwärts (vergangenen "
-    "Monat auswerten).",
+    subtitle="Stay × Creation: Wie viel Umsatz eines Aufenthalts-Fensters war zum "
+    "Stichtag schon gebucht - im Jahresvergleich auf denselben Buchungsvorlauf "
+    "gespiegelt."
 )
 
 with st.expander("Was zeigt diese Seite? (kurz erklärt)", expanded=False):
     st.markdown(
         """
 **Zwei Datumsachsen kombiniert.** *Stay-Datum* = wann der Gast übernachtet;
-*Erstellungs-Datum* = wann gebucht wurde. Diese Seite beantwortet:
-**Wie viel Umsatz eines Aufenthalts-Zeitraums war zu einem Stichtag schon
-gebucht - und wie schlägt sich das gegen das Vorjahr?**
+*Erstellungs-Datum* = wann gebucht wurde. Diese Seite beantwortet: **Wie viel
+Umsatz eines Aufenthalts-Zeitraums war wurde in einem bestimmten Zeitraum gebucht?**
 
-**Pickup-Anteil - die Kernzahl.**
+**Drei Filter wirken parallel**:
+
+- **Aufenthalts-Fenster (Stay).** Der Zeitraum des Stays. Das
+  Vergleichsjahr spiegelt dasselbe Fenster. Buchungen mit Nächten in mehreren Monaten
+  werden anteilig auf die Monate verteilt.
+- **Erstellungs-Fenster (Creation).** *Festes Fenster* = nur in diesem Zeitraum
+  gebucht. *Alles bis Stichtag* = kein unteres Datum als Filter.
+- **Stichtag (As-of).** Point-in-time-Grenze. Der Vorjahres-Stichtag wird
+  automatisch gespiegelt, damit beide Jahre auf **demselben Buchungsvorlauf**
+  verglichen werden.
+
+**Pickup-Anteil.**
 `Pickup-Anteil = Erstellt-im-Fenster ÷ OTB gesamt`
 
 - *Erstellt-im-Fenster (€)* = Umsatz für Stays im Stay-Fenster, der im gewählten
-  **Erstellungs-Fenster** gebucht wurde.
+  **Erstellungs-Fenster** gebucht wurde. (Kumuliert zählt ebenfalls vergangene Monate)
 - *OTB gesamt (€)* = gesamter Stay-Umsatz **on-the-books** zum Stichtag, ohne
-  Erstellungs-Filter. Beide zum **selben Stichtag** gemessen.
+  Erstellungs-Filter. Beide zum **selben Stichtag** gemessen, daher ≤ 100 %.
 
-**Fairer Jahresvergleich.** Der Vorjahres-Stichtag ist der aktuelle Stichtag
-minus ganze Jahre. Beide Jahre werden so auf **demselben Buchungsvorlauf**
-verglichen - egal ob der Monat noch **in der Zukunft** liegt (füllt sich noch)
-oder schon **vorbei** ist (im Nachhinein lernen, z.B. im Februar den Januar).
-
-**Storno-Modus.** *All in* = alle Buchungen (inkl. später
-storniert / No-Show). *All out* = nur realisierte (finaler Status). *As-of* =
-point-in-time zum Stichtag (Storno bis `cancel_time`, No-Show bis Anreise). Für
-vergangene Monate sind As-of und All out gleich; für Zukunftsmonate zeigt As-of
-den Stand, wie er am Stichtag aussah.
-
-**Creation-Fenster.** *Festes Fenster* = z.B. nur im Juni gebucht (eine konkrete
-Vorlauf-Phase). *Alles bis Stichtag* = kompletter Vorlauf ohne untere Grenze.
+**Storno-Modus.** *All in* = alle Buchungen (inkl. später storniert / No-Show).
+*All out* = nur realisierte (finaler Status). *As-of* = point-in-time zum
+Stichtag (Storno bis `cancel_time`, No-Show bis Anreise). Für vergangene Monate
+sind As-of und All out gleich; für Zukunftsmonate zeigt As-of den Stand, wie er
+am Stichtag aussah.
 """
     )
 
@@ -153,7 +153,7 @@ with st.sidebar:
             key="pu_asof",
             help="Point-in-time-Grenze. Default = Snapshot. Für Rückwärts-Analysen "
             "frei wählbar. Der Vorjahres-Stichtag wird automatisch gespiegelt. "
-            "Konvention: Der Stichtag ist ein GANZER Kalendertag (keine Uhrzeit) - "
+            "Konvention: Der Stichtag ist ein ganzer Kalendertag (keine Uhrzeit). "
             "Buchungen, die am Stichtag erstellt wurden, zählen mit; ein Storno "
             "mit Zeitstempel am Stichtag gilt als bereits bekannt (zählt raus).",
         )
@@ -163,9 +163,7 @@ with st.sidebar:
             value=False,
             key="pu_include_late_openers",
             help="Standorte, deren Eröffnung nach dem OLD-Periodenende liegt, "
-            "werden standardmäßig ausgeschlossen - sonst verfälschen "
-            "0-€-Zeilen die Totale & YoY-Vergleiche (gilt auch für Pace by "
-            "Month). Aktivieren, wenn du sie trotzdem sehen willst.",
+            "werden standardmäßig ausgeschlossen.",
         )
 
         st.markdown("**Storno-Modus**")
@@ -231,19 +229,20 @@ cre_end_old = H.mirror_years(cre_end_new, YEAR_DELTA)
 period_tag_new = f"{start_new:%d.%m.%Y}–{end_new:%d.%m.%Y}"
 period_tag_old = f"{start_old:%d.%m.%Y}–{end_old:%d.%m.%Y}"
 
-st.caption(
-    f"**Stay-Fenster:** {period_tag_new} (NEW) ↔ {period_tag_old} (OLD)  ·  "
-    f"**Erstellungs-Fenster:** {cre_tag}  ·  "
-    f"**Stichtag:** {asof_new:%d.%m.%Y} (NEW) · {asof_old:%d.%m.%Y} (OLD)  ·  "
-    f"**Storno-Modus:** {cmode_label}."
-)
-st.caption(
-    "**Pickup-Anteil** = Erstellt-im-Fenster ÷ OTB gesamt (voller Stay-Umsatz, "
-    "ohne Erstellungs-Filter) - beide zum selben Stichtag, daher ≤ 100 %. "
-    "Zähler und Nenner sind YoY auf denselben Vorlauf gespiegelt."
-)
+# Aktive Filter als kompakte Chips je Grafik (statt einer globalen Leiste).
+# Das Erstellungs-Fenster ist nur im Modus „Festes Fenster" ein eigener Filter;
+# in „Alles bis Stichtag" greift es nicht (fällt mit dem Stichtag zusammen).
+_festes_fenster = cre_mode == "Festes Fenster (von–bis)"
+_flag_stay = ("Stay-Fenster", f"{period_tag_new} vs {period_tag_old}", "on")
+if _festes_fenster:
+    _flag_cre = ("Erstellungs-Fenster", cre_tag, "on")
+else:
+    _flag_cre = ("Erstellungs-Fenster", "greift nicht (alles bis Stichtag)", "off")
+# Stichtag ist auf allen Grafiken die %-/OTB-Basis -> durchgehend hervorgehoben.
+_flag_asof_hi = ("Stichtag", f"{asof_new:%d.%m.%Y} · Vorjahr {asof_old:%d.%m.%Y}", "hi")
+_flag_storno = ("Storno-Modus", cmode_label.split(" (")[0], "on")
 
-# Proactive (wie Global Report): Standorte, die in der OLD-Periode noch nicht
+# Standorte, die in der OLD-Periode noch nicht
 # offen waren, werden standardmäßig aus der Analyse entfernt + Warnung oben.
 _late_openers = H.properties_without_old_data(props_pick, end_old)
 if _late_openers:
@@ -276,145 +275,26 @@ if _late_openers:
             )
             st.stop()
 
-# ============================== Daten laden ================================
-with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
-    _pull_start = min(start_old, start_new, cre_start_old, cre_start_new)
-    nightly = CD.get_timeslices(start=_pull_start, end=None, properties=props_pick)
-    plan_dict = CD.get_active_plan()  # PLAN aus BigQuery-Snapshot (plan.parquet)
-
-if nightly is None or nightly.empty:
-    alert_card("Keine Timeslices im gewählten Bereich.", kind="info")
-    st.stop()
-
-# ============================== Tabellen ===================================
-_common = dict(
-    cancel_mode=CMODE,
-    pickup=True,
-)
-disp_loc, raw_loc = GT.performance_by_stay_created(
-    nightly, props_pick, start_new, end_new, start_old, end_old,
-    cre_start_new, cre_end_new, cre_start_old, cre_end_old,
-    asof_new, asof_old, YEAR_OLD, YEAR_NEW, **_common,
-)
-disp_ch, raw_ch = GT.channel_volume_by_stay_created(
-    nightly, start_new, end_new, start_old, end_old,
-    cre_start_new, cre_end_new, cre_start_old, cre_end_old,
-    asof_new, asof_old, YEAR_OLD, YEAR_NEW, **_common,
-)
-disp_seg, raw_seg = GT.segment_volume_by_stay_created(
-    nightly, start_new, end_new, start_old, end_old,
-    cre_start_new, cre_end_new, cre_start_old, cre_end_old,
-    asof_new, asof_old, YEAR_OLD, YEAR_NEW, **_common,
-)
-
-if raw_loc.empty:
-    alert_card(
-        "Keine Buchungen mit Aufenthalt im Stay-Fenster im gewählten "
-        "Erstellungs-Fenster / Storno-Modus.",
-        kind="info",
-    )
-    st.stop()
-
-_tot = raw_loc[raw_loc["property_code"] == "TOTAL"].iloc[0]
-_otb_new = float(_tot["stay_new"])
-_otb_old = float(_tot["stay_old"])
-_erst_new = float(_tot["ist_new"])
-_erst_old = float(_tot["ist_old"])
-# Fenster-Pickup: NUR im Erstellungs-Fenster gebuchter Umsatz ÷ OTB.
-_pu_new = (_erst_new / _otb_new * 100.0) if _otb_new > 0 else float("nan")
-_pu_old = (_erst_old / _otb_old * 100.0) if _otb_old > 0 else float("nan")
-_pu_delta = _pu_new - _pu_old if pd.notna(_pu_new) and pd.notna(_pu_old) else float("nan")
-
-# Kumulierter Pickup: ALLES bis zum Ende des Erstellungs-Fensters gebuchte
-# (keine untere Grenze) ÷ OTB - "wie viel des OTB stand Ende Juni schon?".
-# Liegt das Fenster-Ende am/nach dem Stichtag, ist der Wert per Definition 100 %.
-_CUM_FLOOR = pd.Timestamp("2000-01-01")
-_cum_new = float(GT.stay_created_scope(
-    nightly, start_new, end_new, _CUM_FLOOR, cre_end_new, asof_new, cancel_mode=CMODE
-)["revenue"].sum())
-_cum_old = float(GT.stay_created_scope(
-    nightly, start_old, end_old, _CUM_FLOOR, cre_end_old, asof_old, cancel_mode=CMODE
-)["revenue"].sum())
-_pu_cum_new = (_cum_new / _otb_new * 100.0) if _otb_new > 0 else float("nan")
-_pu_cum_old = (_cum_old / _otb_old * 100.0) if _otb_old > 0 else float("nan")
-_pu_cum_delta = (
-    _pu_cum_new - _pu_cum_old
-    if pd.notna(_pu_cum_new) and pd.notna(_pu_cum_old)
-    else float("nan")
-)
-
-
-def _pct(v: float) -> str:
-    return f"{v:.1f} %" if pd.notna(v) else "–"
-
-
-# OTB "heute" (= am Stichtag) mit REINER As-of-Logik - unabhängig vom
-# Storno-Modus-Schalter, identisch zur Monats-Tabelle & zum Tages-Verlauf in §5:
-# No-Shows raus, Storno löst zu cancel_time auf (Storno AM Stichtag = raus,
-# Buchung erstellt AM Stichtag = rein; Stichtag = ganzer Kalendertag).
-def _asof_window_otb(df: pd.DataFrame, s_: pd.Timestamp, e_: pd.Timestamp,
-                     asof_: pd.Timestamp) -> float:
-    sub = H.filter_period(df, s_, e_, "stay_date")
-    if "is_no_show" in sub.columns:
-        sub = sub[~sub["is_no_show"].astype(bool)]
-    if sub.empty:
-        return 0.0
-    on = H.asof_on_the_books_mask(sub, asof_, include_cancellations=False)
-    return float(sub.loc[on, "revenue"].sum())
-
-
-_aotb_new = _asof_window_otb(nightly, start_new, end_new, asof_new)
-_aotb_old = _asof_window_otb(nightly, start_old, end_old, asof_old)
-_aotb_delta_abs = _aotb_new - _aotb_old
-_aotb_delta_pct = (_aotb_new / _aotb_old - 1) * 100.0 if _aotb_old > 0 else float("nan")
-
-
-# ============================== KPIs =======================================
-st.markdown("## 1 · Headline-Kennzahlen")
-st.markdown("*Portfolio-Summe über alle gewählten Standorte.*")
-st.caption(
-    "**Pickup kumuliert** = Anteil des OTB, der **bis zum Ende des "
-    "Erstellungs-Fensters** gebucht war (ohne untere Grenze) - wie viel stand "
-    "z.B. Ende Juni schon in den Büchern? **In Klammern: Fenster-Pickup** = nur der "
-    "**im Erstellungs-Fenster** (z.B. 01.–30.06.) erstellte Umsatz ÷ OTB. "
-    "**OTB Δ heute** = OTB des Stay-Fensters am Stichtag vs. Vorjahres-Stichtag "
-    "(reine As-of-Logik: No-Shows raus, Storno bis `cancel_time` - unabhängig vom "
-    "Storno-Modus-Schalter - dieselbe Konvention wie Pace by Month, §2). "
-    "**OTB gesamt** = zum Stichtag gebuchter Stay-Umsatz (NEW), unabhängig vom "
-    "Erstellungs-Fenster. Endet das Fenster am/nach dem Stichtag, ist kumuliert = 100 %. "
-    "Die Δ-Pickup-Werte (pp) stehen weiterhin in den Tabellen (§5)."
-)
-k1, k2, k3, k4 = st.columns(4)
-k1.metric(
-    f"Pickup kumuliert {YEAR_NEW}",
-    _pct(_pu_cum_new),
-    delta=f"(im Fenster: {_pct(_pu_new)})",
-    delta_color="off",
-)
-k2.metric(
-    f"Pickup kumuliert {YEAR_OLD}",
-    _pct(_pu_cum_old),
-    delta=f"(im Fenster: {_pct(_pu_old)})",
-    delta_color="off",
-)
-k3.metric(
-    f"OTB Δ heute vs {YEAR_OLD}",
-    f"{_aotb_delta_pct:+.1f} %" if pd.notna(_aotb_delta_pct) else "–",
-    delta=f"{_aotb_delta_abs:+,.0f} €".replace(",", "."),
-)
-k4.metric(f"OTB gesamt {YEAR_NEW}", H.fmt_eur(_otb_new))
-
-
-# ============================== 2 · Pace by Month ==========================
-# Migriert aus Global Report. EIGENE Einstellungen - die Seiten-Filter
-# (Stay-/Erstellungs-Fenster, Stichtag, Vergleichsjahr, Storno-Modus) greifen
-# hier NICHT: immer aktuelles Kalenderjahr vs. Vorjahr, Stichtag = Snapshot.
-# Standort-Basis = Sidebar-Auswahl (inkl. Späte-Öffner-Ausschluss).
-st.markdown("## 2 · Pace by Month")
+# ============================== 1 · Pace by Month ==========================
+st.markdown("## 1 · Pace by Month")
 
 _PACE_YEAR = int(pd.Timestamp.today().year)
 _PACE_SNAP = SNAP_DATE.normalize()
 _PACE_SNAP_OLD = H.mirror_years(_PACE_SNAP, 1)
+
+alert_card(
+    "Diese Grafik hat eigene Einstellungen - die Seiten-Filter (Stay-Fenster, "
+    "Erstellungs-Fenster, Stichtag, Storno-Modus) greifen hier NICHT. Nur die "
+    "Standort-Auswahl aus der Sidebar wirkt.",
+    kind="info",
+    title="Filter greifen hier nicht",
+)
+filter_flags([
+    ("Stay-Fenster", "greift nicht (eigene Sicht)", "off"),
+    ("Erstellungs-Fenster", "greift nicht", "off"),
+    ("Stichtag", f"Snapshot {_PACE_SNAP:%d.%m.%Y}", "on"),
+    ("Storno-Modus", "As-of (fix)", "on"),
+])
 
 st.caption(
     f"**Eigene Einstellungen:** {_PACE_YEAR} vs {_PACE_YEAR - 1} · Stichtag = "
@@ -585,6 +465,134 @@ if props_pick:
         except Exception:
             st.dataframe(_daily, hide_index=True, use_container_width=True)
 
+# ============================== Daten laden ================================
+with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
+    _pull_start = min(start_old, start_new, cre_start_old, cre_start_new)
+    nightly = CD.get_timeslices(start=_pull_start, end=None, properties=props_pick)
+    plan_dict = CD.get_active_plan()  # PLAN aus BigQuery-Snapshot (plan.parquet)
+
+if nightly is None or nightly.empty:
+    alert_card("Keine Timeslices im gewählten Bereich.", kind="info")
+    st.stop()
+
+# ============================== Tabellen ===================================
+_common = dict(
+    cancel_mode=CMODE,
+    pickup=True,
+)
+disp_loc, raw_loc = GT.performance_by_stay_created(
+    nightly, props_pick, start_new, end_new, start_old, end_old,
+    cre_start_new, cre_end_new, cre_start_old, cre_end_old,
+    asof_new, asof_old, YEAR_OLD, YEAR_NEW, **_common,
+)
+disp_ch, raw_ch = GT.channel_volume_by_stay_created(
+    nightly, start_new, end_new, start_old, end_old,
+    cre_start_new, cre_end_new, cre_start_old, cre_end_old,
+    asof_new, asof_old, YEAR_OLD, YEAR_NEW, **_common,
+)
+disp_seg, raw_seg = GT.segment_volume_by_stay_created(
+    nightly, start_new, end_new, start_old, end_old,
+    cre_start_new, cre_end_new, cre_start_old, cre_end_old,
+    asof_new, asof_old, YEAR_OLD, YEAR_NEW, **_common,
+)
+
+if raw_loc.empty:
+    alert_card(
+        "Keine Buchungen mit Aufenthalt im Stay-Fenster im gewählten "
+        "Erstellungs-Fenster / Storno-Modus.",
+        kind="info",
+    )
+    st.stop()
+
+_tot = raw_loc[raw_loc["property_code"] == "TOTAL"].iloc[0]
+_otb_new = float(_tot["stay_new"])
+_otb_old = float(_tot["stay_old"])
+_erst_new = float(_tot["ist_new"])
+_erst_old = float(_tot["ist_old"])
+# Fenster-Pickup: NUR im Erstellungs-Fenster gebuchter Umsatz ÷ OTB.
+_pu_new = (_erst_new / _otb_new * 100.0) if _otb_new > 0 else float("nan")
+_pu_old = (_erst_old / _otb_old * 100.0) if _otb_old > 0 else float("nan")
+_pu_delta = _pu_new - _pu_old if pd.notna(_pu_new) and pd.notna(_pu_old) else float("nan")
+
+# Kumulierter Pickup: ALLES bis zum Ende des Erstellungs-Fensters gebuchte
+# (keine untere Grenze) ÷ OTB - "wie viel des OTB stand Ende Juni schon?".
+# Liegt das Fenster-Ende am/nach dem Stichtag, ist der Wert per Definition 100 %.
+_CUM_FLOOR = pd.Timestamp("2000-01-01")
+_cum_new = float(GT.stay_created_scope(
+    nightly, start_new, end_new, _CUM_FLOOR, cre_end_new, asof_new, cancel_mode=CMODE
+)["revenue"].sum())
+_cum_old = float(GT.stay_created_scope(
+    nightly, start_old, end_old, _CUM_FLOOR, cre_end_old, asof_old, cancel_mode=CMODE
+)["revenue"].sum())
+_pu_cum_new = (_cum_new / _otb_new * 100.0) if _otb_new > 0 else float("nan")
+_pu_cum_old = (_cum_old / _otb_old * 100.0) if _otb_old > 0 else float("nan")
+_pu_cum_delta = (
+    _pu_cum_new - _pu_cum_old
+    if pd.notna(_pu_cum_new) and pd.notna(_pu_cum_old)
+    else float("nan")
+)
+
+
+def _pct(v: float) -> str:
+    return f"{v:.1f} %" if pd.notna(v) else "–"
+
+
+# OTB "heute" (= am Stichtag) mit REINER As-of-Logik - unabhängig vom
+# Storno-Modus-Schalter, identisch zur Monats-Tabelle & zum Tages-Verlauf in §5:
+# No-Shows raus, Storno löst zu cancel_time auf (Storno AM Stichtag = raus,
+# Buchung erstellt AM Stichtag = rein; Stichtag = ganzer Kalendertag).
+def _asof_window_otb(df: pd.DataFrame, s_: pd.Timestamp, e_: pd.Timestamp,
+                     asof_: pd.Timestamp) -> float:
+    sub = H.filter_period(df, s_, e_, "stay_date")
+    if "is_no_show" in sub.columns:
+        sub = sub[~sub["is_no_show"].astype(bool)]
+    if sub.empty:
+        return 0.0
+    on = H.asof_on_the_books_mask(sub, asof_, include_cancellations=False)
+    return float(sub.loc[on, "revenue"].sum())
+
+
+_aotb_new = _asof_window_otb(nightly, start_new, end_new, asof_new)
+_aotb_old = _asof_window_otb(nightly, start_old, end_old, asof_old)
+_aotb_delta_abs = _aotb_new - _aotb_old
+_aotb_delta_pct = (_aotb_new / _aotb_old - 1) * 100.0 if _aotb_old > 0 else float("nan")
+
+
+# ============================== KPIs =======================================
+st.markdown("## 2 · Headline-Kennzahlen")
+st.markdown("*Portfolio-Summe über alle gewählten Standorte.*")
+st.caption(
+    "**Pickup kumuliert** = Anteil des OTB, der **bis zum Ende des "
+    "Erstellungs-Fensters** gebucht war (Klammer: Fenster-Pickup = nur der "
+    "**im gewählten Erstellungs-Fenster** erstellte Umsatz ÷ OTB). "
+    "**OTB gesamt** = Stay-Umsatz on-the-books **zum Stichtag** - "
+    f"{YEAR_NEW} am {asof_new:%d.%m.%Y}, {YEAR_OLD} am gespiegelten "
+    f"{asof_old:%d.%m.%Y}. Für noch **nicht abgeschlossene Monate** ist das der "
+    "Stand am Stichtag, **nicht** der finale Monatswert - so vergleichen beide "
+    "Jahre denselben Buchungsvorlauf. **OTB Δ heute** = OTB NEW vs. OLD, beide "
+    "as-of."
+)
+filter_flags([_flag_stay, _flag_cre, _flag_asof_hi, _flag_storno])
+k1, k2, k3, k4 = st.columns(4)
+k1.metric(
+    f"Pickup kumuliert {YEAR_NEW}",
+    _pct(_pu_cum_new),
+    delta=f"(im Fenster: {_pct(_pu_new)})",
+    delta_color="off",
+)
+k2.metric(
+    f"Pickup kumuliert {YEAR_OLD}",
+    _pct(_pu_cum_old),
+    delta=f"(im Fenster: {_pct(_pu_old)})",
+    delta_color="off",
+)
+k3.metric(
+    f"OTB Δ heute vs {YEAR_OLD}",
+    f"{_aotb_delta_pct:+.1f} %" if pd.notna(_aotb_delta_pct) else "–",
+    delta=f"{_aotb_delta_abs:+,.0f} €".replace(",", "."),
+)
+k4.metric(f"OTB gesamt {YEAR_NEW}", H.fmt_eur(_otb_new))
+
 
 # ============================== Buchungskurve ==============================
 # Creation-day-Scopes + Linien-Daten immer berechnen (Chart + CSV-Download).
@@ -598,6 +606,8 @@ _line_df = GT.daily_created_line_data(_scope_new, _scope_old, cre_start_new, cre
 
 st.markdown("## 3 · Buchungskurve")
 st.markdown("*Wie sich der gebuchte Anteil über die Zeit aufbaut - NEW vs. OLD.*")
+# %-Grafik: Basis ist der OTB am Stichtag -> Stichtag hervorgehoben.
+filter_flags([_flag_stay, _flag_cre, _flag_asof_hi])
 _curve_axis = st.radio(
     "X-Achse",
     ["Erstellungs-Tag", "Tage vor Anreise (Lead-Time)"],
@@ -646,13 +656,27 @@ else:
 
 # ============================== Pickup-Balken ==============================
 st.markdown("## 4 · Pickup-Anteil je Kategorie")
-st.markdown("*Wer liegt im Vorlauf vorn, wer hinkt hinterher?*")
-st.caption(
-    "Pickup-Anteil je Standort / Buchungskanal / Stay-Segment (ohne Total), "
-    "NEW vs. OLD. Höhere Balken = mehr des Stay-Umsatzes bereits gesichert. "
-    "Große NEW-über-OLD-Lücken = Standorte/Kanäle mit stärkerem Vorlauf als "
-    "im Vorjahr; NEW unter OLD = Nachhol-Bedarf."
-)
+st.markdown("*Anteil des OTB je Kategorie, der im Buchungs-Fenster reinkam.*")
+# Präzise, Modus-abhängige Beschreibung: die Balken sind Fenster-Pickup
+# (ist ÷ OTB) - der Erstellungs-Filter ist drin, nicht kumuliert. Nur im
+# Modus "Alles bis Stichtag" fällt das Fenster mit dem kumulierten OTB zusammen.
+if _festes_fenster:
+    _bar_caption = (
+        f"Pickup-Anteil je Standort / Buchungskanal / Stay-Segment (ohne Total), "
+        f"{YEAR_NEW} vs. {YEAR_OLD} nebeneinander. Jeder Balken = Anteil des OTB, "
+        f"der **genau im Erstellungs-Fenster ({cre_tag})** gebucht wurde - **nicht "
+        f"kumuliert**. Was davor schon gebucht war, steckt hier nicht drin."
+    )
+else:
+    _bar_caption = (
+        f"Pickup-Anteil je Standort / Buchungskanal / Stay-Segment (ohne Total), "
+        f"{YEAR_NEW} vs. {YEAR_OLD} nebeneinander. Jeder Balken = Anteil des OTB, "
+        f"der **bis zum Stichtag ({asof_new:%d.%m.%Y})** gebucht wurde - **kumuliert** "
+        f'(Modus „Alles bis Stichtag": keine untere Fenstergrenze).'
+    )
+st.caption(_bar_caption)
+# %-Grafik: Basis ist der OTB am Stichtag -> Stichtag hervorgehoben.
+filter_flags([_flag_stay, _flag_cre, _flag_asof_hi])
 _cat = st.radio(
     "Kategorie",
     ["Standort", "Buchungskanal", "Stay-Segment"],
@@ -674,6 +698,8 @@ else:
 # ============================== Tabellen ===================================
 st.markdown("## 5 · Tabellen")
 st.markdown("*Dieselbe Struktur je Kategorie - Detail hinter den Charts.*")
+# Enthält Pickup-Anteil-%-Spalten -> Stichtag (OTB-Basis) hervorgehoben.
+filter_flags([_flag_stay, _flag_cre, _flag_asof_hi])
 with st.expander("Spalten einfach erklärt (Klartext)", expanded=False):
     st.markdown(
         f"""
@@ -727,51 +753,6 @@ else:
     st.dataframe(disp_seg, hide_index=True, use_container_width=True)
 
 
-# ============================== Pace-to-PLAN ===============================
-st.markdown("## 6 · Pace-to-PLAN · OTB vs. Ziel")
-st.markdown("*Wie viel des Stay-PLANs ist zum Stichtag on-the-books?*")
-st.caption(
-    "IST = **OTB gesamt** (aktueller Stay-Umsatz zum Stichtag, gem. Storno-Modus) "
-    "je Standort gegen den **PLAN** des Stay-Fensters. **Fortschritt Zeit** = wie "
-    "viel der Periode am Stichtag verstrichen ist - liegt IST/PLAN darüber, sind "
-    "wir dem Zeitplan **voraus**, darunter **hinterher**. Unabhängig vom "
-    "Erstellungs-Fenster. (Früher Global Report §5.)"
-)
-if not plan_dict:
-    alert_card(
-        "Kein PLAN-Snapshot geladen - Pace-to-PLAN nicht verfügbar.", kind="info"
-    )
-else:
-    _pace_src = raw_loc[raw_loc["property_code"] != "TOTAL"][
-        ["Standort", "property_code", "stay_new"]
-    ].copy()
-    _pace_src["ist_new"] = _pace_src["stay_new"]
-    _pace_src["plan_new"] = [
-        H.plan_revenue(pc, start_new, end_new, plan=plan_dict)
-        for pc in _pace_src["property_code"]
-    ]
-    _pace_df = GC.build_pace_table(_pace_src, start_new, end_new, today=asof_new)
-    if _pace_df.empty:
-        alert_card(
-            "Keine Pace-Daten (kein PLAN für dieses Stay-Fenster).", kind="info"
-        )
-    else:
-        _pace_disp = _pace_df.copy()
-        for _c in ("IST (€)", "PLAN (€)"):
-            _pace_disp[_c] = _pace_disp[_c].map(H.fmt_eur)
-        for _c in ("IST / PLAN (%)", "Fortschritt Zeit (%)"):
-            _pace_disp[_c] = _pace_disp[_c].map(
-                lambda v: f"{v:.1f}" if pd.notna(v) else "-"
-            )
-        st.dataframe(_pace_disp, hide_index=True, use_container_width=True)
-        _pace_key = (
-            f"pu_pace::{start_new.date()}::{asof_new.date()}::{CMODE.value}"
-            f"::{'+'.join(sorted(props_pick))}"
-        )
-        _pace_png = CD.chart_png(
-            _pace_key, GC.pace_to_plan_chart, _pace_df, YEAR_NEW, period_tag_new
-        )
-        st.image(_pace_png, use_container_width=False)
 
 
 # ============================== Downloads (3 separate) =====================
@@ -865,7 +846,7 @@ def _curve_csv() -> bytes:
     return out.to_csv(index=False).encode("utf-8")
 
 
-st.markdown("## 7 · Downloads")
+st.markdown("## 6 · Downloads")
 st.markdown("*Drei getrennte Exporte - genau für diese Sicht.*")
 st.caption(
     "**Pickup-Tabellen (Excel)** = die drei aggregierten Tabellen oben, fertig "

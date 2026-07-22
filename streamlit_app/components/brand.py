@@ -502,6 +502,44 @@ hr {
     margin-top: 0.2rem;
     max-width: 720px;
 }
+
+/* -------------------------------------------------------------------------
+   15 - Filter-Flags: kompakte Chips je Grafik (Stichtag / Stay / Fenster).
+        Zustaende: on (Brand-Akzent), hi (gelb hinterlegt, fuer %-Grafiken),
+        off (grau, durchgestrichener Wert = "greift hier nicht").
+   ------------------------------------------------------------------------- */
+.stayery-flags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin: 0.1rem 0 0.7rem;
+}
+.stayery-flag {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 5px;
+    font-size: 0.72rem;
+    line-height: 1.25;
+    background: ${bg};
+    border: 1px solid ${border};
+    border-left: 3px solid ${yellow};
+    border-radius: 5px;
+    padding: 3px 9px;
+}
+.stayery-flag.hi { background: #FFFBE0; border-color: ${yellow}; }
+.stayery-flag.off { background: transparent; border-left-color: ${border}; }
+.stayery-flag-label {
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    font-weight: 600;
+    color: ${caption};
+}
+.stayery-flag.off .stayery-flag-label { color: ${muted}; }
+.stayery-flag-value { color: ${ink}; font-weight: 600; }
+.stayery-flag.off .stayery-flag-value {
+    color: ${muted};
+    font-weight: 400;
+}
 </style>
 """)
 
@@ -522,6 +560,34 @@ def hero(eyebrow: str, title: str, subtitle: str | None = None) -> None:
         f"{sub}</div>",
         unsafe_allow_html=True,
     )
+
+
+def filter_flags(items: list[tuple]) -> None:
+    """Compact per-graph row of active-filter pills.
+
+    Args:
+        items: list of (label, value, state) tuples. state:
+            "on"  = filter active (brand accent + value),
+            "hi"  = active + highlighted (pale-yellow fill; fuer %-Grafiken, wo
+                    der Stichtag-/OTB-Bezug besonders betont werden soll),
+            "off" = greift fuer diese Grafik nicht (grau, Wert durchgestrichen).
+    """
+    flags = []
+    for it in items:
+        label = it[0]
+        value = it[1] if len(it) > 1 else None
+        state = it[2] if len(it) > 2 else "on"
+        cls = "stayery-flag" + (f" {state}" if state in ("off", "hi") else "")
+        val_html = f'<span class="stayery-flag-value">{value}</span>' if value else ""
+        flags.append(
+            f'<span class="{cls}">'
+            f'<span class="stayery-flag-label">{label}</span>{val_html}</span>'
+        )
+    if flags:
+        st.markdown(
+            f'<div class="stayery-flags">{"".join(flags)}</div>',
+            unsafe_allow_html=True,
+        )
 
 
 def sync_snapshot_override() -> str | None:
