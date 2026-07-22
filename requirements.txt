@@ -1,16 +1,12 @@
-# Runtime-Dependencies für Streamlit Community Cloud.
-# Single source of truth bleibt pyproject.toml — diese Datei spiegelt nur
-# die [project.dependencies] Sektion für den Cloud-Build. Bei lokalen
-# Setups: `uv sync` ignoriert diese Datei und nutzt pyproject + uv.lock.
-
-streamlit>=1.37
+# Mirror of pyproject dependencies (Dash app).
+dash>=4.3
+dash-mantine-components>=2.8
+dash-ag-grid>=35.0
 pandas>=2.2
 numpy>=1.26
-matplotlib>=3.8
 pyarrow>=15.0
 openpyxl>=3.1
 pyyaml>=6.0
-tabulate>=0.9
 rapidfuzz>=3.6
 google-cloud-bigquery>=3.23
 db-dtypes>=1.3
