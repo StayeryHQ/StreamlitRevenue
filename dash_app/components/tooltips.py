@@ -5,7 +5,6 @@ Zentrale Sammlung. Diese Texte tauchen nicht im Markdown-Export auf.
 
 from __future__ import annotations
 
-
 # ============================== KPI-Tooltips ==============================
 # Standort-Analyse Headline-KPIs (Sektion 1)
 KPI_REVENUE = (

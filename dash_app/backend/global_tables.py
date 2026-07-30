@@ -26,8 +26,8 @@ RED_PCT = -10.0  # ≤ red → 🔴  (between → 🟠)
 
 def tendency_icon(
     diff_pct: float,
-    green_pct: "float | None" = None,
-    red_pct: "float | None" = None,
+    green_pct: float | None = None,
+    red_pct: float | None = None,
 ) -> str:
     """🟢🟠🔴 based on % deviation (Schwellen optional pro Aufruf)."""
     g = GREEN_PCT if green_pct is None else green_pct
@@ -91,8 +91,8 @@ def performance_by_stay(
     period_tag_old: str = "",
     plan: dict | None = None,
     include_cancellations: bool = False,
-    green_pct: "float | None" = None,
-    red_pct: "float | None" = None,
+    green_pct: float | None = None,
+    red_pct: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Standort-Performance nach Aufenthaltsdatum - IST vs PLAN vs LY.
 
@@ -195,8 +195,8 @@ def channel_volume_by_stay(
     year_old: int,
     year_new: int,
     include_cancellations: bool = False,
-    green_pct: "float | None" = None,
-    red_pct: "float | None" = None,
+    green_pct: float | None = None,
+    red_pct: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """3.B - Channel-Volumen nach Aufenthaltsdatum.
 
@@ -222,8 +222,8 @@ def performance_by_created(
     year_old: int,
     year_new: int,
     include_cancellations: bool = True,
-    green_pct: "float | None" = None,
-    red_pct: "float | None" = None,
+    green_pct: float | None = None,
+    red_pct: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Standort-Performance nach Erstellungsdatum - IST vs LY (KEIN PLAN).
 
@@ -310,8 +310,8 @@ def channel_volume_by_created(
     year_old: int,
     year_new: int,
     include_cancellations: bool = True,
-    green_pct: "float | None" = None,
-    red_pct: "float | None" = None,
+    green_pct: float | None = None,
+    red_pct: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """2.B - Channel-Volumen nach Erstellungsdatum.
 
@@ -336,8 +336,8 @@ def _build_channel_table(
     year_old: int,
     year_new: int,
     realized_only: bool,
-    green_pct: "float | None" = None,
-    red_pct: "float | None" = None,
+    green_pct: float | None = None,
+    red_pct: float | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build the channel volume table"""
     df_new = H.filter_realized(df_new, realized_only)
@@ -586,7 +586,7 @@ def stay_created_scope(
 ) -> pd.DataFrame:
     """Stay-Fenster ∩ Creation-Fenster, As-of am ``asof`` gefiltert.
 
-    Reine pandas-Logik (streamlit-frei, testbar): erst nach ``stay_date`` in
+    Reine pandas-Logik (UI-frei, testbar): erst nach ``stay_date`` in
     [start_stay, end_stay], dann nach ``created`` in [cre_start, cre_end]
     schneiden, dann die As-of-On-the-books-Maske (``H.asof_on_the_books_mask``)
     anwenden. Gibt eine gefilterte Kopie zurück.
@@ -1020,7 +1020,7 @@ def pickup_pace_curve(
     ``line_df`` aus ``daily_created_line_data``. Kumuliert ``rev_new``/``rev_old``
     über die Erstellungs-Tage und teilt durch das jeweilige OTB-Total → Anteil des
     bis zu diesem Tag gebuchten Umsatzes am gesamten Stay-Fenster-OTB. Für
-    ``st.line_chart`` (Index = Kalendertag NEW, Spalten = Jahre).
+    das Linien-Chart (Index = Kalendertag NEW, Spalten = Jahre).
     """
     if line_df is None or line_df.empty:
         return pd.DataFrame(columns=[str(year_new), str(year_old)])
@@ -1045,7 +1045,7 @@ def pickup_bars_data(
     year_new: int,
     year_old: int,
 ) -> pd.DataFrame:
-    """Pickup-Anteil (%) je Kategorie (ohne ``Total``) — für ``st.bar_chart``."""
+    """Pickup-Anteil (%) je Kategorie (ohne ``Total``) — für das Balken-Chart."""
     if raw is None or raw.empty:
         return pd.DataFrame(columns=[str(year_new), str(year_old)])
     sub = raw[raw[label_col] != "Total"].copy()
@@ -1076,7 +1076,7 @@ def pickup_leadtime_curve(
     **mindestens x Tage vor Anreise** gebucht war (``lead_time_days >= x``).
     Monoton fallend; **NEW über OLD = wir buchen weiter im Voraus** (mehr Umsatz
     früh gesichert). Über Monate hinweg vergleichbar (unabhängig von
-    Monatslänge / Kalendertag). Für ``st.line_chart`` (Index = Tage vor Anreise).
+    Monatslänge / Kalendertag). Für das Linien-Chart (Index = Tage vor Anreise).
 
     Args:
         scope_new: OTB-Menge NEW (``stay_only_scope``, alle Stay-Buchungen
@@ -1345,8 +1345,8 @@ def auto_alerts(
     year_old: int,
     year_new: int,
     include_cancellations: bool = False,
-    green_pct: "float | None" = None,
-    red_pct: "float | None" = None,
+    green_pct: float | None = None,
+    red_pct: float | None = None,
 ) -> list[dict]:
     """Generate alert dicts (kind / title / message) from the raw tables.
 

@@ -170,7 +170,7 @@ def override_signature() -> str:
     """Stabile Signatur des Stores für die Cache-Invalidierung.
 
     Ändert sich, sobald sich die Datei ändert (mtime + Größe). Damit verwerfen
-    die ``st.cache_data``-Loader ihre Caches automatisch, wenn eine
+    die Cache-Loader ihre Caches automatisch, wenn eine
     Reklassifizierung gespeichert wird.
 
     Returns:

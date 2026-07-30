@@ -2,13 +2,13 @@
 
 Wird aufgerufen von:
   * ``scripts/refresh_snapshot.py``  
-  * ``streamlit_app/pages/0_Daten_Aktualisieren.py``
+  * ``the Daten_Aktualisieren view``
   
 Caller-spezifische Unterschiede werden über zwei Parameter kontrolliert:
 
   * ``progress`` - eine Callback-Funktion ``progress(msg: str, pct: float | None)``.
-    CLI passt ``print``-Wrapper, Streamlit passt eine Closure die st.progress
-    + st.empty.markdown updated
+    Die CLI übergibt einen ``print``-Wrapper; die Dash-App (Daten-Seite) übergibt
+    eine Closure, die den Job-Fortschritt in die Job-Datei schreibt.
 
   * ``refreshed_via`` - Freitext-Marker der im ``metadata.json`` landet
 
@@ -185,7 +185,7 @@ def run_refresh(
         properties: Liste von hotel_codes. None oder leer : alle aus locations.yaml.
         snapshot_dir: Ziel-Pfad. None : ``$STAYERY_SNAPSHOT_DIR`` env-var, sonst
             ``data/`` im Repo. ``gs://``-URIs werden remote behandelt.
-        refreshed_via: Marker im metadata.json (z.B. ``streamlit_app``,
+        refreshed_via: Marker im metadata.json (z.B. ``dash_app``,
             ``scripts/refresh_snapshot.py``, ``github_action``).
         progress: Optional ``(msg, pct_or_none) -> None``.
 

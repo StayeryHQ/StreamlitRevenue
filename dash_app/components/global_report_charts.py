@@ -1,6 +1,6 @@
 # dash_app/components/global_report_charts.py
 # Pure Plotly builders for the Global Report page - a straight port of the old
-# matplotlib builders in streamlit_app/components/global_charts.py. Every builder
+# matplotlib builders in the global_charts module. Every builder
 # takes DataFrames in and returns a brand_figure'd go.Figure; axes, ordering and
 # annotations mirror the matplotlib originals. Colours come only from theme:
 # HEAT_SCALE for magnitude heatmaps, DIVERGING_SCALE for YoY-delta heatmaps,
@@ -76,14 +76,15 @@ def visual_scorecard(raw_stay: pd.DataFrame, year_old: int, year_new: int,
             name=f"IST {year_old}", hovertemplate=f"IST {year_old} %{{x:,.0f}} €<extra></extra>",
         ))
 
+    anns = []
     for _, r in score.iterrows():
         d = r["d_plan_pct"]
         if pd.notna(d):
-            fig.add_annotation(
+            anns.append(dict(
                 x=max(r["ist_new"], r["plan_new"]) * 1.01, y=r["Standort"],
                 text=f"{d:+.1f} %", showarrow=False, xanchor="left", yanchor="middle",
-                font=dict(size=10, color=theme.GREEN if d >= 0 else theme.RED),
-            )
+                font=dict(size=10, color=theme.GREEN if d >= 0 else theme.RED)))
+    theme.add_annotations(fig, anns)
 
     # Legend-only swatches for the colour thresholds (x=None => not drawn).
     for col, lbl in [
@@ -143,11 +144,10 @@ def channel_mix_donuts(raw_channel: pd.DataFrame, year_old: int,
         marker=dict(colors=palette, line=dict(color=theme.WHITE, width=2)),
         textinfo="percent", name=str(year_new),
     ))
-    for x_c, yr, tot in [(0.23, year_old, sum_old), (0.77, year_new, sum_new)]:
-        fig.add_annotation(
-            x=x_c, y=0.45, xref="paper", yref="paper", showarrow=False,
-            text=f"<b>{yr}</b><br>{H.fmt_eur(tot)}", font=dict(size=13),
-        )
+    theme.add_annotations(fig, [dict(
+        x=x_c, y=0.45, xref="paper", yref="paper", showarrow=False,
+        text=f"<b>{yr}</b><br>{H.fmt_eur(tot)}", font=dict(size=13))
+        for x_c, yr, tot in [(0.23, year_old, sum_old), (0.77, year_new, sum_new)]])
     return theme.brand_figure(fig)
 
 
@@ -171,15 +171,16 @@ def channel_mix_bars(raw_channel: pd.DataFrame, year_old: int, year_new: int,
         y=order, x=df["rev_new"], orientation="h", name=str(year_new),
         marker=dict(color=theme.YELLOW, line=dict(color=theme.BLACK, width=0.4)),
     ))
+    anns = []
     for _, r in df.iterrows():
         vo, vn, pct = r["rev_old"], r["rev_new"], r["d_pct"]
         txt = (f"  Δ {H.fmt_eur(vn - vo)} ({pct:+.1f} %)"
                if pd.notna(pct) else f"  +{H.fmt_eur(vn)} (neu)")
-        fig.add_annotation(
+        anns.append(dict(
             x=max(vo, vn), y=r["Channel"], text=txt, showarrow=False,
             xanchor="left", yanchor="middle",
-            font=dict(size=10, color=theme.GREEN if (pd.isna(pct) or pct >= 0) else theme.RED),
-        )
+            font=dict(size=10, color=theme.GREEN if (pd.isna(pct) or pct >= 0) else theme.RED)))
+    theme.add_annotations(fig, anns)
     fig.update_layout(title=f"Top-{top_n} Channels YoY", xaxis_title="Revenue (€, netto)",
                       barmode="group", bargap=0.25)
     fig.update_yaxes(categoryorder="array", categoryarray=order)
@@ -209,14 +210,10 @@ def location_revenue_heatmap(nightly: pd.DataFrame, start_ts: pd.Timestamp,
         colorbar=dict(title="Revenue (€)"),
         hovertemplate="%{y} · %{x}: %{z:,.0f} €<extra></extra>",
     ))
-    for i, row in enumerate(y):
-        for j, col in enumerate(x):
-            v = z[i, j]
-            if v > 0:
-                fig.add_annotation(
-                    x=col, y=row, text=H.fmt_eur(v), showarrow=False,
-                    font=dict(size=8, color="white" if v > zmax * 0.55 else theme.BLACK),
-                )
+    theme.add_annotations(fig, [
+        dict(x=col, y=row, text=H.fmt_eur(z[i, j]), showarrow=False,
+             font=dict(size=8, color="white" if z[i, j] > zmax * 0.55 else theme.BLACK))
+        for i, row in enumerate(y) for j, col in enumerate(x) if z[i, j] > 0])
     fig.update_layout(title=f"Revenue-Heatmap · Standort × Monat{title_suffix}")
     fig.update_xaxes(tickangle=-45, showgrid=False)
     fig.update_yaxes(autorange="reversed", showgrid=False)
@@ -245,14 +242,10 @@ def channel_x_location_heatmap(nightly: pd.DataFrame, start_ts: pd.Timestamp,
         colorbar=dict(title="% Revenue je Standort"),
         hovertemplate="%{y} · %{x}: %{z:.0f} %<extra></extra>",
     ))
-    for i, row in enumerate(y):
-        for j, col in enumerate(x):
-            v = z[i, j]
-            if v >= 1:
-                fig.add_annotation(
-                    x=col, y=row, text=f"{v:.0f}%", showarrow=False,
-                    font=dict(size=8, color="white" if v > 40 else theme.BLACK),
-                )
+    theme.add_annotations(fig, [
+        dict(x=col, y=row, text=f"{z[i, j]:.0f}%", showarrow=False,
+             font=dict(size=8, color="white" if z[i, j] > 40 else theme.BLACK))
+        for i, row in enumerate(y) for j, col in enumerate(x) if z[i, j] >= 1])
     fig.update_layout(title="Channel-Mix je Standort (Anteil %)")
     fig.update_xaxes(tickangle=-35, showgrid=False)
     fig.update_yaxes(autorange="reversed", showgrid=False)
@@ -275,13 +268,12 @@ def top_movers(raw_stay: pd.DataFrame, year_old: int, year_new: int) -> go.Figur
         marker=dict(color=colors, line=dict(color=theme.BLACK, width=0.4)),
         showlegend=False, hovertemplate="%{y}: %{x:,.0f} €<extra></extra>",
     ))
-    for _, r in df.iterrows():
-        v = r["d_ly_eur"]
-        fig.add_annotation(
-            x=v, y=r["Standort"], text="  " + H.fmt_eur(v), showarrow=False,
-            xanchor="left" if v >= 0 else "right", yanchor="middle",
-            font=dict(size=10, color=theme.GREEN if v >= 0 else theme.RED),
-        )
+    theme.add_annotations(fig, [
+        dict(x=r["d_ly_eur"], y=r["Standort"], text="  " + H.fmt_eur(r["d_ly_eur"]),
+             showarrow=False, xanchor="left" if r["d_ly_eur"] >= 0 else "right",
+             yanchor="middle",
+             font=dict(size=10, color=theme.GREEN if r["d_ly_eur"] >= 0 else theme.RED))
+        for _, r in df.iterrows()])
     fig.add_vline(x=0, line_color=theme.BLACK, line_width=0.8)
     fig.update_layout(title="Top-Movers · Δ Revenue YoY (nach Aufenthalt)",
                       xaxis_title=f"Δ Revenue (€)  ·  {year_new} vs {year_old}")
@@ -329,15 +321,16 @@ def channel_los_heatmap_granular(nightly: pd.DataFrame,
         zmin=-100, zmax=100, colorbar=dict(title="% YoY", x=0.37, len=0.9, thickness=10),
         hovertemplate="%{y} · %{x}: %{z:+.0f} %<extra></extra>",
     ), row=1, col=1)
+    anns = []
     for i, ch in enumerate(rows):
         for j, los in enumerate(_LOS_COLS):
             v = rel.iloc[i, j]
             delta = b.iloc[i, j] - a.iloc[i, j]
             txt = (f"{v:+.0f} %" if pd.notna(v) else "neu") + f"<br>({H.fmt_eur(delta)})"
-            fig.add_annotation(
-                x=los, y=ch, text=txt, showarrow=False, row=1, col=1,
-                font=dict(size=8, color="white" if (pd.notna(v) and abs(v) >= 60) else theme.BLACK),
-            )
+            anns.append(dict(
+                x=los, y=ch, text=txt, showarrow=False, xref="x", yref="y",
+                font=dict(size=8,
+                          color="white" if (pd.notna(v) and abs(v) >= 60) else theme.BLACK)))
 
     # Rechts: Revenue-Anteil je Zelle OLD vs NEW.
     sa = float(a.values.sum()) or 1.0
@@ -356,9 +349,10 @@ def channel_los_heatmap_granular(nightly: pd.DataFrame,
     ), row=1, col=2)
     for lbl, va, vb in zip(pair_labels, sh_a, sh_b):
         if vb >= 0.5:
-            fig.add_annotation(x=max(va, vb), y=lbl, text=f"  {vb:.1f}%", showarrow=False,
-                               xanchor="left", yanchor="middle", font=dict(size=8),
-                               row=1, col=2)
+            anns.append(dict(x=max(va, vb), y=lbl, text=f"  {vb:.1f}%", showarrow=False,
+                             xanchor="left", yanchor="middle", font=dict(size=8),
+                             xref="x2", yref="y2"))
+    theme.add_annotations(fig, anns)
 
     fig.update_layout(barmode="group", bargap=0.2)
     fig.update_xaxes(showgrid=False, row=1, col=1)

@@ -188,7 +188,7 @@ PLAN_COLUMNS = [
 _PLAN_COLUMNS_NORMALIZED = ["property_code"] + PLAN_COLUMNS[1:]
 
 
-def load_plan(snapshot_dir: "Path | str | None" = None) -> pd.DataFrame:
+def load_plan(snapshot_dir: Path | str | None = None) -> pd.DataFrame:
     """Planzahlen aus ``<snapshot_dir>/plan.parquet`` (BigQuery-Snapshot).
 
     Einzige Plan-Quelle. Liefert ein leeres DataFrame (mit den normalisierten
@@ -204,7 +204,7 @@ def load_plan(snapshot_dir: "Path | str | None" = None) -> pd.DataFrame:
     return pd.read_parquet(str(path))
 
 
-def _write_metadata_json(meta: dict[str, Any], snapshot_dir: "Path | str") -> None:
+def _write_metadata_json(meta: dict[str, Any], snapshot_dir: Path | str) -> None:
     """``metadata.json`` an die Snapshot-Location schreiben (lokal oder ``gs://``)."""
     import json as _json
     meta_path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["metadata"])
@@ -217,7 +217,7 @@ def _write_metadata_json(meta: dict[str, Any], snapshot_dir: "Path | str") -> No
         Path(meta_path).write_text(body, encoding="utf-8")
 
 
-def save_plan(plan_df: pd.DataFrame, snapshot_dir: "Path | str",
+def save_plan(plan_df: pd.DataFrame, snapshot_dir: Path | str,
               *, refreshed_via: str = "?") -> dict[str, Any]:
     """``plan.parquet`` schreiben + ``metadata.json`` um den Plan-Block ergänzen.
 
@@ -346,7 +346,7 @@ def _snapshot_exists(path) -> bool:
     return Path(path).is_file()
 
 
-def find_snapshot_dir() -> "Path | str | None":
+def find_snapshot_dir() -> Path | str | None:
     """Locate the snapshot directory.
 
     Search order:
@@ -371,7 +371,7 @@ def find_snapshot_dir() -> "Path | str | None":
     return None
 
 
-def load_snapshot_metadata(snapshot_dir: "Path | str | None" = None) -> dict[str, Any]:
+def load_snapshot_metadata(snapshot_dir: Path | str | None = None) -> dict[str, Any]:
     """Load ``metadata.json`` from the snapshot dir (refresh time, row counts, …).
 
     Works for both local paths and remote ``gs://`` URIs.
@@ -401,7 +401,7 @@ def _optimize_string_memory(df: pd.DataFrame) -> pd.DataFrame:
     ~2 GB auf (~85 Bytes Python-Overhead pro String). Arrow-Strings speichern
     nur die tatsächlichen Bytes + Offsets und sind für die hier genutzten
     Operationen (``.str``-Accessor, ``groupby``, ``isin``, ``astype(str)``,
-    ``np.where``, Anzeige in ``st.dataframe``) semantisch identisch zu object -
+    ``np.where``, Anzeige im Grid) semantisch identisch zu object -
     insbesondere OHNE die Category-Falle, dass ``groupby`` ohne
     ``observed=True`` leere Kategorien materialisiert.
 
@@ -435,8 +435,8 @@ def _optimize_string_memory(df: pd.DataFrame) -> pd.DataFrame:
 def _read_parquet_with_filter(
     path,
     date_col: str,
-    start: "pd.Timestamp | str | None",
-    end: "pd.Timestamp | str | None",
+    start: pd.Timestamp | str | None,
+    end: pd.Timestamp | str | None,
     properties: list[str] | None,
 ) -> pd.DataFrame:
     """Read a parquet file and apply common filters (date range, property list).
@@ -464,10 +464,10 @@ def _read_parquet_with_filter(
 
 
 def load_reservations(
-    start: "pd.Timestamp | str | None" = None,
-    end: "pd.Timestamp | str | None" = None,
+    start: pd.Timestamp | str | None = None,
+    end: pd.Timestamp | str | None = None,
     properties: list[str] | None = None,
-    snapshot_dir: "Path | str | None" = None,
+    snapshot_dir: Path | str | None = None,
 ) -> pd.DataFrame:
     """Load reservations from the parquet snapshot (no BigQuery required).
 
@@ -484,7 +484,7 @@ def load_reservations(
     if snap is None:
         raise FileNotFoundError(
             "Snapshot nicht gefunden. Bitte erst einmal `Daten aktualisieren` "
-            "ausführen (Streamlit-App)."
+            "ausführen (App)."
         )
     path = _join_snapshot(snap, SNAPSHOT_FILES["reservations"])
     if not _snapshot_exists(path):
@@ -496,10 +496,10 @@ def load_reservations(
 
 
 def load_timeslices(
-    start: "pd.Timestamp | str | None" = None,
-    end: "pd.Timestamp | str | None" = None,
+    start: pd.Timestamp | str | None = None,
+    end: pd.Timestamp | str | None = None,
     properties: list[str] | None = None,
-    snapshot_dir: "Path | str | None" = None,
+    snapshot_dir: Path | str | None = None,
 ) -> pd.DataFrame:
     """Load timeslices (one row per stay-night) from the parquet snapshot.
 
@@ -522,7 +522,7 @@ def load_timeslices(
 def save_snapshot(
     res: pd.DataFrame,
     nig: pd.DataFrame,
-    snapshot_dir: "Path | str",
+    snapshot_dir: Path | str,
     *,
     lookback_years: int | None = None,
     extra_metadata: dict[str, Any] | None = None,
@@ -782,7 +782,7 @@ class CancelMode(str, Enum):
     - ``AS_OF``: point-in-time zum Stichtag - Storno löst zu ``cancel_time`` auf,
       No-Show zu ``arrival`` (``asof_on_the_books_mask``).
 
-    ``str, Enum`` -> hashbar & cache-key-freundlich für ``@st.cache_data``.
+    ``str, Enum`` -> hashbar & cache-key-freundlich.
     """
 
     ALL_IN = "all_in"
@@ -792,8 +792,8 @@ class CancelMode(str, Enum):
 
 def apply_cancel_mode(
     df: pd.DataFrame,
-    mode: "CancelMode | str",
-    asof: "pd.Timestamp | None" = None,
+    mode: CancelMode | str,
+    asof: pd.Timestamp | None = None,
 ) -> pd.DataFrame:
     """Wende einen ``CancelMode`` auf einen Buchungs-/Nightly-Frame an.
 
@@ -1657,7 +1657,8 @@ def cluster_companies(
     from collections import defaultdict as _dd
 
     try:
-        from rapidfuzz import fuzz as _fuzz, process as _process  # type: ignore
+        from rapidfuzz import fuzz as _fuzz  # type: ignore
+        from rapidfuzz import process as _process
     except ImportError:
         import warnings as _warnings
         _warnings.warn(
@@ -1815,70 +1816,6 @@ def yoy_by(
     out["share_new_pct"] = (out[f"{value}_new"] / s_new * 100).round(1) if s_new else np.nan
     out["share_delta_pp"] = (out["share_new_pct"] - out["share_old_pct"]).round(1)
     return out.sort_values(f"{value}_new", ascending=False)
-
-
-def yoy_two_panel(nig_old, nig_new, dim, super_title, year_old, year_new):
-    """Two-panel YoY chart: revenue bars (left) + share-shift in pp (right).
-
-    Grouped by ``dim``. Returns a matplotlib Figure. Shared by several
-    Standort-Analyse sections so the YoY layout stays consistent.
-    """
-    import matplotlib.pyplot as plt
-
-    from .theming import categorical_palette, color
-
-    pal = categorical_palette()
-    yoy = yoy_by(nig_old, nig_new, dim).reset_index()
-    yoy[dim] = yoy[dim].astype(str)
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.4))
-
-    ax = axes[0]
-    y = np.arange(len(yoy))
-    w = 0.4
-    ax.barh(
-        y - w / 2,
-        yoy["revenue_eur_old"],
-        w,
-        color=pal[1],
-        edgecolor=color("black"),
-        linewidth=0.4,
-        label=str(year_old),
-    )
-    ax.barh(
-        y + w / 2,
-        yoy["revenue_eur_new"],
-        w,
-        color=pal[0],
-        edgecolor=color("black"),
-        linewidth=0.4,
-        label=str(year_new),
-    )
-    for i, (vo, vn) in enumerate(zip(yoy["revenue_eur_old"], yoy["revenue_eur_new"], strict=True)):
-        ax.text(max(vo, vn), i, "  Δ " + fmt_eur(vn - vo), va="center", fontsize=9)
-    ax.set_yticks(y)
-    ax.set_yticklabels(yoy[dim])
-    ax.set_xlabel("Revenue (EUR, netto)")
-    ax.set_title("Revenue YoY")
-    ax.legend(frameon=False, fontsize=9)
-
-    ax = axes[1]
-    ax.barh(
-        y,
-        yoy["share_delta_pp"],
-        color=[color("green") if v >= 0 else color("red") for v in yoy["share_delta_pp"]],
-        edgecolor=color("black"),
-        linewidth=0.4,
-    )
-    for i, v in enumerate(yoy["share_delta_pp"]):
-        ax.text(v, i, f"  {v:+.1f} pp", va="center", fontsize=9)
-    ax.axvline(0, color="black", linewidth=0.5)
-    ax.set_yticks(y)
-    ax.set_yticklabels(yoy[dim])
-    ax.set_xlabel("Anteils-Verschiebung (pp)")
-    ax.set_title("Anteils-Verschiebung")
-    fig.suptitle(super_title, fontsize=13, weight="bold", y=1.0)
-    fig.tight_layout()
-    return fig
 
 
 # =============================================================================
@@ -2078,7 +2015,7 @@ def asof_on_the_books_mask(
     return created_ok & cancel_still_on & no_show_still_on
 
 
-def snapshot_data_start(meta: "dict | None") -> "pd.Timestamp | None":
+def snapshot_data_start(meta: dict | None) -> pd.Timestamp | None:
     """Frühestes im Snapshot enthaltenes Aufenthalts-Datum (``serviceDate``).
 
     Liest ``meta['timeslices']['earliest']`` - die Pull-Untergrenze des Snapshots

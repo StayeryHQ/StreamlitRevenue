@@ -156,7 +156,7 @@ def aggregate_promo_codes(
 
 
 def format_display(table: pd.DataFrame) -> pd.DataFrame:
-    """Datums-Spalten in lesbare Strings - für ``st.dataframe`` / Export.
+    """Datums-Spalten in lesbare Strings - für das Anzeige-Grid / den Export.
 
     Args:
         table: Ergebnis von :func:`aggregate_promo_codes`.

@@ -7,7 +7,29 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
+
+
+def _join_props(s: pd.Series) -> str:
+    return ", ".join(sorted(s.dropna().astype(str).unique()))
+
+
+def _top3_firms(s: pd.Series) -> str:
+    s = s.dropna().astype(str).str.strip()
+    s = s[s != ""]
+    if s.empty:
+        return ""
+    return " / ".join(list(s.value_counts().index[:3]))
+
+
+def _codes_from_series(s: pd.Series, top_n: int = 3) -> str:
+    s = s.dropna().astype(str).str.strip()
+    s = s[s != ""]
+    if s.empty:
+        return ""
+    vc = s.value_counts()
+    return " / ".join(vc.index[:top_n].astype(str)) + (" …" if len(vc) > top_n else "")
 
 
 # ============================== Helpers ====================================
@@ -76,44 +98,43 @@ def _aggregate_by(
     if d.empty:
         return pd.DataFrame(columns=base_cols)
 
-    rows = []
-    for key, sub in d.groupby(group_col):
-        active_in_period = bool((sub["arrival"] >= active_ts).any())
-        row = {
-            group_col: key,
-            "Buchungen gesamt": int(len(sub)),
-            "davon realisiert": int(sub["is_realized"].sum()),
-            "davon storniert": int(sub["is_cancelled"].sum()),
-            "davon no-show": int(sub["is_no_show"].sum()),
-            "Revenue gesamt (€)": float(sub["revenue"].sum()),
-            "Revenue realisiert (€)": float(sub.loc[sub["is_realized"], "revenue"].sum()),
-            "Revenue verloren (€)": float(sub["lost_revenue"].sum())
-            if "lost_revenue" in sub.columns
-            else 0.0,
-            "Nächte realisiert": int(sub.loc[sub["is_realized"], "nights"].fillna(0).sum()),
-            "# Standorte": int(sub["property_code"].nunique()),
-            "Standorte": ", ".join(sorted(sub["property_code"].dropna().unique())),
-            "Aktiv seit Schwelle?": "✓ ja" if active_in_period else "-",
-            "Erste Buchung": sub["arrival"].min(),
-            "Letzte Buchung": sub["arrival"].max(),
-        }
-        if group_col != "firm_by_effective_fuzzy":
-            if "firm_by_effective_fuzzy" in sub.columns:
-                firms = sub["firm_by_effective_fuzzy"].dropna().astype(str).str.strip()
-                firms = firms[firms != ""]
-                if not firms.empty:
-                    top_firms = firms.value_counts()
-                    names = list(top_firms.index[:3])
-                    row["Firmenname(n)"] = " / ".join(names)
-                else:
-                    row["Firmenname(n)"] = ""
-            else:
-                row["Firmenname(n)"] = ""
-        if paired_other_col:
-            row["Auch mit (häufigster Wert)"] = _paired_dominant(sub, paired_other_col)
-        rows.append(row)
+    # Vectorised groupby.agg (one C-level pass) instead of a Python loop over
+    # thousands of groups doing per-group pandas ops - the roster's main cost.
+    real = d["is_realized"].to_numpy()
+    d["_rev_real"] = np.where(real, d["revenue"].to_numpy(), 0.0)
+    nights = d["nights"].fillna(0).to_numpy() if "nights" in d.columns else np.zeros(len(d))
+    d["_nights_real"] = np.where(real, nights, 0.0)
+    d["_active"] = d["arrival"] >= active_ts
+    d["_lost"] = d["lost_revenue"].to_numpy() if "lost_revenue" in d.columns else 0.0
 
-    out = pd.DataFrame(rows)
+    g = d.groupby(group_col, sort=False)
+    out = g.agg(**{
+        "Buchungen gesamt": ("revenue", "size"),
+        "davon realisiert": ("is_realized", "sum"),
+        "davon storniert": ("is_cancelled", "sum"),
+        "davon no-show": ("is_no_show", "sum"),
+        "Revenue gesamt (€)": ("revenue", "sum"),
+        "Revenue realisiert (€)": ("_rev_real", "sum"),
+        "Revenue verloren (€)": ("_lost", "sum"),
+        "Nächte realisiert": ("_nights_real", "sum"),
+        "# Standorte": ("property_code", "nunique"),
+        "Aktiv seit Schwelle?": ("_active", "max"),
+        "Erste Buchung": ("arrival", "min"),
+        "Letzte Buchung": ("arrival", "max"),
+    })
+    out["Standorte"] = g["property_code"].agg(_join_props)
+    out["Aktiv seit Schwelle?"] = np.where(out["Aktiv seit Schwelle?"], "✓ ja", "-")
+    for c in ("Buchungen gesamt", "davon realisiert", "davon storniert", "davon no-show",
+              "Nächte realisiert", "# Standorte"):
+        out[c] = out[c].astype(int)
+    if group_col != "firm_by_effective_fuzzy":
+        out["Firmenname(n)"] = (g["firm_by_effective_fuzzy"].agg(_top3_firms)
+                                if "firm_by_effective_fuzzy" in d.columns else "")
+    if paired_other_col:
+        out["Auch mit (häufigster Wert)"] = g.apply(
+            lambda s: _paired_dominant(s, paired_other_col))
+
+    out = out.reset_index()
     return out.sort_values("Revenue gesamt (€)", ascending=False).reset_index(drop=True)
 
 
@@ -152,7 +173,7 @@ def export_frame(table: pd.DataFrame, kind: str) -> pd.DataFrame:
 
 
 def format_display(table: pd.DataFrame, kind: str) -> pd.DataFrame:
-    """Reorder + format columns for st.dataframe rendering.
+    """Reorder + format columns for the display grid.
 
     kind: ``corporate`` / ``firm``
     """

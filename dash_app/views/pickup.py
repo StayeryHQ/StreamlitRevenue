@@ -2,21 +2,19 @@
 # PAGE - Pickup / Vorlauf-Analyse (Revenue-Gruppe). Stay × Creation Booking-Pace:
 # wie viel Umsatz eines Aufenthalts-Zeitraums war zu einem Stichtag schon gebucht,
 # YoY auf denselben Vorlauf normiert. Portiert aus
-# streamlit_app/pages/2_Pickup_Analyse.py. Alle Aggregation läuft über
+# the Pickup_Analyse view. Alle Aggregation läuft über
 # backend/global_tables (GT) + revenueblindspots.helpers (H); die Grafiken bauen
-# in components/pickup_charts (PC). Kein BigQuery, kein Streamlit.
+# in components/pickup_charts (PC). Kein BigQuery.
 
 from __future__ import annotations
 
 from types import SimpleNamespace
 
-import dash
+import dash_ag_grid as dag
 import dash_mantine_components as dmc
 import pandas as pd
 from dash import Input, Output, State, callback, dcc, html, no_update
 
-import dash_ag_grid as dag
-from dash_app import theme
 from dash_app.backend import data as D
 from dash_app.backend import exports as XLS
 from dash_app.backend import global_tables as GT
@@ -25,9 +23,6 @@ from dash_app.components import tooltips as TT
 from dash_app.components import ui
 from revenueblindspots import helpers as H
 from revenueblindspots.helpers import CancelMode
-
-dash.register_page(__name__, path="/pickup", name="Pickup", order=2,
-                   title="STAYERY · Pickup", group="Revenue")
 
 # Storno-Modus-Labels (Select-Optionen) -> CancelMode (via .value als String).
 _CMODE_DATA = [
@@ -89,7 +84,7 @@ Vorlauf-Phase). *Alles bis Stichtag* = kompletter Vorlauf ohne untere Grenze.
 
 
 # ---------------------------------------------------------------------------
-# Ableitungen - EINMAL zentral (Semantik exakt wie die Streamlit-Seite, ~192-277).
+# Ableitungen - EINMAL zentral (Semantik exakt wie die Ursprungs-Seite, ~192-277).
 # Gibt (ctx, None) oder (None, Fehlermeldung) zurück; ctx ist ein SimpleNamespace
 # mit allen abgeleiteten Timestamps/Parametern. Keine Daten werden hier geladen -
 # nur Timestamps/Parameter + Standort-Auflösung (Späte-Öffner).
@@ -250,16 +245,10 @@ def layout(**_kwargs):
     def _iso(ts):
         return pd.Timestamp(ts).date().isoformat()
 
-    header = dmc.Stack([
-        dmc.Group([
-            dmc.Title("Pickup / Vorlauf-Analyse", order=3),
-            dmc.Badge("Portfolio · Booking-Pace", color="yellow", variant="light", radius="sm"),
-        ], gap="sm", align="center"),
-        dmc.Text("Stay × Creation: Wie viel Umsatz eines Aufenthalts-Zeitraums war "
-                 "zu einem Stichtag schon gebucht - im Jahresvergleich auf denselben "
-                 "Vorlauf normiert. Vorwärts (füllender Zukunftsmonat) wie rückwärts "
-                 "(vergangenen Monat auswerten).", size="sm", c="dimmed"),
-    ], gap=4, mb="xs")
+    header = dmc.Group([
+        dmc.Title("Pickup / Vorlauf-Analyse", order=3),
+        dmc.Badge("Portfolio · Booking-Pace", color="yellow", variant="light", radius="sm"),
+    ], gap="sm", align="center", mb="xs")
 
     intro = dmc.Accordion([
         dmc.AccordionItem([
@@ -287,18 +276,9 @@ def layout(**_kwargs):
               {"label": "Stay-Segment", "value": "seg"}])
 
     # §1 Headline
-    kpi_caption = dmc.Text(
-        "Pickup kumuliert = Anteil des OTB, der bis zum Ende des Erstellungs-"
-        "Fensters gebucht war (ohne untere Grenze). In Klammern: Fenster-Pickup "
-        "= nur der im Erstellungs-Fenster erstellte Umsatz ÷ OTB. OTB Δ heute = "
-        "OTB des Stay-Fensters am Stichtag vs. Vorjahres-Stichtag (reine As-of-"
-        "Logik, dieselbe Konvention wie Pace by Month). Endet das Fenster am/nach "
-        "dem Stichtag, ist kumuliert = 100 %.", size="xs", c="dimmed")
     sec1 = [
         ui.section_header(1, "Headline-Kennzahlen", basis="mixed",
                           info="Portfolio-Summe über alle gewählten Standorte."),
-        dmc.Text("Portfolio-Summe über alle gewählten Standorte.", size="sm", c="dimmed"),
-        kpi_caption,
         html.Div(id="pu-kpis", children=dmc.Skeleton(height=110, radius="lg")),
     ]
 
@@ -316,8 +296,6 @@ def layout(**_kwargs):
     # §3 Buchungskurve
     sec3 = [
         ui.section_header(3, "Buchungskurve", basis="created", info=_T["curve"]),
-        dmc.Text("Wie sich der gebuchte Anteil über die Zeit aufbaut - NEW vs. OLD.",
-                 size="sm", c="dimmed"),
         ui.chart_card("Kumulierter Pickup-Anteil", "pu-curve-fig", info=_T["curve"],
                       height=360, header_extra=curve_axis),
         html.Div(id="pu-curve-caption"),
@@ -326,7 +304,6 @@ def layout(**_kwargs):
     # §4 Pickup-Balken
     sec4 = [
         ui.section_header(4, "Pickup-Anteil je Kategorie", basis="mixed", info=_T["bars"]),
-        dmc.Text("Wer liegt im Vorlauf vorn, wer hinkt hinterher?", size="sm", c="dimmed"),
         ui.chart_card("Pickup-Anteil je Kategorie", "pu-bars-fig", info=_T["bars"],
                       height=360, header_extra=bar_cat),
     ]
@@ -334,8 +311,6 @@ def layout(**_kwargs):
     # §5 Tabellen
     sec5 = [
         ui.section_header(5, "Tabellen", basis="mixed", info=TT.CHART_TOOLTIPS["stay_created"]),
-        dmc.Text("Dieselbe Struktur je Kategorie - Detail hinter den Charts.",
-                 size="sm", c="dimmed"),
         ui.table_accordion("Spalten einfach erklärt (Klartext)",
                            html.Div(id="pu-tables-explainer"), value="explain"),
         dmc.Text("Nach Standort", fw=600, size="sm", mt="xs"),
@@ -351,10 +326,6 @@ def layout(**_kwargs):
     sec6 = [
         ui.section_header(6, "Pace-to-PLAN · OTB vs. Ziel", basis="stay",
                           info=TT.CHART_TOOLTIPS["pace_plan"]),
-        dmc.Text("IST = OTB gesamt (aktueller Stay-Umsatz zum Stichtag) je Standort "
-                 "gegen den PLAN des Stay-Fensters. Fortschritt Zeit = wie viel der "
-                 "Periode am Stichtag verstrichen ist. Unabhängig vom Erstellungs-"
-                 "Fenster.", size="sm", c="dimmed"),
         html.Div(id="pu-pace-plan-note"),
         _make_grid("pu-grid-paceplan"),
         ui.chart_card("IST vs PLAN je Standort", "pu-pace-plan-fig",
@@ -382,25 +353,30 @@ def layout(**_kwargs):
         dcc.Download(id="pu-dl-curve-dl"),
     ]
 
+    tabs = ui.section_tabs("pu-sectiontabs", [
+        ("pace", "Pace by Month", dmc.Stack(sec2, gap="md"), "bi bi-calendar-month"),
+        ("kennzahlen", "Kennzahlen & Kurve", dmc.Stack([*sec1, *sec3], gap="md"),
+         "bi bi-speedometer2"),
+        ("kategorie", "Kategorie & Tabellen", dmc.Stack([*sec4, *sec5, *sec6], gap="md"),
+         "bi bi-table"),
+        ("downloads", "Downloads", dmc.Stack(sec7, gap="md"), "bi bi-download"),
+    ])
+
     return dmc.Stack([
         header,
         intro,
         filter_bar,
         html.Div(id="pu-context"),
         html.Div(id="pu-late-alert"),
-        *sec1, *sec2, *sec3, *sec4, *sec5, *sec6, *sec7,
+        tabs,
     ], gap="md")
 
 
 def _filter_bar(props_all, defaults):
     props_opts = [{"label": f"{H.city(p)} ({p})", "value": p} for p in props_all]
     _pers = dict(persistence=True, persistence_type="local")
-    row_props = dmc.MultiSelect(
-        id="pu-props", data=props_opts, value=list(props_all), label="Standorte",
-        placeholder="Alle Standorte", clearable=True, searchable=True,
-        leftSection=html.I(className="bi bi-geo-alt"),
-        comboboxProps={"withinPortal": True}, style={"minWidth": "260px"}, **_pers)
-    row_dates = dmc.Group([
+    primary = [
+        ui.location_select("pu-props", props_all, data=props_opts),
         dmc.DatePickerInput(id="pu-sn", label="Stay-Start", value=defaults["stay_first"],
                             valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_pers),
         dmc.DatePickerInput(id="pu-en", label="Stay-Ende", value=defaults["stay_last"],
@@ -410,8 +386,10 @@ def _filter_bar(props_all, defaults):
                         style={"width": "150px"}, **_pers),
         dmc.DatePickerInput(id="pu-asof", label="Stichtag (As-of)", value=defaults["asof"],
                             valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_pers),
-    ], gap="md", wrap="wrap", align="flex-end")
-    row_cre = dmc.Group([
+    ]
+    advanced = ui.advanced_popover("pu", [
+        dmc.Text("Erstellungs-Fenster · Creation von/bis gelten nur im Modus "
+                 "Festes Fenster", fw=600, size="xs", c="dimmed"),
         dmc.SegmentedControl(
             id="pu-cre-mode", size="sm", radius="md", value="fixed",
             data=[{"label": "Festes Fenster (von–bis)", "value": "fixed"},
@@ -420,24 +398,11 @@ def _filter_bar(props_all, defaults):
                             valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_pers),
         dmc.DatePickerInput(id="pu-cb", label="Creation bis", value=defaults["cre_last"],
                             valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_pers),
-    ], gap="md", wrap="wrap", align="flex-end")
-    row_mode = dmc.Group([
         dmc.Select(id="pu-cmode", label="Storno-Modus", data=_CMODE_DATA,
-                   value=CancelMode.AS_OF.value, style={"minWidth": "280px"}, **_pers),
+                   value=CancelMode.AS_OF.value, style={"minWidth": "260px"}, **_pers),
         dmc.Switch(id="pu-late", label="Späte Öffner einbeziehen", checked=False, **_pers),
-    ], gap="lg", wrap="wrap", align="flex-end")
-    return dmc.Paper(dmc.Stack([
-        dmc.Text("Filter", fw=700, size="sm"),
-        row_props,
-        dmc.Text("Stay-Fenster (aktuelles Jahr)", fw=600, size="xs", c="dimmed"),
-        row_dates,
-        dmc.Text("Erstellungs-Fenster · Creation von/bis gelten nur im Modus "
-                 "Festes Fenster", fw=600, size="xs", c="dimmed"),
-        row_cre,
-        row_mode,
-    ], gap="sm"), p="md", radius="lg", withBorder=True,
-        style={"position": "sticky", "top": "8px", "zIndex": 200,
-               "backgroundColor": theme.WHITE, "boxShadow": "0 2px 12px rgba(0,0,0,0.06)"})
+    ])
+    return ui.filter_shell(primary=primary, advanced=advanced)
 
 
 # Gemeinsame Filter-Inputs/States (Reihenfolge == _derive-Signatur).
@@ -497,11 +462,10 @@ def _render_main(props, sn, en, vgl_year, cre_mode, cv, cb, asof, late, cmode):
         ctx.cre_start_new, ctx.cre_end_new, ctx.cre_start_old, ctx.cre_end_old,
         ctx.asof_new, ctx.asof_old, ctx.year_old, ctx.year_new, **common)
 
-    context = _context_block(ctx)
     if raw_loc.empty:
         note = ui.alert("Keine Buchungen mit Aufenthalt im Stay-Fenster im gewählten "
                         "Erstellungs-Fenster / Storno-Modus.", kind="info")
-        return (context, ctx.late_alert, note, [], [], [], [], [], [], None,
+        return (None, ctx.late_alert, note, [], [], [], [], [], [], None,
                 blank_fig, [], [], None)
 
     # ---- KPIs (~318-405) --------------------------------------------------
@@ -547,24 +511,9 @@ def _render_main(props, sn, en, vgl_year, cre_mode, cv, cb, asof, late, cmode):
     # ---- Pace-to-PLAN (§6) -----------------------------------------------
     pp_fig, pp_cols, pp_rows, pp_note = _pace_to_plan(ctx, raw_loc)
 
-    return (context, ctx.late_alert, kpis,
+    return (None, ctx.late_alert, kpis,
             loc_cols, loc_rows, ch_cols, ch_rows, seg_cols, seg_rows,
             explainer, pp_fig, pp_cols, pp_rows, pp_note)
-
-
-def _context_block(ctx):
-    return dmc.Stack([
-        dmc.Text(
-            f"Stay-Fenster: {ctx.period_tag_new} (NEW) ↔ {ctx.period_tag_old} (OLD)  ·  "
-            f"Erstellungs-Fenster: {ctx.cre_tag}  ·  "
-            f"Stichtag: {ctx.asof_new:%d.%m.%Y} (NEW) · {ctx.asof_old:%d.%m.%Y} (OLD)  ·  "
-            f"Storno-Modus: {ctx.cmode_label}.", size="xs", c="dimmed"),
-        dmc.Text(
-            "Pickup-Anteil = Erstellt-im-Fenster ÷ OTB gesamt (voller Stay-Umsatz, "
-            "ohne Erstellungs-Filter) - beide zum selben Stichtag, daher ≤ 100 %. "
-            "Zähler und Nenner sind YoY auf denselben Vorlauf gespiegelt.",
-            size="xs", c="dimmed"),
-    ], gap=2)
 
 
 def _pace_to_plan(ctx, raw_loc: pd.DataFrame):

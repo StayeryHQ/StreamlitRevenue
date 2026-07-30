@@ -23,8 +23,8 @@ from .helpers import CONFIGS_DIR
 # Path to the brand spec
 _BRAND_CONFIG: Path = CONFIGS_DIR / "stayery_brand.yaml"
 
-# Bundled brand fonts (otf) shipped with the Streamlit app.
-_FONTS_DIR: Path = Path(__file__).resolve().parents[2] / "streamlit_app" / "static" / "fonts"
+# Bundled brand fonts (otf) shipped with the app.
+_FONTS_DIR: Path = Path(__file__).resolve().parents[2] / "dash_app" / "assets" / "fonts"
 
 
 @lru_cache(maxsize=1)

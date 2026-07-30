@@ -21,15 +21,26 @@ from revenueblindspots import overrides as OV
 
 
 def snapshot_signature() -> str:
-    """Stable string for the current snapshot - changes when the parquet files do."""
+    """Stable string for the current snapshot - changes when ANY snapshot file does.
+
+    Fingerprints the mtimes of all four snapshot files (reservations, timeslices,
+    plan, metadata), not just reservations.parquet. A plan-only refresh
+    (``refresh_plan``) rewrites plan.parquet + metadata.json but leaves
+    reservations.parquet untouched; keying on reservations alone would leave the
+    _plan / _metadata caches stale. In-process that is masked by the explicit
+    clear_caches() the refresh page runs, but a separate gunicorn worker only sees
+    the change through this signature - so it must cover plan + metadata too.
+    """
     snap_dir = H.find_snapshot_dir()
     if snap_dir is None:
         return "none"
     if isinstance(snap_dir, Path):
         try:
-            res_path = snap_dir / H.SNAPSHOT_FILES["reservations"]
-            mtime = int(res_path.stat().st_mtime) if res_path.exists() else 0
-            return f"local={snap_dir}|mtime={mtime}"
+            parts = []
+            for key in ("reservations", "timeslices", "plan", "metadata"):
+                p = snap_dir / H.SNAPSHOT_FILES[key]
+                parts.append(str(int(p.stat().st_mtime)) if p.exists() else "0")
+            return f"local={snap_dir}|mtimes={'-'.join(parts)}"
         except OSError:
             return f"local={snap_dir}|nostat"
     return f"remote={snap_dir}"

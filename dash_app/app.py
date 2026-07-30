@@ -31,8 +31,7 @@ server = app.server
 
 def _navbar() -> html.Header:
     """Top navigation shell. Links render via the callback below (reads
-    dcc.Location), grouped into Revenue / Sales sections via the `group` key
-    each page passes to dash.register_page."""
+    dcc.Location); the current route gets the `.active` class."""
     brand = html.A(
         html.Div([
             html.Span(className="stayery-accent"),
@@ -48,20 +47,14 @@ def _navbar() -> html.Header:
 
 @dash.callback(dash.Output("stayery-nav", "children"), dash.Input("app-url", "pathname"))
 def _nav_links(pathname):
-    """Re-render nav links on every route change; the current page gets `.active`.
-    A small uppercase label precedes the first link of each group."""
+    """Re-render nav links on every route change; the current page gets `.active`."""
     pages = sorted(dash.page_registry.values(), key=lambda p: p.get("order", 99))
-    links, seen_groups = [], set()
-    for p in pages:
-        group = p.get("group")
-        if group and group not in seen_groups:
-            seen_groups.add(group)
-            links.append(html.Span(group, className="stayery-navgroup"))
-        links.append(dcc.Link(
-            p["name"], href=p["relative_path"],
-            className="stayery-navlink"
-            + (" active" if pathname == p["relative_path"] else "")))
-    return links
+    return [
+        dcc.Link(p["name"], href=p["relative_path"],
+                 className="stayery-navlink"
+                 + (" active" if pathname == p["relative_path"] else ""))
+        for p in pages
+    ]
 
 
 app.layout = dmc.MantineProvider(

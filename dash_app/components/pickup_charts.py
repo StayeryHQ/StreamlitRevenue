@@ -1,7 +1,7 @@
 # dash_app/components/pickup_charts.py
 # Plotly-Builder + Pace-Tabellen-Logik der Pickup / Vorlauf-Analyse.
-# Portiert aus streamlit_app/pages/2_Pickup_Analyse.py (Pace-Balken, Stichtags-
-# Tabelle) und streamlit_app/components/global_charts.py (build_pace_table,
+# Portiert aus the Pickup_Analyse view (Pace-Balken, Stichtags-
+# Tabelle) und the global_charts module (build_pace_table,
 # pace_to_plan_chart als Matplotlib -> hier Plotly). Alle Grafiken laufen durch
 # theme.brand_figure; Vorjahres-Serien in GREY (Brand-Neutral-Grey).
 
@@ -14,7 +14,7 @@ import plotly.graph_objects as go
 from dash_app import theme
 from revenueblindspots import helpers as H
 
-# Deutsche Monats-/Wochentag-Labels (aus der Streamlit-Seite übernommen).
+# Deutsche Monats-/Wochentag-Labels (aus der Vorlage übernommen).
 MONTH_ABBR_DE = ("Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
                  "Jul", "Aug", "Sep", "Okt", "Nov", "Dez")
 MONTH_NAMES_DE = ("Januar", "Februar", "März", "April", "Mai", "Juni", "Juli",
@@ -37,7 +37,7 @@ def empty_fig(message: str, *, height: int = 300) -> go.Figure:
 # ============================== 2 · Pace by Month ==========================
 def pace_fig(pace_df: pd.DataFrame, year: int) -> go.Figure:
     """3 Balken je Übernachtungs-Monat (EoM Vorjahr / Stichtag Vorjahr / Stichtag
-    aktuell). Near-verbatim aus der Streamlit-Seite, Farben/Layout identisch."""
+    aktuell). Near-verbatim aus der Vorlage, Farben/Layout identisch."""
     months = list(range(1, 13))
     if pace_df is None or pace_df.empty or "month" not in pace_df.columns:
         return empty_fig("Keine Pace-Daten im gewählten Fenster.", height=420)
@@ -64,7 +64,7 @@ def pace_stichtag_table(year: int, month_: int, snap: pd.Timestamp,
     """Stichtagsblick auf den aktuellen Monat: eine Zeile = ein As-of-Stichtag.
 
     Rohe Zahlen (gerundet); die Seite formatiert sie fürs Grid. Logik 1:1 aus
-    ``_pace_stichtag_table`` der Streamlit-Seite (ohne den st.cache-Dekorator).
+    ``_pace_stichtag_table`` (ohne Cache-Dekorator).
     """
     df = nightly
     if props:
@@ -114,7 +114,7 @@ def booking_curve_fig(curve_df: pd.DataFrame, year_new: int, year_old: int,
     """Linien-Chart aus einer (Index = X, Spalten = Jahre)-Tabelle.
 
     Aktuelles Jahr GELB, Vorjahr GREY, weitere Serien in CATEGORICAL - ersetzt
-    das frühere ``st.line_chart``.
+    die frühere Linien-Chart-Sicht.
     """
     if curve_df is None or curve_df.empty:
         return empty_fig("Keine Daten für die Buchungskurve.", height=360)
@@ -187,13 +187,15 @@ def pace_to_plan_fig(pace_df: pd.DataFrame, year_new: int, period_tag: str) -> g
             marker=dict(symbol="line-ns-open", size=22, color=theme.BLACK,
                         line=dict(width=2.5, color=theme.BLACK)),
             hovertemplate="PLAN %{x:,.0f} €<extra></extra>")
+    anns = []
     for i, n in enumerate(names):
         p, it = plan[i], ist[i]
         if p > 0:
             pct = it / p * 100
-            fig.add_annotation(x=max(it, p), y=n, text=f"{pct:.0f} % vom PLAN",
-                               showarrow=False, xanchor="left", xshift=6,
-                               font=dict(size=11, color=theme.GREEN if pct >= 100 else theme.RED))
+            anns.append(dict(x=max(it, p), y=n, text=f"{pct:.0f} % vom PLAN",
+                             showarrow=False, xanchor="left", xshift=6,
+                             font=dict(size=11, color=theme.GREEN if pct >= 100 else theme.RED)))
+    theme.add_annotations(fig, anns)
     theme.brand_figure(fig)
     xmax = max(float(ist.max(initial=0.0)), float(plan.max(initial=0.0))) or 1.0
     fig.update_xaxes(range=[0, xmax * 1.22])

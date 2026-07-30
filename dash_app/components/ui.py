@@ -6,11 +6,11 @@
 
 from __future__ import annotations
 
+import dash_ag_grid as dag
 import dash_mantine_components as dmc
 import pandas as pd
-from dash import Input, Output, callback, dcc, html
+from dash import MATCH, Input, Output, State, callback, dcc, html
 
-import dash_ag_grid as dag
 from dash_app import theme
 
 
@@ -62,8 +62,9 @@ def kpi_strip(cards: list, cols: int = 4):
 # wrapping a Graph in a skeleton loader.
 # ---------------------------------------------------------------------------
 def chart_card(title: str, graph_id: str, *, info: str | None = None,
-               height: int | None = 340, subtitle: str | None = None,
-               header_extra=None):
+               height: int | None = 340, header_extra=None):
+    # Header-only card - interpretation lives in the info-icon hover. The spacer
+    # below the header keeps the plot's top legend from colliding with the title.
     graph_style = {"height": f"{height}px"} if height else {"width": "100%"}
     skeleton_h = height or 380
     header = dmc.Group(
@@ -72,17 +73,14 @@ def chart_card(title: str, graph_id: str, *, info: str | None = None,
          header_extra if header_extra is not None else html.Span()],
         justify="space-between", align="center", wrap="nowrap",
     )
-    children = [header]
-    if subtitle:
-        children.append(dmc.Text(subtitle, size="xs", c="dimmed", mt=2, mb=2))
-    children.append(
-        dcc.Loading(
-            dcc.Graph(id=graph_id, config={"displayModeBar": False}, style=graph_style),
-            custom_spinner=dmc.Skeleton(height=skeleton_h, radius="md", animate=True),
-        )
-    )
-    return dmc.Card(children, withBorder=True, radius="lg", p="md", shadow="xs",
-                    style={"height": "100%"})
+    return dmc.Card(
+        [header,
+         dmc.Space(h=10),
+         dcc.Loading(
+             dcc.Graph(id=graph_id, config={"displayModeBar": False}, style=graph_style),
+             custom_spinner=dmc.Skeleton(height=skeleton_h, radius="md", animate=True),
+         )],
+        withBorder=True, radius="lg", p="md", shadow="xs", style={"height": "100%"})
 
 
 # ---------------------------------------------------------------------------
@@ -125,11 +123,33 @@ def alert(message, kind: str = "info", title: str | None = None):
                      icon=html.I(className=icon), radius="md")
 
 
-def alert_stack(items: list[tuple[str, str]]):
-    """[(message, kind), ...] -> stacked alerts; None for an empty list."""
-    if not items:
+def alert_chips(items):
+    """Compact horizontal highlights: each is a colour-coded chip showing just the
+    headline; the full detail appears on hover. Space-saving replacement for a
+    tall stack of alert boxes. items = list of (title, detail, kind) tuples or
+    dicts {title, message, kind}. Returns a wrapping Group, or None if empty."""
+    chips = []
+    for it in items:
+        if isinstance(it, dict):
+            title = it.get("title") or it.get("message", "")
+            detail, kind = it.get("message", ""), it.get("kind", "info")
+        else:
+            title = it[0]
+            detail = it[1] if len(it) > 1 else ""
+            kind = it[2] if len(it) > 2 else "info"
+        color, icon = _ALERT_STYLES.get(kind, _ALERT_STYLES["info"])
+        badge = dmc.Badge(
+            title, color=color, variant="light", size="lg", radius="sm",
+            leftSection=html.I(className=icon),
+            styles={"root": {"cursor": "help", "maxWidth": "360px"},
+                    "label": {"textTransform": "none", "overflow": "hidden",
+                              "textOverflow": "ellipsis"}})
+        chips.append(
+            dmc.Tooltip(badge, label=detail, multiline=True, w=320, withArrow=True,
+                        position="bottom") if detail else badge)
+    if not chips:
         return None
-    return dmc.Stack([alert(msg, kind) for msg, kind in items], gap="xs")
+    return dmc.Group(chips, gap="xs", wrap="wrap")
 
 
 # ---------------------------------------------------------------------------
@@ -196,12 +216,17 @@ def freshness_badge(meta: dict):
         dot = theme.GREEN if age_h < 5 else theme.YELLOW if age_h <= 15 else theme.RED
         age = f"vor {age_h:.1f} h" if age_h < 48 else f"vor {age_h / 24:.1f} Tagen"
         label = f"Daten-Stand: {ts:%d.%m.%Y}, {ts:%H:%M} Uhr ({age})"
-    return dmc.Group(
-        [html.Span(style={"width": "10px", "height": "10px", "borderRadius": "50%",
-                          "background": dot, "border": "1px solid rgba(0,0,0,0.25)",
-                          "flex": "0 0 auto"}),
-         dmc.Text(label, size="xs")],
-        gap=8, align="center")
+    # Rendered as a subtle brand pill (rounded, off-white, hairline border) with a
+    # small status dot - matches the chip/badge language of the rest of the app.
+    return dmc.Paper(
+        dmc.Group(
+            [dmc.Box(w=8, h=8, style={"borderRadius": "50%", "backgroundColor": dot,
+                                      "flex": "0 0 auto"}),
+             dmc.Text(label, size="xs", c="dark")],
+            gap=8, align="center", wrap="nowrap"),
+        px="sm", py=6, radius="xl", withBorder=True,
+        style={"backgroundColor": "#FAFAF5", "borderColor": "#ECEAE0",
+               "display": "inline-flex"})
 
 
 # ---------------------------------------------------------------------------
@@ -236,3 +261,103 @@ def loader_view(pct: float, message: str, *, show: bool):
     p = max(0, min(100, int(round(float(pct)))))
     return ([{"value": p, "color": "yellow"}], f"{p}%", message,
             {"display": "block"} if show else {"display": "none"})
+
+
+# ---------------------------------------------------------------------------
+# Filter shell: a slim STICKY bar holding the always-relevant primary controls,
+# an optional "Erweitert" popover trigger on the right, and a reactive chip row
+# underneath that echoes the active filters. Pages own the control ids; this is
+# pure layout. Advanced/secondary controls live inside advanced_popover().
+# ---------------------------------------------------------------------------
+def location_select(fid: str, options: list[str], *, data: list[dict] | None = None,
+                    width: int = 240, label: str = "Standorte", clearable: bool = True):
+    """Compact location MultiSelect: fixed width + capped input height so a full
+    selection scrolls inside one row instead of ballooning the whole bar. The
+    active count is surfaced by the filter chips, not by growing this control."""
+    # No persistence: a stale/empty value in browser localStorage would zero out
+    # the whole view (the callbacks guard on an empty selection). Default = all.
+    return dmc.MultiSelect(
+        id=fid, label=label,
+        data=data or [{"label": o, "value": o} for o in options],
+        value=list(options), placeholder="Alle Standorte",
+        clearable=clearable, searchable=True, hidePickedOptions=True,
+        maxDropdownHeight=300, leftSection=html.I(className="bi bi-geo-alt"),
+        comboboxProps={"withinPortal": True}, w=width,
+        styles={"input": {"maxHeight": "38px", "overflowY": "auto"}},
+    )
+
+
+def advanced_popover(page: str, children: list, *, label: str = "Erweitert"):
+    """Descriptor for the secondary filters. Returned to filter_shell, which
+    renders the 'Erweitert' toggle + a reliable inline dmc.Collapse (the old
+    controlled Popover was flaky). Kept as a function so view call sites are
+    unchanged; `page` must be unique per view."""
+    return {"__advanced__": True, "page": page, "children": children, "label": label}
+
+
+def filter_shell(primary: list, *, advanced: dict | None = None,
+                 chips_id: str | None = None):
+    """Slim STICKY filter bar. `primary` = always-visible compact controls;
+    `advanced` = an advanced_popover(...) descriptor revealed in a Collapse;
+    `chips_id` = a Div the page fills with the active-filter chips."""
+    page = advanced.get("page") if isinstance(advanced, dict) else None
+    header_right = html.Span()
+    if page:
+        header_right = dmc.Button(
+            advanced.get("label", "Erweitert"), id={"type": "ui-adv-btn", "page": page},
+            variant="subtle", color="gray", size="sm",
+            leftSection=html.I(className="bi bi-sliders"),
+            rightSection=html.I(className="bi bi-chevron-down"))
+    top = dmc.Group(
+        [dmc.Group(primary, gap="sm", align="flex-end", wrap="wrap"), header_right],
+        justify="space-between", align="flex-end", gap="md", wrap="wrap",
+    )
+    rows = [top]
+    if page:
+        rows.append(dmc.Collapse(
+            dmc.Paper(dmc.Group(advanced["children"], gap="md", align="flex-end",
+                                wrap="wrap"),
+                      p="sm", radius="md", withBorder=True,
+                      style={"backgroundColor": "#FAFAF5"}),
+            id={"type": "ui-adv-pop", "page": page}, opened=False))
+    if chips_id:
+        rows.append(html.Div(id=chips_id))
+    return dmc.Paper(
+        dmc.Stack(rows, gap="xs"),
+        p="sm", radius="lg", withBorder=True,
+        style={"position": "sticky", "top": "8px", "zIndex": 300,
+               "backgroundColor": theme.WHITE, "boxShadow": "0 2px 12px rgba(0,0,0,0.07)"},
+    )
+
+
+@callback(
+    Output({"type": "ui-adv-pop", "page": MATCH}, "opened"),
+    Input({"type": "ui-adv-btn", "page": MATCH}, "n_clicks"),
+    State({"type": "ui-adv-pop", "page": MATCH}, "opened"),
+    prevent_initial_call=True,
+)
+def _toggle_advanced(_n, opened):
+    return not opened
+
+
+# ---------------------------------------------------------------------------
+# Thematic section tabs: groups a page's many sections so only one is on screen
+# at a time. tabs = list of (value, label, content[, icon]); content is any
+# node (usually a dmc.Stack of chart_cards / grids the data callback fills).
+# ---------------------------------------------------------------------------
+def section_tabs(tabs_id: str, tabs: list[tuple], *, value: str | None = None):
+    tab_items, panels = [], []
+    for t in tabs:
+        val, label, content = t[0], t[1], t[2]
+        icon = t[3] if len(t) > 3 else None
+        tab_items.append(dmc.TabsTab(
+            label, value=val,
+            leftSection=html.I(className=icon) if icon else None))
+        panels.append(dmc.TabsPanel(content, value=val, pt="md"))
+    # keepMounted=True: every panel stays in the DOM (hidden) so a single data
+    # callback can fill all tabs' graphs in one pass; tabs are purely visual.
+    return dmc.Tabs(
+        [dmc.TabsList(tab_items), *panels],
+        id=tabs_id, value=value or tabs[0][0], keepMounted=True,
+        variant="pills", radius="md", color="dark",
+    )

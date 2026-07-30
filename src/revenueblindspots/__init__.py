@@ -1,10 +1,10 @@
-""" Revenue Analysis Streamlit app
+"""Revenue Analysis - shared domain layer (UI-frei).
 
-Two reusable modules: the Streamlit app + components live in ``streamlit_app/``.
-
-    helpers.py   config, BigQuery column lists, feature engineering, KPIs,
-                 period helpers, parquet snapshot IO
-    theming.py   Matplotlib design
+helpers.py    config, BigQuery column lists, feature engineering, KPIs,
+period helpers, parquet snapshot IO
+overrides.py  promo -> Firmencode reclassification store
+refresh.py    BigQuery snapshot refresh pipeline
+theming.py    brand config loader + Matplotlib design tokens
 """
 
-__version__ = "0.3.0"
+__version__ = "0.4.0"

@@ -1,6 +1,6 @@
 # dash_app/pages/global_report.py
 # Global Report - portfolio revenue recap (IST vs PLAN vs Vorjahr, Channel-Mix,
-# Heatmaps). Port of streamlit_app/pages/1_Global_Report.py. The filter bar is a
+# Heatmaps). Port of the Global_Report view. The filter bar is a
 # dmc.Paper on top (no sidebar); every control has a direct effect. Layout is
 # light - all tables and figures are produced by one callback. Grids receive both
 # columnDefs and rowData from the callback. No live BigQuery: reads the parquet
@@ -8,7 +8,6 @@
 
 from __future__ import annotations
 
-import dash
 import dash_mantine_components as dmc
 import pandas as pd
 from dash import Input, Output, callback, dcc, html
@@ -26,9 +25,6 @@ from dash_app.components.tooltips import (
     KPI_GLOBAL_SALES,
 )
 from revenueblindspots import helpers as H
-
-dash.register_page(__name__, path="/global", name="Global Report", order=1,
-                   title="STAYERY · Global Report", group="Revenue")
 
 _PERSIST = dict(persistence=True, persistence_type="local")
 _HIDE = {"display": "none"}
@@ -104,78 +100,59 @@ def layout(**_kwargs):
                             value=cur_q_end.date().isoformat(), w=160, **_PERSIST),
     ], id="gr-frei-block", style=_HIDE)
 
-    filter_bar = dmc.Paper(dmc.Stack([
-        dmc.MultiSelect(
-            id="gr-props", label="Standorte", data=prop_data, value=list(all_props),
-            placeholder="Alle Standorte", clearable=True, searchable=True,
-            hidePickedOptions=False, maxDropdownHeight=320,
-            leftSection=html.I(className="bi bi-geo-alt"),
-            comboboxProps={"withinPortal": True},
-            styles={"input": {"minHeight": "40px"}}, **_PERSIST),
+    primary = [
+        ui.location_select("gr-props", all_props, data=prop_data),
         dmc.SegmentedControl(
             id="gr-mode", value="quartal", size="sm", radius="md",
             data=[{"label": "Quartal", "value": "quartal"},
                   {"label": "Freie Periode", "value": "frei"}], **_PERSIST),
         quartal_block,
         frei_block,
-        dmc.Group([
-            dmc.Stack([
-                dmc.Group([dmc.Text("Schwelle 🟢 (≥ PLAN + %)", size="xs", fw=600, c="dimmed"),
-                           ui.info_icon("Ab dieser Δ-vs-PLAN-Schwelle gilt ein Standort als grün.")],
-                          gap=4, wrap="nowrap"),
-                dmc.Slider(id="gr-green", min=0.5, max=10.0, step=0.5, value=2.0,
-                           w=200, marks=[{"value": 2.0}, {"value": 10.0}], **_PERSIST),
-            ], gap=4),
-            dmc.Stack([
-                dmc.Group([dmc.Text("Schwelle 🔴 (≤ PLAN − %)", size="xs", fw=600, c="dimmed"),
-                           ui.info_icon("Bis zu dieser Δ-vs-PLAN-Schwelle gilt ein Standort als rot.")],
-                          gap=4, wrap="nowrap"),
-                dmc.Slider(id="gr-red", min=-30.0, max=-1.0, step=1.0, value=-10.0,
-                           w=200, marks=[{"value": -10.0}, {"value": -1.0}], **_PERSIST),
-            ], gap=4),
-            dmc.Switch(id="gr-late", label="Späte Öffner einbeziehen", checked=False,
-                       size="sm", **_PERSIST),
-            dmc.Switch(id="gr-cxl", label="Storno + No-Show einbeziehen", checked=False,
-                       size="sm", **_PERSIST),
-        ], gap="lg", align="flex-end", wrap="wrap"),
-    ], gap="sm"), p="md", radius="lg", withBorder=True)
+    ]
+    advanced = ui.advanced_popover("gr", [
+        dmc.Stack([
+            dmc.Group([dmc.Text("Schwelle 🟢 (≥ PLAN + %)", size="xs", fw=600, c="dimmed"),
+                       ui.info_icon("Ab dieser Δ-vs-PLAN-Schwelle gilt ein Standort als grün.")],
+                      gap=4, wrap="nowrap"),
+            dmc.Slider(id="gr-green", min=0.5, max=10.0, step=0.5, value=2.0,
+                       w=200, marks=[{"value": 2.0}, {"value": 10.0}], **_PERSIST),
+        ], gap=4),
+        dmc.Stack([
+            dmc.Group([dmc.Text("Schwelle 🔴 (≤ PLAN − %)", size="xs", fw=600, c="dimmed"),
+                       ui.info_icon("Bis zu dieser Δ-vs-PLAN-Schwelle gilt ein Standort als rot.")],
+                      gap=4, wrap="nowrap"),
+            dmc.Slider(id="gr-red", min=-30.0, max=-1.0, step=1.0, value=-10.0,
+                       w=200, marks=[{"value": -10.0}, {"value": -1.0}], **_PERSIST),
+        ], gap=4),
+        dmc.Switch(id="gr-late", label="Späte Öffner einbeziehen", checked=False,
+                   size="sm", **_PERSIST),
+        dmc.Switch(id="gr-cxl", label="Storno + No-Show einbeziehen", checked=False,
+                   size="sm", **_PERSIST),
+    ])
 
-    header = dmc.Stack([
-        dmc.Group([
-            dmc.Title("Global Report", order=3),
-            dmc.Badge("Portfolio · Revenue-Recap", color="gray", variant="light", radius="sm"),
-        ], gap="sm", align="center"),
-        dmc.Text("Standortübergreifend - IST vs. PLAN vs. Vorjahr, Channel-Mix, Heatmaps. "
-                 "(Pace by Month: siehe Pickup-Seite §2.)", size="sm", c="dimmed"),
-    ], gap=4)
+    filter_bar = ui.filter_shell(primary=primary, advanced=advanced)
 
-    intro = dmc.Text(
-        "Datenbasis: alle €-Werte = Nacht-Netto (baseAmount_netAmount). §2 nach "
-        "Erstellungsdatum (Sales-Sicht), §3 + Heatmaps nach Aufenthalt (§3 mit PLAN). "
-        "Storno/No-Show + späte Öffner über die Schalter oben.",
-        size="xs", c="dimmed")
+    header = dmc.Group([
+        dmc.Title("Global Report", order=3),
+        dmc.Badge("Portfolio · Revenue-Recap", color="gray", variant="light", radius="sm"),
+    ], gap="sm", align="center")
 
-    return dmc.Stack([
-        header,
-        filter_bar,
-        html.Div(id="gr-scope-caption"),
-        html.Div(id="gr-filter-alerts"),
-        intro,
-
-        # Executive Summary
-        dmc.Title("Executive Summary", order=4, mt="md"),
+    tab_overview = dmc.Stack([
+        dmc.Title("Executive Summary", order=4),
         html.Div(id="gr-kpis", children=dmc.Skeleton(height=110, radius="lg")),
         html.Div(id="gr-exec-alerts"),
-
-        # 1 · Visual Scorecard
         ui.section_header(1, "Visual Scorecard", basis="stay", info=CHART_TOOLTIPS["scorecard"]),
-        ui.chart_card("Visual Scorecard", "gr-fig-scorecard", height=480,
-                      subtitle="Bar-Länge = IST · schwarzer Tick = PLAN · graue Marke = "
-                               "Vorjahr · Farbe aus den Schwellen-Slidern."),
+        ui.chart_card("Visual Scorecard", "gr-fig-scorecard", height=480),
         ui.table_accordion("Datentabelle",
                            ui.df_grid(pd.DataFrame(), "gr-grid-scorecard"), value="scorecard"),
+        ui.section_header("Top-Movers", "Δ Revenue YoY je Standort", basis="stay",
+                          info=CHART_TOOLTIPS["top_movers"]),
+        ui.chart_card("Top-Movers · Δ Revenue YoY", "gr-fig-movers", height=460),
+        ui.table_accordion("Datentabelle",
+                           ui.df_grid(pd.DataFrame(), "gr-grid-movers"), value="movers"),
+    ], gap="md")
 
-        # 2 · Performance nach Erstellungsdatum
+    tab_erstellung = dmc.Stack([
         ui.section_header(2, "Performance nach Erstellungsdatum", basis="created"),
         ui.section_header("2.A", "Performance Standorte (Erstellung)", basis="created",
                           info=CHART_TOOLTIPS["perf_created"]),
@@ -186,8 +163,9 @@ def layout(**_kwargs):
                           info=CHART_TOOLTIPS["chan_created"]),
         dmc.Card(ui.df_grid(pd.DataFrame(), "gr-grid-chan-created"),
                  withBorder=True, radius="lg", p="md"),
+    ], gap="md")
 
-        # 3 · Performance nach Aufenthaltsdatum
+    tab_aufenthalt = dmc.Stack([
         ui.section_header(3, "Performance nach Aufenthaltsdatum", basis="stay"),
         ui.section_header("3.A", "Performance Standorte (Aufenthalt)", basis="stay",
                           info=CHART_TOOLTIPS["perf_stay"]),
@@ -197,25 +175,23 @@ def layout(**_kwargs):
                           info=CHART_TOOLTIPS["chan_stay"]),
         dmc.Card(ui.df_grid(pd.DataFrame(), "gr-grid-chan-stay"),
                  withBorder=True, radius="lg", p="md"),
-
-        # 4 · Pace umgezogen
         ui.alert("Die Pace-to-PLAN-Analyse (OTB vs. Ziel + Zeit-Fortschritt) ist auf die "
                  "Seite Pickup / Vorlauf-Analyse umgezogen.", "info",
                  title="4 · IST vs PLAN · Pace-Fortschritt"),
+    ], gap="md")
 
-        # 5 · Channel-Mix Detail
+    tab_channelmix = dmc.Stack([
         ui.section_header(5, "Channel-Mix Detail", basis="stay",
                           info=CHART_TOOLTIPS["channel_detail"]),
         dmc.SimpleGrid([
-            ui.chart_card("Channel-Mix Donuts", "gr-fig-donut", height=380,
-                          subtitle="Anteil je Channel · OLD vs NEW"),
-            ui.chart_card("Top-Channels YoY", "gr-fig-bars", height=420,
-                          subtitle="Top-Channels horizontal · YoY-Δ je Channel"),
+            ui.chart_card("Channel-Mix Donuts", "gr-fig-donut", height=380),
+            ui.chart_card("Top-Channels YoY", "gr-fig-bars", height=420),
         ], cols={"base": 1, "md": 2}, spacing="md"),
         ui.table_accordion("Datentabelle",
                            ui.df_grid(pd.DataFrame(), "gr-grid-chan-detail"), value="chan_detail"),
+    ], gap="md")
 
-        # 6 · Supporting Insights
+    tab_heatmaps = dmc.Stack([
         ui.section_header(6, "Supporting Insights"),
         ui.section_header("6.A", "Revenue-Heatmap Standort × Monat", basis="stay",
                           info=CHART_TOOLTIPS["heat_loc_month"]),
@@ -227,16 +203,26 @@ def layout(**_kwargs):
         ui.chart_card("Channel-Mix je Standort (Anteil %)", "gr-fig-heat-chloc", height=460),
         ui.table_accordion("Datentabelle",
                            ui.df_grid(pd.DataFrame(), "gr-grid-heat-chloc"), value="heat_chloc"),
-        ui.section_header("6.C", "Top-Movers · Δ Revenue YoY", basis="stay",
-                          info=CHART_TOOLTIPS["top_movers"]),
-        ui.chart_card("Top-Movers · Δ Revenue YoY", "gr-fig-movers", height=460),
-        ui.table_accordion("Datentabelle",
-                           ui.df_grid(pd.DataFrame(), "gr-grid-movers"), value="movers"),
-        ui.section_header("6.D", "Channel × LOS (granular)", basis="stay",
+        ui.section_header("6.C", "Channel × LOS (granular)", basis="stay",
                           info=CHART_TOOLTIPS["heat_ch_los_granular"]),
         ui.chart_card("Channel × LOS (granular)", "gr-fig-heat-chlos", height=560),
         ui.table_accordion("Datentabelle",
                            ui.df_grid(pd.DataFrame(), "gr-grid-heat-chlos"), value="heat_chlos"),
+    ], gap="md")
+
+    section_tabs = ui.section_tabs("gr-sectiontabs", [
+        ("overview", "Überblick", tab_overview, "bi bi-speedometer2"),
+        ("erstellung", "Erstellung", tab_erstellung, "bi bi-pencil-square"),
+        ("aufenthalt", "Aufenthalt", tab_aufenthalt, "bi bi-calendar-check"),
+        ("channelmix", "Channel-Mix", tab_channelmix, "bi bi-diagram-3"),
+        ("heatmaps", "Heatmaps", tab_heatmaps, "bi bi-grid-3x3"),
+    ])
+
+    return dmc.Stack([
+        header,
+        filter_bar,
+        html.Div(id="gr-filter-alerts"),
+        section_tabs,
     ], gap="md")
 
 
@@ -272,7 +258,6 @@ def _resolve_period(mode, y_new, q_new, y_old, q_old, o_start, o_end, n_start, n
 
 
 _OUTPUTS = [
-    Output("gr-scope-caption", "children"),
     Output("gr-filter-alerts", "children"),
     Output("gr-kpis", "children"),
     Output("gr-exec-alerts", "children"),
@@ -306,12 +291,12 @@ _INPUTS = [
 ]
 
 
-def _blank_outputs(scope, filter_alerts, note):
+def _blank_outputs(filter_alerts, note):
     """Full output tuple with blank figures/grids (used for guard early-returns)."""
     blank_fig = GRC._empty(note)
     blanks_fig_grid = [blank_fig, [], []]
     return (
-        scope, filter_alerts,
+        filter_alerts,
         dmc.Text(note, c="dimmed", size="sm"), None,
         blank_fig, [], [],           # scorecard
         None, [], [], [], [],        # created alert + created grid + chan-created grid
@@ -332,7 +317,7 @@ def _update(props, mode, y_new, q_new, y_old, q_old,
     cxl = bool(cxl)
     props = list(props) if props else []
     if not props:
-        return _blank_outputs("", ui.alert("Bitte mindestens einen Standort wählen.", "warning"),
+        return _blank_outputs(ui.alert("Bitte mindestens einen Standort wählen.", "warning"),
                               "Keine Standort-Auswahl")
 
     start_old, end_old, start_new, end_new, tag_new, tag_old = _resolve_period(
@@ -345,13 +330,13 @@ def _update(props, mode, y_new, q_new, y_old, q_old,
                              pd.Timestamp.today().date())
 
     # One nightly pull covering both windows, extended to full calendar years so the
-    # Standort × Monat heatmap shows the whole span (as the streamlit page did).
+    # Standort × Monat heatmap shows the whole span (as the source page did).
     pull_start, pull_end = H.union_period((start_old, end_old), (start_new, end_new))
     pull_start = min(pull_start, pd.Timestamp(f"{year_old}-01-01"))
     pull_end = max(pull_end, pd.Timestamp(f"{year_new}-12-31"))
     nightly = data.get_timeslices(start=pull_start, end=None, properties=props)
 
-    # ---- Late-opener detection / removal (mirrors streamlit ~253-327) --------
+    # ---- Late-opener detection / removal (mirrors the source ~253-327) --------
     filter_alerts = []
     props_eff = list(props)
     late = H.properties_without_old_data(props, end_old)
@@ -377,7 +362,7 @@ def _update(props, mode, y_new, q_new, y_old, q_old,
         filter_alerts.append(ui.alert(
             "Nach Ausschluss der späten Öffner ist die Standort-Auswahl leer. Bitte OLD-Periode "
             "später wählen oder 'Späte Öffner einbeziehen' aktivieren.", "alert"))
-        return _blank_outputs("", dmc.Stack(filter_alerts, gap="xs"), "Keine Standorte übrig")
+        return _blank_outputs(dmc.Stack(filter_alerts, gap="xs"), "Keine Standorte übrig")
 
     if start_new > snap_date:
         filter_alerts.append(ui.alert(
@@ -395,11 +380,6 @@ def _update(props, mode, y_new, q_new, y_old, q_old,
                 f"{txt} - der Snapshot enthält aber erst Daten ab {data_start:%d.%m.%Y}. Der "
                 "Zeitraum davor ist leer, die Vorjahres-Werte sind dadurch unvollständig.",
                 "warning", title="Periode reicht vor den verfügbaren Datenbestand zurück"))
-
-    scope = dmc.Text(
-        "Scope: alle Buchungen (inkl. Storno + No-Show)" if cxl
-        else "Scope: realized-only (Storno + No-Show ausgeschlossen)",
-        size="xs", c="dimmed")
 
     # ---- Recap tables --------------------------------------------------------
     disp_stay, raw_stay = GT.performance_by_stay(
@@ -447,8 +427,9 @@ def _update(props, mode, y_new, q_new, y_old, q_old,
 
     alerts = GT.auto_alerts(raw_stay, raw_created, year_old, year_new,
                             include_cancellations=cxl, green_pct=green, red_pct=red)
-    exec_items = [(dcc.Markdown(f"**{a['title']}** — {a['message']}"), a["kind"]) for a in alerts]
-    exec_alerts = ui.alert_stack(exec_items) or ui.alert("Keine automatischen Alerts.", "info")
+    exec_alerts = (ui.alert_chips([(a["title"], a["message"], a["kind"]) for a in alerts])
+                   or ui.alert_chips([("Keine Auffälligkeiten",
+                                       "Alle Standorte im erwarteten Rahmen.", "success")]))
 
     # ---- 2.A best/worst mover alert -----------------------------------------
     if disp_created.empty:
@@ -516,7 +497,7 @@ def _update(props, mode, y_new, q_new, y_old, q_old,
     cl_cols, cl_rows = _grid_out(tbl_chlos)
 
     return (
-        scope, dmc.Stack(filter_alerts, gap="xs") if filter_alerts else None,
+        dmc.Stack(filter_alerts, gap="xs") if filter_alerts else None,
         kpis, exec_alerts,
         fig_scorecard, sc_cols, sc_rows,
         created_alert, cr_cols, cr_rows, ccr_cols, ccr_rows,

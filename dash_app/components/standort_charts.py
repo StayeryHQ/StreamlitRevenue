@@ -1,7 +1,7 @@
 # dash_app/components/standort_charts.py
 # Pure Plotly builders for the Standort-Analyse page (sections 1-10) - a straight
-# port of the old matplotlib builders in streamlit_app/components/charts.py. Every
-# builder takes the same DataFrames the streamlit page passed and returns a
+# port of the old matplotlib builders in the charts module. Every
+# builder takes the same DataFrames the source page passed and returns a
 # brand_figure'd go.Figure; axes, ordering and annotations mirror the matplotlib
 # originals. Colours come only from theme: YELLOW = current (NEW) series, GREY =
 # previous-period (OLD) series, DIVERGING_SCALE for YoY-delta heatmaps.
@@ -65,6 +65,7 @@ def landscape_kpis_chart(kpi_o: dict, kpi_n: dict, monthly_o: pd.DataFrame,
     axis_refs = [("x domain", "y domain"), ("x2 domain", "y2 domain"),
                  ("x3 domain", "y3 domain"), ("x4 domain", "y4 domain")]
 
+    anns = []
     for idx, (title, key, fmt) in enumerate(panels):
         r, c = positions[idx]
         xref, yref = axis_refs[idx]
@@ -94,22 +95,23 @@ def landscape_kpis_chart(kpi_o: dict, kpi_n: dict, monthly_o: pd.DataFrame,
         ), row=r, col=c)
 
         big = fmt(vn) if pd.notna(vn) else "–"
-        fig.add_annotation(x=0.02, y=0.95, xref=xref, yref=yref, showarrow=False,
-                           text=f"<b>{big}</b>", xanchor="left", yanchor="top",
-                           font=dict(size=19, color=theme.BLACK))
-        fig.add_annotation(x=0.02, y=0.78, xref=xref, yref=yref, showarrow=False,
-                           text=f"YoY {delta:+.1f} %" if not np.isnan(delta) else "YoY n/a",
-                           xanchor="left", yanchor="top",
-                           font=dict(size=11, color=dcol))
+        anns.append(dict(x=0.02, y=0.95, xref=xref, yref=yref, showarrow=False,
+                         text=f"<b>{big}</b>", xanchor="left", yanchor="top",
+                         font=dict(size=19, color=theme.BLACK)))
+        anns.append(dict(x=0.02, y=0.78, xref=xref, yref=yref, showarrow=False,
+                         text=f"YoY {delta:+.1f} %" if not np.isnan(delta) else "YoY n/a",
+                         xanchor="left", yanchor="top",
+                         font=dict(size=11, color=dcol)))
         old_txt = fmt(vo) if pd.notna(vo) else "–"
-        fig.add_annotation(x=0.02, y=0.66, xref=xref, yref=yref, showarrow=False,
-                           text=f"{old_txt} ({year_old})", xanchor="left", yanchor="top",
-                           font=dict(size=10, color=theme.GREY))
+        anns.append(dict(x=0.02, y=0.66, xref=xref, yref=yref, showarrow=False,
+                         text=f"{old_txt} ({year_old})", xanchor="left", yanchor="top",
+                         font=dict(size=10, color=theme.GREY)))
 
         vals = [v for v in (s_o + s_n) if v is not None]
         ymax = max(vals) * 1.15 if vals else 1.0
         fig.update_yaxes(range=[0, ymax if ymax > 0 else 1], row=r, col=c)
 
+    theme.add_annotations(fig, anns)
     fig.update_layout(
         title=f"{label} - Landscape {year_old} vs {year_new} (Realized, Stay-Date)",
         margin=dict(l=50, r=20, t=90, b=40),
@@ -167,13 +169,15 @@ def channel_mix(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
             legendgroup="new",
             marker=dict(color=theme.YELLOW, line=dict(color=theme.BLACK, width=0.4)),
         ), row=1, col=2)
+        anns = []
         for ch, vo, vn in zip(order, df["o"], df["n"]):
             pct = (vn / vo - 1) * 100 if vo > 0 else float("nan")
             txt = (f"  Δ {H.fmt_eur(vn - vo)} ({pct:+.0f} %)" if pd.notna(pct)
                    else f"  +{H.fmt_eur(vn)} (neu)")
-            fig.add_annotation(x=max(vo, vn), y=ch, text=txt, showarrow=False,
-                               xanchor="left", yanchor="middle", font=dict(size=9),
-                               row=1, col=2)
+            anns.append(dict(x=max(vo, vn), y=ch, text=txt, showarrow=False,
+                             xanchor="left", yanchor="middle", font=dict(size=9),
+                             xref="x2", yref="y2"))
+        theme.add_annotations(fig, anns)
         fig.update_yaxes(categoryorder="array", categoryarray=order, row=1, col=2)
 
     fig.update_layout(title=f"{label} - Channel-Mix", barmode="group")
@@ -187,36 +191,48 @@ def channel_mix(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 # Shared: links YoY-Heatmap (DIVERGING) + rechts Revenue-Anteil-Bars je Zelle.
 # =============================================================================
 def _heat_and_share(a: pd.DataFrame, b: pd.DataFrame, super_title: str,
-                    year_old: int, year_new: int, left_title: str) -> go.Figure:
+                    year_old: int, year_new: int, left_title: str,
+                    *, share_rows: bool = False) -> go.Figure:
+    # share_rows=False -> right panel shows the revenue share of each CELL
+    # (row x LOS). share_rows=True -> share of each ROW (LOS summed), e.g. §4
+    # channel x purpose, matching the original per-Channel-x-Reisezweck panel.
     rows = list(a.index)
     rel = ((b / a.replace(0, np.nan)) - 1) * 100
 
+    share_title = "Anteil je Channel × Reisezweck" if share_rows else "Anteil je Zelle"
     fig = make_subplots(rows=1, cols=2, column_widths=[0.42, 0.58],
                         horizontal_spacing=0.22,
                         subplot_titles=(left_title,
-                                        f"Anteil je Zelle · {year_old} vs {year_new}"))
+                                        f"{share_title} · {year_old} vs {year_new}"))
 
     fig.add_trace(go.Heatmap(
         z=rel.fillna(0).values, x=_LOS_COLS, y=rows, colorscale=theme.DIVERGING_SCALE,
         zmin=-100, zmax=100, colorbar=dict(title="% YoY", x=0.37, len=0.9, thickness=10),
         hovertemplate="%{y} · %{x}: %{z:+.0f} %<extra></extra>",
     ), row=1, col=1)
+    anns = []
     for i, rlab in enumerate(rows):
         for j, los in enumerate(_LOS_COLS):
             v = rel.iloc[i, j]
             delta = b.iloc[i, j] - a.iloc[i, j]
             txt = (f"{v:+.0f} %" if pd.notna(v) else "neu") + f"<br>({H.fmt_eur(delta)})"
-            fig.add_annotation(
-                x=los, y=rlab, text=txt, showarrow=False, row=1, col=1,
+            anns.append(dict(
+                x=los, y=rlab, text=txt, showarrow=False, xref="x", yref="y",
                 font=dict(size=8, color="white" if (pd.notna(v) and abs(v) >= 60)
-                          else theme.BLACK))
+                          else theme.BLACK)))
 
     sa = float(a.values.sum()) or 1.0
     sb = float(b.values.sum()) or 1.0
-    pairs = [(r, c) for r in rows for c in _LOS_COLS]
-    pair_labels = [f"{r} · {c}" for r, c in pairs]
-    sh_a = [a.loc[r, c] / sa * 100 for r, c in pairs]
-    sh_b = [b.loc[r, c] / sb * 100 for r, c in pairs]
+    if share_rows:
+        ra, rb = a.sum(axis=1), b.sum(axis=1)
+        pair_labels = list(rows)
+        sh_a = [float(ra[r]) / sa * 100 for r in rows]
+        sh_b = [float(rb[r]) / sb * 100 for r in rows]
+    else:
+        pairs = [(r, c) for r in rows for c in _LOS_COLS]
+        pair_labels = [f"{r} · {c}" for r, c in pairs]
+        sh_a = [a.loc[r, c] / sa * 100 for r, c in pairs]
+        sh_b = [b.loc[r, c] / sb * 100 for r, c in pairs]
     fig.add_trace(go.Bar(
         y=pair_labels, x=sh_a, orientation="h", offsetgroup="old", name=str(year_old),
         legendgroup="old",
@@ -228,9 +244,10 @@ def _heat_and_share(a: pd.DataFrame, b: pd.DataFrame, super_title: str,
         marker=dict(color=theme.YELLOW, line=dict(color=theme.BLACK, width=0.4)),
     ), row=1, col=2)
     for lbl, va, vb in zip(pair_labels, sh_a, sh_b):
-        fig.add_annotation(x=max(va, vb), y=lbl, text=f"  {vb:.0f}%", showarrow=False,
-                           xanchor="left", yanchor="middle", font=dict(size=8),
-                           row=1, col=2)
+        anns.append(dict(x=max(va, vb), y=lbl, text=f"  {vb:.0f}%", showarrow=False,
+                         xanchor="left", yanchor="middle", font=dict(size=8),
+                         xref="x2", yref="y2"))
+    theme.add_annotations(fig, anns)
 
     fig.update_layout(title=super_title, barmode="group", bargap=0.2)
     fig.update_xaxes(showgrid=False, row=1, col=1)
@@ -317,10 +334,11 @@ def _yoy_two_panel(nig_old: pd.DataFrame, nig_new: pd.DataFrame, dim: str,
         name=str(year_new), legendgroup="new",
         marker=dict(color=theme.YELLOW, line=dict(color=theme.BLACK, width=0.4)),
     ), row=1, col=1)
+    anns = []
     for lab, vo, vn in zip(order, yoy["revenue_eur_old"], yoy["revenue_eur_new"]):
-        fig.add_annotation(x=max(vo, vn), y=lab, text="  Δ " + H.fmt_eur(vn - vo),
-                           showarrow=False, xanchor="left", yanchor="middle",
-                           font=dict(size=9), row=1, col=1)
+        anns.append(dict(x=max(vo, vn), y=lab, text="  Δ " + H.fmt_eur(vn - vo),
+                         showarrow=False, xanchor="left", yanchor="middle",
+                         font=dict(size=9), xref="x", yref="y"))
 
     pp = yoy["share_delta_pp"]
     fig.add_trace(go.Bar(
@@ -329,9 +347,10 @@ def _yoy_two_panel(nig_old: pd.DataFrame, nig_new: pd.DataFrame, dim: str,
                     line=dict(color=theme.BLACK, width=0.4)),
     ), row=1, col=2)
     for lab, v in zip(order, pp):
-        fig.add_annotation(x=v, y=lab, text=f"  {v:+.1f} pp", showarrow=False,
-                           xanchor="left" if v >= 0 else "right", yanchor="middle",
-                           font=dict(size=9), row=1, col=2)
+        anns.append(dict(x=v, y=lab, text=f"  {v:+.1f} pp", showarrow=False,
+                         xanchor="left" if v >= 0 else "right", yanchor="middle",
+                         font=dict(size=9), xref="x2", yref="y2"))
+    theme.add_annotations(fig, anns)
     fig.add_vline(x=0, line_color=theme.BLACK, line_width=0.6, row=1, col=2)
 
     fig.update_layout(title=super_title, barmode="group")
@@ -367,6 +386,7 @@ def weekday_pattern(nig_old: pd.DataFrame, nig_new: pd.DataFrame, weekday_col: s
 
     fig = make_subplots(rows=1, cols=2, shared_yaxes=True, horizontal_spacing=0.06,
                         subplot_titles=(str(year_old), str(year_new)))
+    anns = []
     for col, nig in [(1, nig_old), (2, nig_new)]:
         piv = pivot(nig)
         total = np.zeros(7)
@@ -379,11 +399,13 @@ def weekday_pattern(nig_old: pd.DataFrame, nig_new: pd.DataFrame, weekday_col: s
                     hovertemplate="%{x} · " + grp + ": %{y:,.0f} €<extra></extra>",
                 ), row=1, col=col)
                 total = total + piv[grp].to_numpy()
+        xr, yr = ("x", "y") if col == 1 else ("x2", "y2")
         for i, t in enumerate(total):
             if t > 0:
-                fig.add_annotation(x=_WEEKDAY_DE[i], y=t, text=H.fmt_eur(t),
-                                   showarrow=False, yanchor="bottom",
-                                   font=dict(size=8, color=theme.BLACK), row=1, col=col)
+                anns.append(dict(x=_WEEKDAY_DE[i], y=t, text=H.fmt_eur(t),
+                                 showarrow=False, yanchor="bottom",
+                                 font=dict(size=8, color=theme.BLACK), xref=xr, yref=yr))
+    theme.add_annotations(fig, anns)
 
     fig.update_layout(title=f"{label} - {title}", barmode="stack")
     fig.update_yaxes(title_text="Revenue (€, netto)", row=1, col=1)

@@ -1,6 +1,6 @@
 # dash_app/pages/standort.py
 # Standort-Analyse - single-location deep dive comparing two periods (OLD vs NEW).
-# Port of streamlit_app/pages/3_Standort_Analyse.py, sections 1-10 (the corporate/
+# Port of the Standort_Analyse view, sections 1-10 (the corporate/
 # code sections 11-13 live on the B2B page). The filter bar is a dmc.Paper on top
 # (one property Select, OLD + NEW date pairs, a Storno/No-Show switch); every
 # control has a direct effect. One callback renders highlights, opening guards and
@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import dash
 import dash_mantine_components as dmc
 import numpy as np
 import pandas as pd
@@ -29,16 +28,9 @@ from dash_app.components.tooltips import (
 )
 from revenueblindspots import helpers as H
 
-dash.register_page(__name__, path="/standort", name="Standort", order=3,
-                   title="STAYERY · Standort", group="Revenue")
-
 _PERSIST = dict(persistence=True, persistence_type="local")
 _KPI_PLAN_INFO = ("IST-Revenue der NEW-Periode vs. PLAN aus dem BigQuery-Snapshot "
                   "(ref_tables.plan). Grau = kein PLAN hinterlegt.")
-_INTRO = ("Datenbasis & Filter: alle €-Werte = Staydate-Netto exkl. extra Services. "
-          "Badge je Sektion zeigt die Datumsachse: Aufenthalt (KPIs, Channels, LOS, "
-          "Wochentag, Inland/Ausland, Länder) vs. Erstellung (Gruppen-Größe). "
-          "Storno/No-Show via Schalter in der Filterleiste.")
 
 
 # ---------------------------------------------------------------------------
@@ -86,51 +78,38 @@ def layout(**_kwargs):
     def _iso(ts):
         return pd.Timestamp(ts).date().isoformat()
 
-    header = dmc.Stack([
-        dmc.Group([
-            dmc.Title("Standort-Analyse", order=3),
-            dmc.Badge("Standort Deep Dive · Revenue", color="yellow", variant="light",
-                      radius="sm"),
-        ], gap="sm", align="center"),
-        dmc.Text("Tiefer Vergleich zwischen zwei Perioden für einen Standort - "
-                 "Landscape-KPIs, Channel-Mix, LOS, Wochentag, Herkunft und "
-                 "Gruppen-Größe.", size="sm", c="dimmed"),
-    ], gap=4, mb="xs")
+    header = dmc.Group([
+        dmc.Title("Standort-Analyse", order=3),
+        dmc.Badge("Standort Deep Dive · Revenue", color="yellow", variant="light",
+                  radius="sm"),
+    ], gap="sm", align="center", mb="xs")
 
-    filter_bar = dmc.Paper(dmc.Stack([
-        dmc.Text("Filter", fw=700, size="sm"),
-        dmc.Group([
-            dmc.Select(id="st-prop", label="Standort", data=prop_data,
-                       value=default_prop, allowDeselect=False, searchable=True,
-                       leftSection=html.I(className="bi bi-geo-alt"),
-                       comboboxProps={"withinPortal": True},
-                       style={"minWidth": "260px"}, **_PERSIST),
-            dmc.Switch(id="st-cxl", label="Storno + No-Show einbeziehen", checked=False,
-                       size="sm", **_PERSIST),
-        ], gap="lg", wrap="wrap", align="flex-end"),
-        dmc.Text("Vergleichs-Periode (OLD)", fw=600, size="xs", c="dimmed"),
-        dmc.Group([
-            dmc.DatePickerInput(id="st-old-start", label="Start OLD", value=_iso(ly_start),
-                                valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_PERSIST),
-            dmc.DatePickerInput(id="st-old-end", label="Ende OLD", value=_iso(ly_end),
-                                valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_PERSIST),
-        ], gap="md", wrap="wrap", align="flex-end"),
-        dmc.Text("Aktuelle Periode (NEW)", fw=600, size="xs", c="dimmed"),
-        dmc.Group([
-            dmc.DatePickerInput(id="st-new-start", label="Start NEW", value=_iso(month_start),
-                                valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_PERSIST),
-            dmc.DatePickerInput(id="st-new-end", label="Ende NEW", value=_iso(month_end),
-                                valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_PERSIST),
-        ], gap="md", wrap="wrap", align="flex-end"),
-    ], gap="sm"), p="md", radius="lg", withBorder=True,
-        style={"position": "sticky", "top": "8px", "zIndex": 200,
-               "backgroundColor": "#FFFFFF", "boxShadow": "0 2px 12px rgba(0,0,0,0.06)"})
+    primary = [
+        dmc.Select(id="st-prop", label="Standort", data=prop_data,
+                   value=default_prop, allowDeselect=False, searchable=True,
+                   leftSection=html.I(className="bi bi-geo-alt"),
+                   comboboxProps={"withinPortal": True},
+                   style={"minWidth": "240px"}, **_PERSIST),
+        dmc.DatePickerInput(id="st-old-start", label="Start OLD", value=_iso(ly_start),
+                            valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_PERSIST),
+        dmc.DatePickerInput(id="st-old-end", label="Ende OLD", value=_iso(ly_end),
+                            valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_PERSIST),
+        dmc.DatePickerInput(id="st-new-start", label="Start NEW", value=_iso(month_start),
+                            valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_PERSIST),
+        dmc.DatePickerInput(id="st-new-end", label="Ende NEW", value=_iso(month_end),
+                            valueFormat="DD.MM.YYYY", style={"minWidth": "150px"}, **_PERSIST),
+    ]
+    advanced = ui.advanced_popover("st", [
+        dmc.Switch(id="st-cxl", label="Storno + No-Show einbeziehen", checked=False,
+                   size="sm", **_PERSIST),
+        dmc.Text("Default: realized-only (Storno + No-Show ausgeschlossen).",
+                 size="xs", c="dimmed"),
+    ])
+    filter_bar = ui.filter_shell(primary=primary, advanced=advanced)
 
     # ---- Body (all sections; hidden by the callback when the guard trips) ----
     sec1 = [
         ui.section_header(1, "Landscape KPIs", basis="stay", info=CHART_TOOLTIPS["kpis"]),
-        dmc.Text("Headline-KPIs - folgen dem Storno/No-Show-Schalter (Default: realized, "
-                 "d.h. Storno + No-Show ausgeschlossen).", size="sm", c="dimmed"),
         html.Div(id="st-kpis", children=dmc.Skeleton(height=110, radius="lg")),
         html.Div(id="st-kpi-details"),
         ui.chart_card("Landscape-Trend · KPIs monatlich", "st-fig-kpis", height=520),
@@ -196,25 +175,34 @@ def layout(**_kwargs):
     sec10 = [
         ui.section_header(10, "Gruppen-Größe", basis="created",
                           info=CHART_TOOLTIPS["group_size"]),
-        dmc.Text("nach Erstellungsdatum · Stay-Date", size="sm", c="dimmed"),
         ui.chart_card("Gruppen-Größe (Zimmer je Buchung)", "st-fig-grp", height=380),
         ui.table_accordion("Datentabelle", ui.df_grid(pd.DataFrame(), "st-grid-grp"),
                            value="grp"),
     ]
 
-    body = html.Div(dmc.Stack(
-        [*sec1, *sec2, *sec3, *sec4, *sec5, *sec6, *sec7, *sec8, *sec9, *sec10],
-        gap="md"), id="st-body")
+    tab_overview = dmc.Stack([
+        dmc.Title("Highlights", order=4),
+        html.Div(id="st-highlights"),
+        *sec1,
+    ], gap="md")
+    tab_kanaele = dmc.Stack([*sec2, *sec3, *sec4], gap="md")
+    tab_aufenthalt = dmc.Stack([*sec5, *sec6, *sec7], gap="md")
+    tab_herkunft = dmc.Stack([*sec8, *sec9], gap="md")
+    tab_segmente = dmc.Stack([*sec10], gap="md")
+
+    section_tabs = ui.section_tabs("st-sectiontabs", [
+        ("overview", "Überblick", tab_overview, "bi bi-speedometer2"),
+        ("kanaele", "Kanäle", tab_kanaele, "bi bi-diagram-3"),
+        ("aufenthalt", "Aufenthalt", tab_aufenthalt, "bi bi-calendar-week"),
+        ("herkunft", "Herkunft", tab_herkunft, "bi bi-globe"),
+        ("segmente", "Segmente", tab_segmente, "bi bi-people"),
+    ])
+    body = html.Div(section_tabs, id="st-body")
 
     return dmc.Stack([
         header,
         filter_bar,
-        html.Div(id="st-context"),
-        html.Div(id="st-scope"),
         html.Div(id="st-filter-alerts"),
-        dmc.Text(_INTRO, size="xs", c="dimmed"),
-        dmc.Title("Highlights", order=4, mt="md"),
-        html.Div(id="st-highlights"),
         html.Div(id="st-guard"),
         body,
     ], gap="md")
@@ -315,8 +303,6 @@ def _kpi_table(kpi_old, kpi_new, year_old, year_new) -> pd.DataFrame:
 # ten sections. Every control has a direct effect (bare @callback).
 # ---------------------------------------------------------------------------
 _OUTPUTS = [
-    Output("st-context", "children"),
-    Output("st-scope", "children"),
     Output("st-filter-alerts", "children"),
     Output("st-highlights", "children"),
     Output("st-guard", "children"),
@@ -353,11 +339,10 @@ _INPUTS = [
 ]
 
 
-def _guard_return(context, scope, filter_alerts, highlights, guard):
+def _guard_return(filter_alerts, highlights, guard):
     """Full output tuple with body hidden + blank figures/grids (guard early-return)."""
     blank = SC._empty("–")
-    out = [context, scope, filter_alerts, highlights, guard, {"display": "none"},
-           None, None]
+    out = [filter_alerts, highlights, guard, {"display": "none"}, None, None]
     for _ in range(10):
         out.extend([blank, [], []])
     return tuple(out)
@@ -366,7 +351,7 @@ def _guard_return(context, scope, filter_alerts, highlights, guard):
 @callback(_OUTPUTS, _INPUTS)
 def _update(prop, o_start, o_end, n_start, n_end, cxl):
     if not prop or not all([o_start, o_end, n_start, n_end]):
-        return _guard_return(None, None, None, None,
+        return _guard_return(None, None,
                              ui.alert("Bitte Standort und beide Perioden wählen.", "warning"))
 
     start_old, end_old = pd.Timestamp(o_start), pd.Timestamp(o_end)
@@ -382,13 +367,7 @@ def _update(prop, o_start, o_end, n_start, n_end, cxl):
     snap_date = pd.Timestamp(str(meta.get("refreshed_at", ""))[:10] or
                              pd.Timestamp.today().date())
 
-    context = dmc.Text(f"{label} · OLD {tag_old} vs NEW {tag_new}", size="sm", fw=600)
-    scope = dmc.Text(
-        "Scope: alle Buchungen (inkl. Storno + No-Show)" if not realized_only
-        else "Scope: realized-only (Storno + No-Show ausgeschlossen)",
-        size="xs", c="dimmed")
-
-    # ---- Data load (mirrors streamlit ~170-190) --------------------------------
+    # ---- Data load (mirrors the source ~170-190) --------------------------------
     nightly = data.get_timeslices(properties=[prop])
     enriched = H.timeslices_are_enriched(nightly)
     if enriched:
@@ -435,29 +414,31 @@ def _update(prop, o_start, o_end, n_start, n_end, cxl):
     if kpi_old["revenue_eur"] > 0:
         pct = (kpi_new["revenue_eur"] / kpi_old["revenue_eur"] - 1) * 100
         if pct < -5:
-            hl.append((dcc.Markdown(
-                f"**Revenue {pct:+.1f}% YoY** — {H.fmt_eur(kpi_new['revenue_eur'])} ggü. "
-                f"{H.fmt_eur(kpi_old['revenue_eur'])} · Δ "
-                f"{H.fmt_eur(kpi_new['revenue_eur'] - kpi_old['revenue_eur'])}."), "alert"))
+            hl.append((
+                f"Revenue {pct:+.1f}% YoY",
+                f"{H.fmt_eur(kpi_new['revenue_eur'])} ggü. {H.fmt_eur(kpi_old['revenue_eur'])} "
+                f"· Δ {H.fmt_eur(kpi_new['revenue_eur'] - kpi_old['revenue_eur'])}.", "alert"))
         elif pct > 5:
-            hl.append((dcc.Markdown(
-                f"**Revenue +{pct:.1f}% YoY** — starker Vergleichszeitraum: "
-                f"{H.fmt_eur(kpi_new['revenue_eur'])}."), "success"))
+            hl.append((
+                f"Revenue +{pct:.1f}% YoY",
+                f"Starker Vergleichszeitraum: {H.fmt_eur(kpi_new['revenue_eur'])}.", "success"))
     if kpi_old["occupancy_pct"] > 0:
         shift = kpi_new["occupancy_pct"] - kpi_old["occupancy_pct"]
         if shift < -5:
-            hl.append((dcc.Markdown(
-                f"**Occupancy {shift:+.1f}pp** — von {kpi_old['occupancy_pct']:.1f}% auf "
-                f"{kpi_new['occupancy_pct']:.1f}%."), "warning"))
+            hl.append((
+                f"Occupancy {shift:+.1f}pp",
+                f"von {kpi_old['occupancy_pct']:.1f}% auf {kpi_new['occupancy_pct']:.1f}%.",
+                "warning"))
     c_old = (res_old["is_cancelled"].mean() * 100) if len(res_old) else 0.0
     c_new = (res_new["is_cancelled"].mean() * 100) if len(res_new) else 0.0
     if c_new - c_old > 5:
-        hl.append((dcc.Markdown(
-            f"**Storno-Quote +{c_new - c_old:.1f}pp** — von {c_old:.1f}% auf "
-            f"{c_new:.1f}%."), "warning"))
-    highlights = ui.alert_stack(hl) or ui.alert("Keine auffälligen Highlights.", "info")
+        hl.append((
+            f"Storno-Quote +{c_new - c_old:.1f}pp",
+            f"von {c_old:.1f}% auf {c_new:.1f}%.", "warning"))
+    highlights = (ui.alert_chips(hl)
+                  or ui.alert_chips([("Keine auffälligen Highlights", "", "success")]))
 
-    # ---- Opening guards (mirrors streamlit ~326-365) ---------------------------
+    # ---- Opening guards (mirrors the source ~326-365) ---------------------------
     opening = H.opening_date(prop)
     open_old = H.is_open_in_period(prop, start_old, end_old)
     open_new = H.is_open_in_period(prop, start_new, end_new)
@@ -472,7 +453,7 @@ def _update(prop, o_start, o_end, n_start, n_end, cxl):
             f"Wähle Perioden nach dem Eröffnungsdatum, dann läuft die Analyse.",
             "warning",
             title=f"{H.city(prop)} war im gewählten Zeitraum noch nicht offen")
-        return _guard_return(context, scope, fa_children, highlights, guard)
+        return _guard_return(fa_children, highlights, guard)
 
     if not open_old and open_new:
         filter_alerts.append(ui.alert(
@@ -545,7 +526,7 @@ def _update(prop, o_start, o_end, n_start, n_end, cxl):
     tbl_grp = CDT.group_size_table(res_old, res_new, year_old, year_new,
                                    realized_only=realized_only)
 
-    out = [context, scope, fa_children, highlights, None, {},
+    out = [fa_children, highlights, None, {},
            kpi_cards, kpi_details]
     for fig, tbl in [
         (fig_kpis, tbl_kpis), (fig_chmix, tbl_chmix), (fig_chlos, tbl_chlos),

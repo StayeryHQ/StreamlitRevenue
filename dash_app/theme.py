@@ -67,6 +67,16 @@ EXTERNAL_STYLESHEETS = [
 
 
 # ---- Plotly defaults -------------------------------------------------------
+def add_annotations(fig, annotations):
+    """Attach many annotations in ONE layout update. Calling fig.add_annotation()
+    inside a loop re-validates + deep-copies the whole layout on every call
+    (O(n^2) - the main perf sink on annotated heatmaps); this sets them all at
+    once and preserves any existing annotations (e.g. subplot titles)."""
+    if annotations:
+        fig.update_layout(annotations=list(fig.layout.annotations) + list(annotations))
+    return fig
+
+
 def brand_figure(fig):
     """Apply the brand font + a clean white layout to a Plotly figure in place."""
     fig.update_layout(
