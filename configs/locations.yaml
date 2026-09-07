@@ -109,3 +109,11 @@ locations:
     units_total: 48
     notes: ""
 
+  - hotel_code: MUC_OP
+    city: München
+    neighborhood: Olympiapark
+    bundesland: BY
+    opening_date: 2026-09-07
+    units_total: 105
+    notes: ""
+
