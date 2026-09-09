@@ -169,6 +169,39 @@ def refresh_plan(
     return plan_meta
 
 
+def _engineer_grouped(raw: pd.DataFrame, engineer_fn) -> pd.DataFrame:
+    """``engineer_fn`` je ``property_code`` anwenden und wieder zusammenfügen.
+
+    Speicherschonende Variante des früheren
+    ``pd.concat([engineer_fn(g, pc) for pc, g in raw.groupby("property_code")])``:
+    die Teilstücke werden in einer Schleife aufgebaut und die Liste unmittelbar
+    nach dem ``concat`` geleert, sodass nicht Liste + Ergebnis + Rohframe
+    gleichzeitig im Speicher stehen.
+
+    Die Gruppenreihenfolge bleibt die von ``groupby`` (sortiert nach
+    ``property_code``) - die Zeilenreihenfolge im Snapshot ändert sich also
+    nicht gegenüber der alten Implementierung.
+
+    Args:
+        raw: Rohframe mit Spalte ``property_code``.
+        engineer_fn: ``(df, property_code) -> DataFrame``.
+
+    Returns:
+        Das zusammengefügte, engineerte Frame (leer wenn ``raw`` leer ist).
+    """
+    parts: list[pd.DataFrame] = []
+    for pc, group in raw.groupby("property_code"):
+        parts.append(engineer_fn(group, pc))
+        del group
+    if not parts:
+        return raw.iloc[0:0].copy()
+    if len(parts) == 1:
+        return parts.pop().reset_index(drop=True)
+    out = pd.concat(parts, ignore_index=True)
+    parts.clear()
+    return out
+
+
 def run_refresh(
     lookback_years: int = 3,
     fuzz_threshold: int = 85,
@@ -229,6 +262,10 @@ def run_refresh(
     cfg = bigquery.QueryJobConfig(query_parameters=params)
     t0 = time.time()
     raw_res = client.query(res_sql, job_config=cfg).to_dataframe()
+    # F5: object-Strings sofort auf Arrow umstellen. BigQuery liefert
+    # object-dtype; alles was danach kommt (engineer_*, concat, join) erbt den
+    # dtype. Gemessen macht das bei den Timeslices 1514 MB vs. 687 MB aus.
+    raw_res = H.optimize_string_memory(raw_res)
     progress(f"✓ {len(raw_res):,} Reservations geladen ({time.time() - t0:.1f}s)", 0.35)
 
     # ----- 4. Timeslices pull ----------
@@ -244,6 +281,7 @@ def run_refresh(
     cfg = bigquery.QueryJobConfig(query_parameters=params)
     t0 = time.time()
     raw_nig = client.query(nig_sql, job_config=cfg).to_dataframe()
+    raw_nig = H.optimize_string_memory(raw_nig)  # F5, s.o.
     progress(f"✓ {len(raw_nig):,} Timeslices geladen ({time.time() - t0:.1f}s)", 0.55)
 
     # ----- 4b. Planzahlen pull (klein, gleiche Auth) ----------
@@ -256,12 +294,16 @@ def run_refresh(
         progress(f"⚠ Planzahlen übersprungen (bestehender Plan bleibt): {e}", 0.58)
 
     # ----- 5. Engineering ----------
+    # F6: Vorher stand hier ``pd.concat([f(g) for pc, g in raw.groupby(...)])``.
+    # Bei dem Muster leben die komplette Teilstück-Liste, das concat-Ergebnis UND
+    # das Rohframe gleichzeitig im Speicher (gemessen +618 MB allein für die
+    # Timeslices). Jetzt: Schleife, Rohframe vor dem concat freigeben, Teilstücke
+    # direkt nach dem concat.
     progress("Feature-Engineering Reservations …", 0.60)
     t0 = time.time()
-    res = pd.concat(
-        [H.engineer_reservations(g, pc) for pc, g in raw_res.groupby("property_code")],
-        ignore_index=True,
-    )
+    res = _engineer_grouped(raw_res, H.engineer_reservations)
+    del raw_res
+    H.release_memory()
     dropped_res = H.zero_night_drops()["reservations"]
     progress(
         f"✓ {len(res):,} Reservations engineered (drops {dropped_res}) ({time.time() - t0:.1f}s)",
@@ -270,10 +312,9 @@ def run_refresh(
 
     progress("Feature-Engineering Timeslices …", 0.72)
     t0 = time.time()
-    nig = pd.concat(
-        [H.engineer_timeslices(g, pc) for pc, g in raw_nig.groupby("property_code")],
-        ignore_index=True,
-    )
+    nig = _engineer_grouped(raw_nig, H.engineer_timeslices)
+    del raw_nig
+    H.release_memory()
     progress(f"✓ {len(nig):,} Timeslices engineered ({time.time() - t0:.1f}s)", 0.80)
 
     # ----- 6. Fuzzy-Cluster ----------
@@ -285,7 +326,10 @@ def run_refresh(
     # ----- 6b. Reservation-Felder auf Timeslices broadcasten ----------
     # um korrekte rev ohne services darzustellen
     progress("Broadcaste Reservation-Felder auf Timeslices …", 0.90)
+    # Der Left-Join legt zwangsläufig eine Kopie an; durch das Rebinding wird das
+    # alte Frame sofort danach freigegeben statt erst am Funktionsende.
     nig = H.enrich_timeslices_with_reservation_fields(nig, res)
+    H.release_memory()
     progress("✓ nightly um Reservation-Felder angereichert", 0.91)
 
     # ----- 7. Resolve snapshot target ----------
@@ -314,12 +358,26 @@ def run_refresh(
             0.98,
         )
 
-    # ----- 9. Round-trip verify ----------
-    progress("Verifikation: Snapshot zurücklesen …", 0.99)
-    res_back = H.load_reservations(snapshot_dir=target)
-    nig_back = H.load_timeslices(snapshot_dir=target)
-    assert len(res_back) == len(res), "Round-trip Reservations weicht ab"
-    assert len(nig_back) == len(nig), "Round-trip Timeslices weicht ab"
-    progress("✓ Round-trip OK", 1.0)
+    # ----- 9. Verifikation ----------
+    # F7: Vorher wurde hier der komplette Snapshot ein zweites Mal in den
+    # Speicher gelesen, nur um die Zeilenzahl zu vergleichen (gemessen +423 MB,
+    # und zwar exakt am Peak - res/nig/raw_* lebten alle noch). Die Zeilenzahl
+    # steht im Parquet-Footer; die Metadaten zu lesen kostet praktisch nichts.
+    progress("Verifikation: Zeilenzahlen aus den Parquet-Metadaten …", 0.99)
+    res_rows = H.parquet_num_rows(H._join_snapshot(target, H.SNAPSHOT_FILES["reservations"]))
+    nig_rows = H.parquet_num_rows(H._join_snapshot(target, H.SNAPSHOT_FILES["timeslices"]))
+    if res_rows != len(res):
+        raise RuntimeError(
+            f"Round-trip Reservations weicht ab: {res_rows} geschrieben, {len(res)} erwartet."
+        )
+    if nig_rows != len(nig):
+        raise RuntimeError(
+            f"Round-trip Timeslices weicht ab: {nig_rows} geschrieben, {len(nig)} erwartet."
+        )
+
+    del res, nig
+    H.release_memory()
+    _peak = H.peak_rss_mb()
+    progress(f"✓ Verifikation OK · Peak-RSS dieses Prozesses: {_peak:.0f} MB", 1.0)
 
     return meta

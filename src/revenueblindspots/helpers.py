@@ -10,6 +10,7 @@ Refresh als ``plan.parquet`` geschrieben. Pages holen sich das Dict über
 
 from __future__ import annotations
 
+import os
 from enum import Enum
 from functools import lru_cache
 from pathlib import Path
@@ -204,6 +205,125 @@ def load_plan(snapshot_dir: "Path | str | None" = None) -> pd.DataFrame:
     return pd.read_parquet(str(path))
 
 
+# =============================================================================
+# Speicher- und IO-Utilities (Review RAM-Postmortem F5 / F7 / F8 / F9)
+# =============================================================================
+def optimize_string_memory(df: pd.DataFrame) -> pd.DataFrame:
+    """Öffentlicher Alias auf :func:`_optimize_string_memory`.
+
+    Der Refresh-Pfad (``refresh.run_refresh``) ruft das jetzt ebenfalls auf -
+    vorher lief die Konvertierung NUR beim Lesen von Platte
+    (``_read_parquet_with_filter``), sodass die frisch aus BigQuery gezogenen
+    und die frisch engineerten Frames als ``object``-dtype im Speicher lagen.
+    Gemessen: Timeslices 1514 MB als object vs. 687 MB Arrow-backed (Faktor 2,2).
+    """
+    return _optimize_string_memory(df)
+
+
+def parquet_num_rows(path) -> int:
+    """Zeilenzahl eines Parquet-Files aus dem Footer lesen - ohne Daten zu laden.
+
+    Ersetzt im Refresh die Round-trip-Verifikation, die vorher den kompletten
+    Snapshot ein zweites Mal in den Speicher gelesen hat (gemessen +423 MB, und
+    das zum ungünstigsten Zeitpunkt - alle Zwischenframes lebten noch).
+
+    Args:
+        path: Lokaler Pfad oder ``gs://``-URI.
+
+    Returns:
+        Zeilenzahl laut Parquet-Metadaten.
+    """
+    import pyarrow.parquet as _pq
+
+    if _is_remote(path):
+        import fsspec
+        with fsspec.open(str(path), "rb") as fh:
+            return int(_pq.ParquetFile(fh).metadata.num_rows)
+    return int(_pq.ParquetFile(str(path)).metadata.num_rows)
+
+
+def _write_parquet_atomic(df: pd.DataFrame, path) -> None:
+    """Parquet atomar schreiben: erst ``.tmp``, dann ``os.replace``.
+
+    Vorher schrieb ``save_snapshot`` direkt auf den Zielpfad. Wird der Prozess
+    mitten im ``to_parquet`` abgeschossen (genau das passiert beim OOM-Kill),
+    bleibt eine unlesbare Datei liegen und die App ist tot, bis jemand von Hand
+    aufräumt.
+
+    ``os.replace`` ist auf demselben Dateisystem atomar. Für ``gs://``/``s3://``
+    wird direkt geschrieben - Objekt-Uploads sind dort ohnehin atomar
+    (ein abgebrochener Upload macht kein halbes Objekt sichtbar).
+    """
+    if _is_remote(path):
+        df.to_parquet(str(path), compression="snappy", index=False)
+        return
+    final = Path(path)
+    final.parent.mkdir(parents=True, exist_ok=True)
+    tmp = final.with_name(final.name + ".tmp")
+    try:
+        df.to_parquet(str(tmp), compression="snappy", index=False)
+        os.replace(tmp, final)
+    finally:
+        if tmp.exists():
+            try:
+                tmp.unlink()
+            except OSError:  # pragma: no cover - defensiv
+                pass
+
+
+def release_memory() -> None:
+    """Freigegebenen Speicher so weit wie möglich ans Betriebssystem zurückgeben.
+
+    Drei Stufen, jede einzeln abgesichert:
+
+    1. ``gc.collect()`` - löst Referenzzyklen auf, die pandas/matplotlib gern
+       hinterlassen.
+    2. ``pyarrow.default_memory_pool().release_unused()`` - Arrows Pool
+       (Default-Backend mimalloc) behält sonst ganze Arenen ein.
+    3. ``malloc_trim(0)`` - gibt freie glibc-Heap-Seiten zurück. Auf musl
+       (Alpine) existiert das Symbol nicht; der ``hasattr``-Check fängt das ab,
+       ohne zu crashen.
+
+    Gemessen bringt das nach einem Refresh nur einen Teil zurück (~50 MB von
+    530 MB) - der eigentliche Fix ist, den Refresh in einem eigenen Prozess
+    laufen zu lassen, der beim Beenden garantiert alles freigibt.
+    """
+    import gc
+
+    gc.collect()
+    try:
+        import pyarrow as _pa
+        _pa.default_memory_pool().release_unused()
+    except Exception:  # pragma: no cover - pyarrow-Backend ohne release_unused
+        pass
+    try:
+        import ctypes
+        import ctypes.util
+
+        libc_name = ctypes.util.find_library("c")
+        if libc_name:
+            libc = ctypes.CDLL(libc_name)
+            if hasattr(libc, "malloc_trim"):
+                libc.malloc_trim(0)
+    except Exception:  # pragma: no cover - musl / kein libc-Zugriff
+        pass
+
+
+def peak_rss_mb() -> float:
+    """Bisheriger Peak-RSS dieses Prozesses in MB (0.0 wenn nicht ermittelbar).
+
+    ``ru_maxrss`` ist unter Linux in KiB, unter macOS in Bytes.
+    """
+    try:
+        import resource
+        import sys as _sys
+
+        raw = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return raw / (1024 * 1024) if _sys.platform == "darwin" else raw / 1024
+    except Exception:  # pragma: no cover - Windows
+        return 0.0
+
+
 def _write_metadata_json(meta: dict[str, Any], snapshot_dir: "Path | str") -> None:
     """``metadata.json`` an die Snapshot-Location schreiben (lokal oder ``gs://``)."""
     import json as _json
@@ -214,7 +334,12 @@ def _write_metadata_json(meta: dict[str, Any], snapshot_dir: "Path | str") -> No
         with fsspec.open(meta_path, "w") as f:
             f.write(body)
     else:
-        Path(meta_path).write_text(body, encoding="utf-8")
+        # Atomar (F8): sonst kann ein Abbruch eine halbe metadata.json hinterlassen.
+        final = Path(meta_path)
+        final.parent.mkdir(parents=True, exist_ok=True)
+        tmp = final.with_name(final.name + ".tmp")
+        tmp.write_text(body, encoding="utf-8")
+        os.replace(tmp, final)
 
 
 def save_plan(plan_df: pd.DataFrame, snapshot_dir: "Path | str",
@@ -234,12 +359,14 @@ def save_plan(plan_df: pd.DataFrame, snapshot_dir: "Path | str",
         snapshot_dir = Path(snapshot_dir)
         snapshot_dir.mkdir(parents=True, exist_ok=True)
     path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["plan"])
-    df.to_parquet(str(path), compression="snappy", index=False)
+    _write_parquet_atomic(df, path)
 
-    _back = load_plan(snapshot_dir)
-    if len(_back) != len(df):
+    # Verifikation über den Parquet-Footer statt über ein komplettes
+    # Neueinlesen (F7) - liest nur die Metadaten, kein Speicher.
+    _rows_back = parquet_num_rows(path)
+    if _rows_back != len(df):
         raise RuntimeError(
-            f"Plan-Roundtrip fehlgeschlagen: {len(_back)} Zeilen zurückgelesen, "
+            f"Plan-Roundtrip fehlgeschlagen: {_rows_back} Zeilen laut Parquet-Footer, "
             f"{len(df)} geschrieben ({path})."
         )
 
@@ -354,9 +481,7 @@ def find_snapshot_dir() -> "Path | str | None":
       2. ``<repo>/data/`` next to ``src/``.
     Returns ``None`` if nothing is found.
     """
-    import os as _os
-
-    custom = _os.environ.get("STAYERY_SNAPSHOT_DIR")
+    custom = os.environ.get("STAYERY_SNAPSHOT_DIR")
     if custom:
         custom = custom.strip()
         if _is_remote(custom):
@@ -537,20 +662,17 @@ def save_snapshot(
       * ``timeslices.parquet``   - engineered
       * ``metadata.json``        - refresh timestamp, row counts, date ranges
     """
-    import json as _json
-
-    is_remote = _is_remote(snapshot_dir)
-    if not is_remote:
+    if not _is_remote(snapshot_dir):
         snapshot_dir = Path(snapshot_dir)
         snapshot_dir.mkdir(parents=True, exist_ok=True)
 
     res_path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["reservations"])
     nig_path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["timeslices"])
-    meta_path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["metadata"])
 
-    # pandas writes to gs:// when fsspec/gcsfs is available - same call for both.
-    res.to_parquet(str(res_path), compression="snappy", index=False)
-    nig.to_parquet(str(nig_path), compression="snappy", index=False)
+    # Atomar schreiben (F8): tmp + os.replace lokal, direkt bei gs://.
+    # Vorher konnte ein OOM-Kill mitten im to_parquet den Snapshot zerstören.
+    _write_parquet_atomic(res, res_path)
+    _write_parquet_atomic(nig, nig_path)
 
     # Build metadata
     def _date_range(df: pd.DataFrame, col: str) -> dict[str, Any]:
@@ -577,13 +699,8 @@ def save_snapshot(
     if extra_metadata:
         meta.update(extra_metadata)
 
-    meta_json = _json.dumps(meta, indent=2, ensure_ascii=False)
-    if is_remote:
-        import fsspec
-        with fsspec.open(meta_path, "w") as f:
-            f.write(meta_json)
-    else:
-        Path(meta_path).write_text(meta_json)
+    # Ein Writer für beide Pfade (lokal atomar, remote direkt) - F8.
+    _write_metadata_json(meta, snapshot_dir)
     return meta
 
 # =============================================================================
@@ -832,10 +949,24 @@ def _add_channel(df: pd.DataFrame) -> None:
 
 
 def _add_origin(df: pd.DataFrame) -> None:
-    """Origin country with a country-code → preferred-language fallback."""
+    """Origin country with a country-code → preferred-language fallback.
+
+    dtype-unabhängig (F5): ``astype(str)`` liefert für fehlende Werte je nach
+    dtype unterschiedliche Platzhalter - ``"None"`` bei object-Strings,
+    ``"<NA>"`` bei Arrow-Strings. Seit der Refresh die Frames direkt nach dem
+    BigQuery-Pull auf Arrow umstellt, würde die ``origin``-Spalte für Zeilen
+    ohne Ländercode UND ohne Sprache plötzlich ``"<NA>"`` statt ``"NONE"``
+    enthalten. Fachlich egal (beide stehen in ``_UNKNOWN_ORIGIN``, Bucket bleibt
+    ``Unbekannt``), aber sichtbar in Rohdaten-Tabellen und Länder-Groupbys.
+    Deshalb wird der Fallback explizit über object normalisiert, sodass der
+    Wert exakt derselbe bleibt wie vor der Umstellung.
+    """
     cc = df["primaryGuest_address_countryCode"]
-    lang = df.get("primaryGuest_preferredLanguage", pd.Series([None] * len(df)))
-    origin = cc.where(cc.notna(), lang.astype(str).str.upper())
+    lang = df.get(
+        "primaryGuest_preferredLanguage", pd.Series([None] * len(df), index=df.index)
+    )
+    lang_txt = lang.astype(object).where(lang.notna(), None).astype(str).str.upper()
+    origin = cc.astype(object).where(cc.notna(), lang_txt)
     clean = origin.astype(str).str.upper().str.strip()
     unknown = clean.isin(_UNKNOWN_ORIGIN)
     df["origin"] = origin
