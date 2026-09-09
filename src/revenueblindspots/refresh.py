@@ -169,6 +169,24 @@ def refresh_plan(
     return plan_meta
 
 
+def _mem() -> str:
+    """`` · RSS 812 MB (Peak 1204)`` fuer die Progress-Zeilen.
+
+    Damit steht bei einem OOM-Kill im Log, WO der Speicher hochgegangen ist -
+    ein SIGKILL hinterlaesst sonst keinerlei Spur.
+    """
+    peak = H.peak_rss_mb()
+    try:
+        with open("/proc/self/status", encoding="utf-8") as fh:
+            for line in fh:
+                if line.startswith("VmRSS"):
+                    cur = int(line.split()[1]) / 1024
+                    return f" · RSS {cur:.0f} MB (Peak {peak:.0f})"
+    except OSError:  # pragma: no cover - kein procfs (macOS)
+        pass
+    return f" · Peak-RSS {peak:.0f} MB"
+
+
 def _engineer_grouped(raw: pd.DataFrame, engineer_fn) -> pd.DataFrame:
     """``engineer_fn`` je ``property_code`` anwenden und wieder zusammenfügen.
 
@@ -266,7 +284,13 @@ def run_refresh(
     # object-dtype; alles was danach kommt (engineer_*, concat, join) erbt den
     # dtype. Gemessen macht das bei den Timeslices 1514 MB vs. 687 MB aus.
     raw_res = H.optimize_string_memory(raw_res)
-    progress(f"✓ {len(raw_res):,} Reservations geladen ({time.time() - t0:.1f}s)", 0.35)
+    # Der BigQuery-Fetch hinterlaesst viel kurzlebigen Objekt-Muell (besonders
+    # auf dem REST-Pfad). Sofort zurueckgeben, bevor das Engineering anfaengt -
+    # sonst liegt der Fetch-Ballast unter allem, was danach kommt.
+    H.release_memory()
+    progress(
+        f"✓ {len(raw_res):,} Reservations geladen ({time.time() - t0:.1f}s){_mem()}", 0.35
+    )
 
     # ----- 4. Timeslices pull ----------
     progress("Ziehe Timeslices …", 0.40)
@@ -282,7 +306,10 @@ def run_refresh(
     t0 = time.time()
     raw_nig = client.query(nig_sql, job_config=cfg).to_dataframe()
     raw_nig = H.optimize_string_memory(raw_nig)  # F5, s.o.
-    progress(f"✓ {len(raw_nig):,} Timeslices geladen ({time.time() - t0:.1f}s)", 0.55)
+    H.release_memory()
+    progress(
+        f"✓ {len(raw_nig):,} Timeslices geladen ({time.time() - t0:.1f}s){_mem()}", 0.55
+    )
 
     # ----- 4b. Planzahlen pull (klein, gleiche Auth) ----------
     # NON-FATAL und bestehender plan wird bei error nicht überschrieben
@@ -306,7 +333,8 @@ def run_refresh(
     H.release_memory()
     dropped_res = H.zero_night_drops()["reservations"]
     progress(
-        f"✓ {len(res):,} Reservations engineered (drops {dropped_res}) ({time.time() - t0:.1f}s)",
+        f"✓ {len(res):,} Reservations engineered (drops {dropped_res}) "
+        f"({time.time() - t0:.1f}s){_mem()}",
         0.70,
     )
 
@@ -315,13 +343,13 @@ def run_refresh(
     nig = _engineer_grouped(raw_nig, H.engineer_timeslices)
     del raw_nig
     H.release_memory()
-    progress(f"✓ {len(nig):,} Timeslices engineered ({time.time() - t0:.1f}s)", 0.80)
+    progress(f"✓ {len(nig):,} Timeslices engineered ({time.time() - t0:.1f}s){_mem()}", 0.80)
 
     # ----- 6. Fuzzy-Cluster ----------
     progress("Fuzzy-Cluster der Firmennamen …", 0.82)
     t0 = time.time()
     H.add_firm_definitions(res, apply_fuzzy=True, fuzzy_threshold=int(fuzz_threshold))
-    progress(f"✓ firm_by_* Spalten angelegt ({time.time() - t0:.1f}s)", 0.89)
+    progress(f"✓ firm_by_* Spalten angelegt ({time.time() - t0:.1f}s){_mem()}", 0.89)
 
     # ----- 6b. Reservation-Felder auf Timeslices broadcasten ----------
     # um korrekte rev ohne services darzustellen
@@ -330,7 +358,7 @@ def run_refresh(
     # alte Frame sofort danach freigegeben statt erst am Funktionsende.
     nig = H.enrich_timeslices_with_reservation_fields(nig, res)
     H.release_memory()
-    progress("✓ nightly um Reservation-Felder angereichert", 0.91)
+    progress(f"✓ nightly um Reservation-Felder angereichert{_mem()}", 0.91)
 
     # ----- 7. Resolve snapshot target ----------
     target = _resolve_snapshot_dir(snapshot_dir)  # eine Auflösung, kein Inline-Duplikat (D4)
