@@ -278,14 +278,19 @@ sonst `corporateCode` (OTA-/Firmen-Code). So werden beide Felder erfasst – wer
 **Firmenname** (`company`): Priority-Walk
 `company_name → booker_company_name → primaryGuest_company_name → effective_code`.
 
-**Vier Firmen-Definitionen** (für Vergleich nebeneinander):
+**Drei Firmen-Definitionen** (für Vergleich nebeneinander; Quelle: `helpers.py`,
+`FIRM_DEFINITIONS` / `add_firm_definitions()`):
 
 | Spalte | Bedeutung |
 |---|---|
-| `firm_by_code` | nur Vertragscode (hart) |
+| `firm_by_code` | nur Vertragscode (hart, `company_code`-Fallback) |
 | `firm_by_effective` | Priority-Walk (s.o.) |
 | `firm_by_effective_fuzzy` | + Fuzzy-Clustering ähnlicher Schreibweisen (rapidfuzz, Schwelle 85) |
-| `firm_by_business_purpose` | `firm_by_effective`, gefiltert auf `travelPurpose == Business` |
+
+> **Korrektur (09.09.2026):** frühere Fassungen dieser Seite listeten eine vierte Spalte
+> `firm_by_business_purpose` ("`firm_by_effective`, gefiltert auf `travelPurpose == Business`").
+> Diese Spalte existiert nicht im Code (`grep -rn "firm_by_business_purpose" streamlit_app src`
+> findet nur diese Seite selbst). Es gibt nur die drei Spalten oben.
 
 **Promo-Code-Overrides** (`overrides.py` + `configs/code_overrides.json`): Manche
 Marketing-Promocodes sind eigentlich Firmencodes. Im Store hinterlegte Codes werden
@@ -348,8 +353,25 @@ Storno-Timing (`cancel_lead_time_days`) nutzt **dasselbe Raster**, zusätzlich
 | `is_corporate_rate` | `ratePlan_name` enthält „firmen/corporate/business/hrs" |
 | `has_promo` | `promoCode` nicht leer |
 | `stay_weekday` / `check_in_weekday` | Wochentag der Nacht / der Anreise |
-| `adr_per_night` | `revenue / nights` (nur Reservations-Frame) |
+| `adr_eur` | primäre ADR pro Nacht, **Timeslice-Basis** ("Variante A", Headline-KPI): `revenue / room_nights` im Filterfenster (`landscape_kpis`, `helpers.py`) |
 | `origin` / `is_international` | Herkunft (eigene Logik, siehe Kap. 10b) |
+
+**Korrektur (09.09.2026) — ADR-Varianten:** frühere Fassungen dieser Seite nannten eine
+Spalte `adr_per_night` = `revenue / nights` auf dem Reservations-Frame. Diese Spalte
+existiert nicht im Code. Tatsächlich gibt es in `landscape_kpis()` (`helpers.py`) zwei
+ADR-Berechnungen:
+
+- `adr_eur` ("Variante A", **das Headline-KPI**): Timeslice-only, fenster-sauber -
+  `sum(revenue der Nächte im Fenster) / Nächte im Fenster`. Bei einer 14-Nächte-Buchung
+  mit nur 3 Nächten im Fenster zählen genau diese 3 Nächte.
+- `adr_eur_reservation` ("Variante B"): Reservation-based - `sum(booking_revenue) /
+  sum(booking_nights)` für alle Buchungen mit ≥1 Nacht im Fenster; zählt die GANZE
+  Buchung, nicht nur den Fenster-Ausschnitt. Braucht dafür das optionale
+  `reservations`-Argument, sonst bleibt sie `NaN`.
+
+Analog gibt es zwei ALOS-Varianten (`alos_nights` = Variante B, Branchenkonvention als
+Headline-KPI; `alos_nights_timeslice` = Variante A). Details im Docstring von
+`landscape_kpis()`.
 """
     )
 
@@ -411,9 +433,14 @@ with st.expander("11 · Bekannte Datenqualitäts-Themen"):
         """
 - **Herkunft/International (Kap. 10b):** Sprach-Fallback, Misch-Feld Land+Sprache,
   channel-/zeitabhängige Erfassung (v.a. IBE), unbekannt→Inland. Quote als Tendenz lesen.
-- **„country_code"-Bug:** die **Daten-Tabellen** hinter §11/§12 suchen die nicht
-  existierende Spalte `country_code` (richtig wäre `origin`) → diese Tabellen bleiben
-  **leer**; die Charts funktionieren. Offener, rein technischer Fix.
+- ~~**„country_code"-Bug**~~ **Korrektur (09.09.2026): nicht reproduzierbar.** Frühere
+  Fassungen dieser Seite behaupteten, die Daten-Tabellen hinter §11/§12
+  (`top_countries_table`, `de_international_table` in `chart_data.py`) würden eine
+  nicht existierende Spalte `country_code` abfragen und deshalb leer bleiben. Das
+  stimmt nicht: beide Tabellen verwenden korrekt `origin`
+  (`grep -rn "country_code" streamlit_app src` findet im gesamten Code nur diese
+  Zeile). Entweder war der Bug schon vor dieser Korrektur behoben, oder er existierte
+  so nie - im aktuellen Code sind die Tabellen jedenfalls nicht leer.
 - **`cancel_time` bei Nicht-Stornierten:** ist mit `modified` vorbelegt; nur bei
   `is_cancelled = WAHR` als Stornodatum interpretieren. Die Filter selbst sind davon
   nicht betroffen (sie prüfen `cancel_time` nur, wenn `is_cancelled`).
@@ -555,6 +582,7 @@ with st.expander("13 · Spalten-Glossar (Kurzreferenz)"):
 
 st.divider()
 st.caption(
-    "Stand: 30.06.2026 Bei Logik-Änderungen (Filter, Spalten, "
+    "Stand: 09.09.2026 (Korrekturen: siehe internal_docs/DEEP_DIVE_Codebase.md §0.3). "
+    "Bei Logik-Änderungen (Filter, Spalten, "
     "Engineering) diese Seite mit aktualisieren."
 )
