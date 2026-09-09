@@ -45,8 +45,10 @@ uv.lock
 data/*
 !data/.gitkeep
 
-# Scripts not needed in runtime
-scripts
+# scripts/ WIRD zur Laufzeit gebraucht: die Seite "Daten aktualisieren"
+# startet scripts/refresh_snapshot.py als eigenen Prozess (RAM-Postmortem F2).
+# Frueher war der Ordner hier ausgeschlossen - dadurch schlug COPY scripts
+# im Dockerfile mit '"/scripts": not found' fehl.
 
 # Tests
 tests
