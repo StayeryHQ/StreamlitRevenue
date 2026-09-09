@@ -80,28 +80,31 @@ def load_plan_cached(snapshot_sig: str, _snap_dir=None) -> pd.DataFrame:
     return H.load_plan(_snap_dir)
 
 
-# Großer, unveränderlicher Snapshot: einmal je Snapshot-Signatur via
-# cache_resource in den Speicher (geteilt über alle Sessions, keine Kopie pro
-# Cache-Hit). Gefiltert wird danach in-memory - kein wiederholter Disk-Read.
-@st.cache_resource(ttl=3600, show_spinner=False)
-def _raw_reservations(snapshot_sig: str, _snap_dir=None) -> pd.DataFrame:
-    return H.load_reservations(snapshot_dir=_snap_dir)
+# Großer, unveränderlicher Snapshot: EIN cache_resource-Eintrag je Tabelle
+# (geteilt über alle Sessions, keine Kopie pro Cache-Hit). Gefiltert wird danach
+# in-memory - kein wiederholter Disk-Read.
+#
+# Review RAM-Postmortem:
+#   F4 - vorher gab es je Tabelle ZWEI Einträge: ``_raw_*`` und, darauf
+#        aufbauend, ``_overridden_*``. ``apply_code_overrides`` legt eine Kopie
+#        an, sobald der Override-Store greift - der rohe Frame blieb daneben
+#        gecacht. Gemessen ≈ 817 MB, auf die nie jemand direkt zugegriffen hat.
+#        Jetzt: Overrides direkt im gecachten Loader, ein Eintrag pro Tabelle.
+#   F3 - ``max_entries`` fehlte. Streamlit setzt ``None`` intern auf
+#        ``math.inf`` (``runtime/caching/cache_resource_api.py``), der Cache war
+#        also unbegrenzt: nach einem Refresh lag der alte Snapshot bis zu einer
+#        Stunde (TTL) neben dem neuen im Speicher. ``max_entries=1`` verdrängt
+#        den alten Eintrag, sobald die Snapshot-Signatur wechselt.
+@st.cache_resource(ttl=3600, show_spinner=False, max_entries=1)
+def _reservations_cached(snapshot_sig: str, override_sig: str, _snap_dir=None) -> pd.DataFrame:
+    """Reservations aus dem Snapshot, Promo-Overrides bereits angewandt."""
+    return OV.apply_code_overrides(H.load_reservations(snapshot_dir=_snap_dir))
 
 
-@st.cache_resource(ttl=3600, show_spinner=False)
-def _raw_timeslices(snapshot_sig: str, _snap_dir=None) -> pd.DataFrame:
-    return H.load_timeslices(snapshot_dir=_snap_dir)
-
-
-# Promo→Firmencode-Reklassifizierung, einmal je (Snapshot, Override-Stand).
-@st.cache_resource(ttl=3600, show_spinner=False)
-def _overridden_reservations(snapshot_sig: str, override_sig: str, _snap_dir=None) -> pd.DataFrame:
-    return OV.apply_code_overrides(_raw_reservations(snapshot_sig, _snap_dir))
-
-
-@st.cache_resource(ttl=3600, show_spinner=False)
-def _overridden_timeslices(snapshot_sig: str, override_sig: str, _snap_dir=None) -> pd.DataFrame:
-    return OV.apply_code_overrides(_raw_timeslices(snapshot_sig, _snap_dir))
+@st.cache_resource(ttl=3600, show_spinner=False, max_entries=1)
+def _timeslices_cached(snapshot_sig: str, override_sig: str, _snap_dir=None) -> pd.DataFrame:
+    """Timeslices aus dem Snapshot, Promo-Overrides bereits angewandt."""
+    return OV.apply_code_overrides(H.load_timeslices(snapshot_dir=_snap_dir))
 
 
 def _filter_frame(
@@ -157,7 +160,7 @@ def get_reservations(
     end: pd.Timestamp | None = None,
     properties: list[str] | None = None,
 ) -> pd.DataFrame:
-    df = _overridden_reservations(
+    df = _reservations_cached(
         _snapshot_signature(), _override_signature(), _resolved_snapshot_dir()
     )
     return _filter_frame(
@@ -170,7 +173,7 @@ def get_timeslices(
     end: pd.Timestamp | None = None,
     properties: list[str] | None = None,
 ) -> pd.DataFrame:
-    df = _overridden_timeslices(
+    df = _timeslices_cached(
         _snapshot_signature(), _override_signature(), _resolved_snapshot_dir()
     )
     return _filter_frame(
@@ -390,17 +393,32 @@ def keep_session_state_alive() -> None:
 
 
 # ============================== Sidebar tools ============================
+def purge_snapshot_caches() -> None:
+    """Alle Daten-Caches leeren und den Speicher zurückgeben.
+
+    Eine Implementierung für den Sidebar-Button UND die Refresh-Seite (F3).
+    ``cache_data.clear()`` allein reicht nicht - die Snapshot-Lader laufen über
+    ``@st.cache_resource`` und werden davon nicht erfasst.
+
+    ``H.release_memory()`` am Ende gibt die freigewordenen Seiten so weit wie
+    möglich ans Betriebssystem zurück; ohne den Aufruf bleibt der Prozess auch
+    nach dem Leeren aufgebläht (gemessen ~530 MB über Grundlast).
+    """
+    st.cache_data.clear()
+    st.cache_resource.clear()  # Snapshot-Lader (cache_resource) mitleeren!
+    for k in list(st.session_state.keys()):
+        if str(k).startswith(("_stayery_style_applied", "_chart_")):
+            del st.session_state[k]
+    H.release_memory()
+
+
 def cache_clear_button() -> None:
     if st.sidebar.button(
         "Cache leeren",
         use_container_width=True,
         help="Snapshot + Chart-Cache wieder von Disk laden.",
     ):
-        st.cache_data.clear()
-        st.cache_resource.clear()  # Snapshot-Lader (cache_resource) mitleeren!
-        for k in list(st.session_state.keys()):
-            if str(k).startswith("_stayery_style_applied") or str(k).startswith("_chart_"):
-                del st.session_state[k]
+        purge_snapshot_caches()
         st.rerun()
 
 
