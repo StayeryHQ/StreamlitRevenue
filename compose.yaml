@@ -11,6 +11,35 @@ services:
       - streamlit_data:/app/data
     environment:
       - GCP_SERVICE_ACCOUNT_JSON_FILE=/run/secrets/bigquery_secret
+    deploy:
+      # ---------------------------------------------------------------
+      # F1 - Speicherlimit. Vorher gab es keins: der Container durfte sich
+      # den kompletten VPS-RAM nehmen. Wenn der Refresh-Peak den Host
+      # gesprengt hat, griff der globale OOM-Killer des Kernels - und der
+      # sucht sich sein Opfer nach oom_score aus, nicht nach Verursacher.
+      # Deshalb ist beim letzten Crash nicht nur das Dashboard gestorben,
+      # sondern alles auf der Maschine (traefik, stayomat_web).
+      #
+      # Mit cgroup-Limit trifft ein OOM NUR diesen Container, und Swarm
+      # startet ihn neu.
+      #
+      # ACHTUNG: 2G ist ein Startwert, KEIN gemessener. Faustregel: höchstens
+      # die Hälfte des Host-RAMs, und mindestens 1,5G über dem gemessenen
+      # Refresh-Peak. Peak prüfen mit:
+      #     docker stats --no-stream
+      # Seit F2 läuft der Refresh in einem Subprozess INNERHALB dieses
+      # Containers - der Subprozess zählt also auf dasselbe Limit ein.
+      # ---------------------------------------------------------------
+      resources:
+        limits:
+          memory: 1.5G
+        reservations:
+          memory: 512M
+      restart_policy:
+        condition: on-failure
+        delay: 10s
+        max_attempts: 5
+        window: 120s
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public
