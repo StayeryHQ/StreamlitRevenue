@@ -3,11 +3,18 @@
 Die Page macht drei Dinge:
   1. Zeigt den Status des aktuellen lokalen Parquet-Snapshots an (was ist da,
      wie alt, wie viele Reservierungen, Stand der Planzahlen).
-  2. Voll-Refresh: ruft `run_refresh()` auf - BigQuery-Pull (Reservations +
-     Timeslices + Planzahlen), Feature-Engineering, Parquets schreiben,
-     Streamlit-Caches leeren.
-  3. Plan-Refresh: ruft `refresh_plan()` auf - pullt nur
+  2. Voll-Refresh: startet `scripts/refresh_snapshot.py` als EIGENEN PROZESS -
+     BigQuery-Pull (Reservations + Timeslices + Planzahlen),
+     Feature-Engineering, Parquets schreiben. Der Fortschritt wird aus dem
+     Subprozess gestreamt.
+  3. Plan-Refresh: dasselbe Script mit `--plan-only` - pullt nur
      `ref_tables.plan` und schreibt `plan.parquet`.
+
+Warum Subprozess (RAM-Postmortem F2): der Refresh baut den kompletten Datensatz
+mehrfach parallel im Speicher auf. Lief das im Webserver-Prozess, riss der Peak
+den ganzen Container mit - und der freigegebene Speicher kam anschließend nicht
+ans Betriebssystem zurück. Ein Subprozess endet und gibt garantiert alles frei.
+Die Streamlit-Caches werden VOR und NACH dem Refresh geleert (F3).
 
 Unten ist der aktive Plan einsehbar (Pivot Hotel × Monat + Rohdaten).
 
@@ -21,7 +28,9 @@ Fehlermeldung.
 
 from __future__ import annotations
 
+import json
 import os as _os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -36,7 +45,13 @@ from components import alert_card, inject_brand_css
 from components import cached_data as CD
 from components.brand import hero
 from revenueblindspots import helpers as H
-from revenueblindspots.refresh import refresh_plan, run_refresh
+
+# Der Refresh läuft NICHT mehr in diesem Prozess (F2) - siehe
+# ``_run_refresh_subprocess`` weiter unten. ``run_refresh``/``refresh_plan``
+# werden hier deshalb bewusst nicht mehr importiert.
+_REFRESH_SCRIPT = _REPO_ROOT / "scripts" / "refresh_snapshot.py"
+_PROGRESS_MARKER = "@@P@@"
+_RESULT_MARKER = "@@RESULT@@"
 
 # ============================== Page setup =================================
 st.set_page_config(
@@ -61,16 +76,86 @@ st.caption(
 )
 
 
-def _clear_caches() -> None:
-    """Analyse-Pages sehen sonst noch die alten Daten."""
-    st.cache_data.clear()
-    # WICHTIG: die Snapshot-Lader (Reservations/Timeslices) laufen über
-    # @st.cache_resource - das wird von cache_data.clear() nicht geleert. Ohne
-    # diese Zeile zeigen die Pages nach einem Refresh weiter den alten Snapshot.
-    st.cache_resource.clear()
-    for k in list(st.session_state.keys()):
-        if str(k).startswith("_stayery_style_applied") or str(k).startswith("_chart_"):
-            del st.session_state[k]
+def _run_refresh_subprocess(extra_args: list[str], push) -> dict:
+    """``scripts/refresh_snapshot.py`` als eigenen Prozess starten (F2).
+
+    Vorher rief diese Seite ``run_refresh()`` direkt auf - also im selben
+    Prozess, der auch die Seiten für alle anderen Nutzer ausliefert. Sämtliche
+    Zwischenframes lagen damit im Speicher des Webservers, überlagert mit den
+    Caches aller offenen Sessions. Und weil ein langlebiger Python-Prozess den
+    freigegebenen Speicher nicht ans Betriebssystem zurückgibt, blieb der Server
+    auch nach einem erfolgreichen Refresh dauerhaft aufgebläht.
+
+    Als Subprozess entsteht der Peak in einem Prozess, der danach endet - das
+    Betriebssystem holt sich alles zurück, ohne Allokator-Tricks.
+
+    Der Fortschritt wird über ``@@P@@``-JSON-Zeilen auf stdout gestreamt und
+    unverändert an ``push`` weitergereicht, sodass Progress-Bar und Log genauso
+    aussehen wie vorher.
+
+    Args:
+        extra_args: CLI-Argumente hinter ``--json-progress``.
+        push: ``(msg, pct) -> None`` - die Progress-Closure der Seite.
+
+    Returns:
+        Das Ergebnis-Dict des Scripts (``metadata``-Dict bzw. Plan-Block).
+
+    Raises:
+        FileNotFoundError: Wenn das Refresh-Script fehlt (Image ohne ``scripts/``).
+        RuntimeError: Bei Exit-Code != 0 oder fehlendem Ergebnis; die Message
+            enthält die letzten Ausgabezeilen des Subprozesses.
+    """
+    if not _REFRESH_SCRIPT.is_file():
+        raise FileNotFoundError(
+            f"Refresh-Script nicht gefunden: {_REFRESH_SCRIPT}\n\n"
+            "Im Docker-Image muss `COPY scripts ./scripts` im Dockerfile stehen."
+        )
+
+    cmd = [sys.executable, "-u", str(_REFRESH_SCRIPT), "--json-progress", *extra_args]
+    env = dict(_os.environ, PYTHONUNBUFFERED="1")
+
+    proc = subprocess.Popen(
+        cmd,
+        cwd=str(_REPO_ROOT),
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,   # Tracebacks landen im selben Strom
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        bufsize=1,
+        env=env,
+    )
+
+    result: dict | None = None
+    tail: list[str] = []
+    try:
+        for raw_line in proc.stdout:
+            line = raw_line.rstrip("\n")
+            if line.startswith(_PROGRESS_MARKER):
+                try:
+                    event = json.loads(line[len(_PROGRESS_MARKER):])
+                except json.JSONDecodeError:
+                    continue
+                push(str(event.get("msg", "")), event.get("pct"))
+            elif line.startswith(_RESULT_MARKER):
+                try:
+                    result = json.loads(line[len(_RESULT_MARKER):])
+                except json.JSONDecodeError:
+                    result = None
+            elif line.strip():
+                tail.append(line)
+                del tail[:-80]   # nur die letzten 80 Zeilen aufheben
+    finally:
+        if proc.stdout is not None:
+            proc.stdout.close()
+        returncode = proc.wait()
+
+    if returncode != 0 or result is None:
+        detail = "\n".join(tail[-40:]) or "(keine Ausgabe)"
+        raise RuntimeError(
+            f"Refresh-Prozess beendet mit Exit-Code {returncode}.\n\n{detail}"
+        )
+    return result
 
 
 # ============================== Aktueller Stand ===========================
@@ -109,7 +194,11 @@ st.divider()
 
 # ============================== Refresh-Konfiguration =====================
 st.subheader("Voll-Refresh aus BigQuery")
-st.caption("Reservations + Timeslices + Planzahlen gemeinsam. Bitte während des Ladens nicht die Seite wechseln.")
+st.caption(
+    "Reservations + Timeslices + Planzahlen gemeinsam. Läuft in einem eigenen "
+    "Prozess, damit der Speicher-Peak den Webserver nicht mitreißt. "
+    "Bitte während des Ladens nicht die Seite wechseln."
+)
 
 c1, c2 = st.columns(2)
 with c1:
@@ -191,17 +280,25 @@ if run or run_plan_only:
         if pct is not None:
             progress_bar.progress(pct, text=msg)
 
+    # F3: Caches VOR dem Refresh leeren, nicht danach. Vorher lag der komplette
+    # alte Snapshot (gemessen ~1,2 GB über alle cache_resource-Einträge) während
+    # des gesamten Refreshs daneben im Speicher und hat den Peak mit nach oben
+    # geschoben. Der Subprozess braucht die Caches des Webservers ohnehin nicht.
+    push("Leere Caches vor dem Refresh …", 0.01)
+    CD.purge_snapshot_caches()
+
     try:
         if run:
-            meta = run_refresh(
-                lookback_years=int(lookback_years),
-                fuzz_threshold=int(fuzz_threshold),
-                properties=properties,
-                snapshot_dir=_configured_dir(),
-                refreshed_via="streamlit_app",
-                progress=push,
-            )
-            _clear_caches()
+            args = [
+                "--lookback-years", str(int(lookback_years)),
+                "--fuzz-threshold", str(int(fuzz_threshold)),
+                "--snapshot-dir", _configured_dir(),
+                "--refreshed-via", "streamlit_app",
+            ]
+            if properties:
+                args += ["--properties", *properties]
+            meta = _run_refresh_subprocess(args, push)
+            CD.purge_snapshot_caches()
             progress_bar.empty()
             st.success(
                 f"Refresh fertig. "
@@ -211,12 +308,15 @@ if run or run_plan_only:
                 .replace(",", ".")
             )
         else:
-            plan_meta = refresh_plan(
-                snapshot_dir=_configured_dir(),
-                refreshed_via="streamlit_app",
-                progress=push,
+            plan_meta = _run_refresh_subprocess(
+                [
+                    "--plan-only",
+                    "--snapshot-dir", _configured_dir(),
+                    "--refreshed-via", "streamlit_app",
+                ],
+                push,
             )
-            _clear_caches()
+            CD.purge_snapshot_caches()
             progress_bar.empty()
             st.success(
                 f"Planzahlen aktualisiert: {plan_meta['hotels']} Hotels, "
@@ -227,6 +327,9 @@ if run or run_plan_only:
 
     except Exception as e:
         progress_bar.empty()
+        # Der Subprozess ist beendet, sein Speicher ist zurück - aber der Server
+        # hat evtl. schon wieder Caches aufgebaut. Aufräumen und weiter.
+        CD.purge_snapshot_caches()
         st.error(f"**{type(e).__name__}**: {e}")
         with st.expander("Stacktrace"):
             import traceback
