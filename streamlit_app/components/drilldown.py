@@ -108,7 +108,7 @@ def compact_deepdive(
 
     if not realized.empty:
         loc = (
-            realized.groupby("property_code")
+            realized.groupby("property_code", observed=True)
             .agg(Buchungen=("id", "nunique"), Revenue=("revenue", "sum"))
             .reset_index()
             .rename(columns={"property_code": "Standort", "Revenue": "Revenue (€)"})

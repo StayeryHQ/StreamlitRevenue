@@ -5,6 +5,9 @@
 
 # Python
 __pycache__
+.ruff_cache
+.verify
+internal_docs
 *.py[cod]
 *$py.class
 *.so
@@ -38,8 +41,8 @@ docs
 .pre-commit-config.yaml
 .python-version
 
-# UV lock file (if not needed in container)
-uv.lock
+# uv.lock WIRD gebraucht: das Dockerfile installiert die Abhängigkeiten
+# exakt aus dem Lock (P2-1).
 
 # Data files (if not needed in container)
 data/*

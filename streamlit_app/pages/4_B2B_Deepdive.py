@@ -5,7 +5,6 @@ Zwei Ansichten: apaleo `corporateCode` und fuzzy-geclusterte Firmen.
 
 from __future__ import annotations
 
-import io
 import sys
 from pathlib import Path
 
@@ -23,11 +22,11 @@ from components import (
     download_button,
     inject_brand_css,
     render_notepad,
-    sync_snapshot_override,
 )
 from components.alerts import alert_card
 from components.brand import hero
 from components.export import register_section, reset_export
+from components.xlsx_export import XLSX_MIME, frames_to_xlsx
 from revenueblindspots import helpers as H
 from revenueblindspots import overrides as OV
 
@@ -38,7 +37,6 @@ st.set_page_config(
 )
 inject_brand_css()
 CD.apply_stayery_style_once()
-sync_snapshot_override()
 CD.keep_session_state_alive()  # MUST run before any widget renders this page
 
 PAGE = "b2b"
@@ -93,7 +91,6 @@ with st.sidebar:
         st.stop()
 
     st.divider()
-    CD.cache_clear_button()
     # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
     CD.freshness_badge()
 
@@ -133,7 +130,7 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     nightly = CD.get_timeslices(start=start_ts, end=end_ts, properties=props_pick)
     _enriched = H.timeslices_are_enriched(nightly)
     if _enriched:
-        res = H.reservations_from_timeslices(nightly)
+        res = CD.get_bookings_from(nightly)
     else:
         res = CD.get_reservations(start=start_ts, end=end_ts, properties=props_pick)
 if res.empty:
@@ -245,6 +242,11 @@ def _table_with_drilldown(
         "Zeile **anklicken** → die Tabelle rückt nach links und rechts erscheint der "
         "kompakte Deep-Dive."
     )
+    # Das Layout-Flag wird im on_select-Callback gesetzt (läuft VOR dem
+    # Skript): ein Lauf je Klick statt Klick-Rerun + st.rerun().
+    def _on_select() -> None:
+        st.session_state[flag_key] = bool(DD.get_selection_rows(st.session_state.get(table_key)))
+
     has_sel = bool(st.session_state.get(flag_key, False))
     if has_sel:
         tcol, dcol = st.columns([3, 2], gap="large")
@@ -257,7 +259,7 @@ def _table_with_drilldown(
             use_container_width=True,
             height=520,
             key=table_key,
-            on_select="rerun",
+            on_select=_on_select,
             selection_mode="single-row",
         )
     register_section(section_id, section_title, table_df=display_df.head(30), page=PAGE)
@@ -268,10 +270,7 @@ def _table_with_drilldown(
         if rows and 0 <= rows[0] < len(display_df)
         else None
     )
-    new_has = sel is not None
-    if new_has != has_sel:
-        st.session_state[flag_key] = new_has
-        st.rerun()
+    st.session_state[flag_key] = sel is not None
     if sel and dcol is not None:
         sub, label, open_code = resolver(sel)
         DD.compact_deepdive(
@@ -349,24 +348,28 @@ st.divider()
 st.subheader("Bericht exportieren")
 
 # Multi-Sheet Excel nur wenn mindestens eine der beiden Tabellen Inhalt hat.
-_sheets: dict[str, pd.DataFrame] = {}
-# Excel-Export mit ROH-Werten (Zahlen als Zahlen, Datumsfelder als Datum) -
-# format_display (String-Datumsformate) bleibt der Bildschirm-Anzeige vorbehalten.
-if not cp_table.empty:
-    _sheets["corporate_codes"] = B.export_frame(cp_table, "corporate")
-if not fm_table.empty:
-    _sheets["firmen_fuzzy"] = B.export_frame(fm_table, "firm")
+# Der Workbook wird erst beim Klick gebaut (data=<Funktion>, on_click="ignore").
+_n_sheets = int(not cp_table.empty) + int(not fm_table.empty)
 
-if _sheets:
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as w:
-        for _name, _df in _sheets.items():
-            _df.to_excel(w, sheet_name=_name, index=False)
+
+def _b2b_xlsx() -> bytes:
+    """Excel-Export mit ROH-Werten (Zahlen als Zahlen, Datumsfelder als Datum) -
+    format_display (String-Datumsformate) bleibt der Bildschirm-Anzeige vorbehalten."""
+    sheets: dict[str, pd.DataFrame] = {}
+    if not cp_table.empty:
+        sheets["corporate_codes"] = B.export_frame(cp_table, "corporate")
+    if not fm_table.empty:
+        sheets["firmen_fuzzy"] = B.export_frame(fm_table, "firm")
+    return frames_to_xlsx(sheets)
+
+
+if _n_sheets:
     st.download_button(
-        f"Alle Tabellen als Excel ({len(_sheets)} Sheet{'s' if len(_sheets) > 1 else ''})",
-        data=buf.getvalue(),
+        f"Alle Tabellen als Excel ({_n_sheets} Sheet{'s' if _n_sheets > 1 else ''})",
+        data=_b2b_xlsx,
         file_name=f"b2b_deepdive_{start_ts:%Y%m%d}.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mime=XLSX_MIME,
+        on_click="ignore",
         key="dl_b2b_all",
     )
 else:
@@ -378,4 +381,3 @@ download_button(
     page=PAGE,
 )
 
-CD.collect()

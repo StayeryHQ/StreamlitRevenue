@@ -116,7 +116,7 @@ def aggregate_promo_codes(
     reclassified_codes = reclassified_codes or set()
 
     rows = []
-    for key, sub in d.groupby("promoCode"):
+    for key, sub in d.groupby("promoCode", observed=True):
         key_up = str(key).upper()
         also_corp = key_up in corporate_code_set
         firm_name, firm_share = _dominant_firm(sub, "firm_by_effective_fuzzy")

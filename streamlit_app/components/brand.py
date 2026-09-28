@@ -588,15 +588,3 @@ def filter_flags(items: list[tuple]) -> None:
             f'<div class="stayery-flags">{"".join(flags)}</div>',
             unsafe_allow_html=True,
         )
-
-
-def sync_snapshot_override() -> str | None:
-    """Session-Snapshot-Override zurückgeben (KEINE env-Mutation mehr).
-
-    Der Override lebt rein im ``st.session_state`` und wird von
-    ``cached_data._resolved_snapshot_dir()`` gelesen (Review A12.8). Vorher
-    wurde hier ``os.environ`` beschrieben - prozessweit, also für ALLE
-    gleichzeitigen User des Servers. Funktion bleibt als Shim erhalten,
-    weil alle Seiten sie aufrufen.
-    """
-    return st.session_state.get("snapshot_dir_override")

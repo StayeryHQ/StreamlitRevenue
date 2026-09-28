@@ -9,7 +9,6 @@ Drei Bausteine:
 
 from __future__ import annotations
 
-import io
 import sys
 from pathlib import Path
 
@@ -26,13 +25,13 @@ from components import (
     download_button,
     inject_brand_css,
     render_notepad,
-    sync_snapshot_override,
 )
 from components import drilldown as DD
 from components import promo_tables as P
 from components.alerts import alert_card
 from components.brand import hero
 from components.export import register_section, reset_export
+from components.xlsx_export import XLSX_MIME, frames_to_xlsx
 from revenueblindspots import helpers as H
 from revenueblindspots import overrides as OV
 
@@ -43,7 +42,6 @@ st.set_page_config(
 )
 inject_brand_css()
 CD.apply_stayery_style_once()
-sync_snapshot_override()
 CD.keep_session_state_alive()  # MUST run before any widget renders this page
 
 PAGE = "promo"
@@ -96,7 +94,6 @@ with st.sidebar:
         st.stop()
 
     st.divider()
-    CD.cache_clear_button()
     # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
     CD.freshness_badge()
 
@@ -124,7 +121,7 @@ st.markdown(f"""
 with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     nightly = CD.get_timeslices(start=start_ts, end=end_ts, properties=props_pick)
     if H.timeslices_are_enriched(nightly) and "promoCode" in nightly.columns:
-        res = H.reservations_from_timeslices(nightly)
+        res = CD.get_bookings_from(nightly)
         revenue_basis = "Stay-Netto (Timeslices)"
     else:
         res = CD.get_reservations(start=start_ts, end=end_ts, properties=props_pick)
@@ -232,6 +229,14 @@ if _has_sel:
 else:
     _table_col, _detail_col = st.container(), None
 
+
+def _on_promo_select() -> None:
+    # Läuft VOR dem Skript: Layout-Flag im selben Lauf sichtbar, kein st.rerun().
+    st.session_state["_promo_has_sel"] = bool(
+        DD.get_selection_rows(st.session_state.get("_promo_table_select"))
+    )
+
+
 with _table_col:
     event = st.dataframe(
         display_df,
@@ -239,7 +244,7 @@ with _table_col:
         use_container_width=True,
         height=560,
         key="_promo_table_select",
-        on_select="rerun",
+        on_select=_on_promo_select,
         selection_mode="single-row",
     )
 
@@ -250,11 +255,7 @@ selected_code: str | None = (
     else None
 )
 
-# Flag mit der echten Auswahl synchronisieren -> ein Rerun schaltet das Layout um.
-_new_has_sel = selected_code is not None
-if _new_has_sel != _has_sel:
-    st.session_state["_promo_has_sel"] = _new_has_sel
-    st.rerun()
+st.session_state["_promo_has_sel"] = selected_code is not None
 
 if selected_code and _detail_col is not None:
     _is_reclass = selected_code.upper() in _reclassified
@@ -301,11 +302,16 @@ if _override_map:
         options=sorted(_override_map.keys()),
         key="_promo_remove_pick",
     )
-    if st.button("Ausgewählte entfernen", key="_promo_remove_btn") and to_remove:
-        for c in to_remove:
+    def _remove_cb() -> None:
+        # Callback läuft VOR dem Skript: der Lauf lädt bereits mit dem neuen
+        # Override-Stand (Signatur ändert sich) - kein zweiter Lauf nötig.
+        picked = list(st.session_state.get("_promo_remove_pick") or [])
+        for c in picked:
             OV.remove_promo_override(c)
-        st.success(f"{len(to_remove)} Reklassifizierung(en) entfernt.")
-        st.rerun()
+        if picked:
+            st.session_state["_promo_flash"] = f"{len(picked)} Reklassifizierung(en) entfernt."
+
+    st.button("Ausgewählte entfernen", key="_promo_remove_btn", on_click=_remove_cb)
 else:
     st.caption("Noch keine Reklassifizierungen gespeichert.")
 
@@ -347,54 +353,70 @@ def _parse_paste(text: str) -> dict[str, str | None]:
     return result
 
 
-if st.button("Als Firmencodes speichern", key="_promo_save_btn", type="primary"):
-    to_add: dict[str, str | None] = {c.upper(): None for c in quick_pick}
-    to_add.update(_parse_paste(paste))
+def _save_cb() -> None:
+    # Callback läuft VOR dem Skript (ein Lauf je Klick, s. _remove_cb).
+    to_add: dict[str, str | None] = {
+        c.upper(): None for c in (st.session_state.get("_promo_quick_pick") or [])
+    }
+    to_add.update(_parse_paste(st.session_state.get("_promo_paste") or ""))
     if not to_add:
-        st.warning("Keine Codes angegeben.")
-    else:
-        OV.add_promo_overrides(to_add)
-        st.success(
-            f"{len(to_add)} Code(s) als Firmencode reklassifiziert: "
-            f"{', '.join(sorted(to_add))}. Wirkt jetzt global."
-        )
-        st.rerun()
+        st.session_state["_promo_flash_warn"] = "Keine Codes angegeben."
+        return
+    OV.add_promo_overrides(to_add)
+    st.session_state["_promo_flash"] = (
+        f"{len(to_add)} Code(s) als Firmencode reklassifiziert: "
+        f"{', '.join(sorted(to_add))}. Wirkt jetzt global."
+    )
+
+
+st.button("Als Firmencodes speichern", key="_promo_save_btn", type="primary", on_click=_save_cb)
+if st.session_state.pop("_promo_flash_warn", None):
+    st.warning("Keine Codes angegeben.")
+_flash = st.session_state.pop("_promo_flash", None)
+if _flash:
+    st.success(_flash)
 
 
 # ============================== Export =====================================
 st.divider()
 st.subheader("Bericht exportieren")
 
-# Aktualisiertes Firmencode-Sheet = Corporate-Code-Tabelle NACH Override (enthält
-# die reklassifizierten Promocodes). Läuft auf demselben res wie oben.
-try:
-    cp_after = B.aggregate_corporate_codes(res, active_ts)
-    firmencode_sheet = B.export_frame(cp_after, "corporate")  # roh: Zahlen + Datetime
-except Exception:  # pragma: no cover - defensiv
-    firmencode_sheet = pd.DataFrame()
+def _promo_xlsx() -> bytes:
+    """Excel-Export - läuft erst beim Klick (data=<Funktion>, on_click="ignore").
 
-# Excel bekommt die ROH-Tabelle (Zahlen als Zahlen, Datum als Datum) -
-# die String-Formatierung (format_display) bleibt der Anzeige vorbehalten.
-_sheets: dict[str, pd.DataFrame] = {"promo_codes": promo_table}
-if not firmencode_sheet.empty:
-    _sheets["firmencodes_aktualisiert"] = firmencode_sheet
-if _override_map:
-    _sheets["reklassifizierung"] = pd.DataFrame(
-        [
-            {"Promocode": c, "Firmenname": (p.get("firm") or ""), "seit": p.get("added", "")}
-            for c, p in sorted(_override_map.items())
-        ]
-    )
+    Vorher wurde hier bei JEDEM Rerun (auch jedem Zeilen-Klick in der Tabelle)
+    ``aggregate_corporate_codes`` ein zweites Mal ungecacht gerechnet und das
+    Workbook mit openpyxl gebaut.
 
-buf = io.BytesIO()
-with pd.ExcelWriter(buf, engine="openpyxl") as w:
-    for _name, _df in _sheets.items():
-        _df.to_excel(w, sheet_name=_name[:31], index=False)
+    Sheets: promo_codes (ROH-Tabelle: Zahlen als Zahlen, Datum als Datum - die
+    String-Formatierung bleibt der Anzeige vorbehalten), firmencodes_aktualisiert
+    (Corporate-Code-Tabelle NACH Override, enthält die reklassifizierten
+    Promocodes, auf demselben ``res``), reklassifizierung (Override-Store).
+    """
+    sheets: dict[str, pd.DataFrame] = {"promo_codes": promo_table}
+    try:
+        cp_after = B.aggregate_corporate_codes(res, active_ts)
+        firmencode_sheet = B.export_frame(cp_after, "corporate")
+    except Exception:  # pragma: no cover - defensiv
+        firmencode_sheet = pd.DataFrame()
+    if not firmencode_sheet.empty:
+        sheets["firmencodes_aktualisiert"] = firmencode_sheet
+    if _override_map:
+        sheets["reklassifizierung"] = pd.DataFrame(
+            [
+                {"Promocode": c, "Firmenname": (p.get("firm") or ""), "seit": p.get("added", "")}
+                for c, p in sorted(_override_map.items())
+            ]
+        )
+    return frames_to_xlsx(sheets)
+
+
 st.download_button(
-    f"Alle Tabellen als Excel ({len(_sheets)} Sheets)",
-    data=buf.getvalue(),
+    "Alle Tabellen als Excel (Promo-Codes · Firmencodes aktualisiert · Reklassifizierung)",
+    data=_promo_xlsx,
     file_name=f"promo_codes_{start_ts:%Y%m%d}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    mime=XLSX_MIME,
+    on_click="ignore",
     key="dl_promo_all",
 )
 st.caption(
@@ -408,4 +430,3 @@ download_button(
     page=PAGE,
 )
 
-CD.collect()

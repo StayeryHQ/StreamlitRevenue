@@ -77,7 +77,7 @@ def _aggregate_by(
         return pd.DataFrame(columns=base_cols)
 
     rows = []
-    for key, sub in d.groupby(group_col):
+    for key, sub in d.groupby(group_col, observed=True):
         active_in_period = bool((sub["arrival"] >= active_ts).any())
         row = {
             group_col: key,
@@ -133,7 +133,7 @@ def aggregate_firms(res: pd.DataFrame, active_ts: pd.Timestamp) -> pd.DataFrame:
 
     codes_corporate: dict[str, str] = {}
     sub_with_firm = res[res["firm_by_effective_fuzzy"].notna()]
-    for firm, sub in sub_with_firm.groupby("firm_by_effective_fuzzy"):
+    for firm, sub in sub_with_firm.groupby("firm_by_effective_fuzzy", observed=True):
         codes_corporate[firm] = _codes_used_by_firm(sub, "corporateCode")
     out["Genutzte corporateCodes"] = out["Firma"].map(codes_corporate).fillna("")
     return out

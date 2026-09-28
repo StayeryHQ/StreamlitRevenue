@@ -33,10 +33,6 @@ FONT_FAMILY = ", ".join(
     [_typ.get("primary", "Neue Haas Grotesk Display Pro"),
      *_typ.get("primary_fallback", ["Helvetica Neue", "Helvetica", "Arial", "sans-serif"])]
 )
-HEADING_FONT_FAMILY = ", ".join(
-    [_typ.get("display", "Topol"),
-     *_typ.get("display_fallback", ["Neue Haas Grotesk Display Pro", "Arial", "sans-serif"])]
-)
 
 # Neutral-Grau für Vorjahres-/Vergleichsserien (Brand-Neutral Grey).
 GREY = "#666666"

@@ -14,9 +14,11 @@ from __future__ import annotations
 
 import json
 import os
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from . import helpers as H
@@ -29,8 +31,9 @@ _STORE_KEY = "promo_as_firmencode"
 _NULLISH = {"", "nan", "none", "<na>", "null"}
 
 
+@lru_cache(maxsize=1)
 def _store_path() -> Path:
-    """Pfad zum Override-Store.
+    """Pfad zum Override-Store (einmal je Prozess aufgelöst).
 
     Priorisierung:
 
@@ -58,15 +61,6 @@ def _store_path() -> Path:
     if data_dir.is_dir():
         return data_dir / "code_overrides.json"
     return H.CONFIGS_DIR / "code_overrides.json"
-
-
-def store_location() -> str:
-    """Aktueller Speicherort des Override-Stores als String (für die UI-Anzeige).
-
-    Returns:
-        Absoluter Pfad zur JSON-Datei.
-    """
-    return str(_store_path())
 
 
 def load_overrides() -> dict[str, dict[str, dict[str, Any]]]:
@@ -184,10 +178,58 @@ def override_signature() -> str:
     return f"{int(stat.st_mtime)}:{stat.st_size}"
 
 
+def _norm(series: pd.Series, *, upper: bool) -> pd.Series:
+    """``astype("string").str.strip().str.upper()/lower()`` - kategorie-bewusst.
+
+    Bei ``category``-Spalten wird nur über die (wenigen) Kategorien gerechnet
+    und per Codes zurückprojiziert - statt über alle 730k Zeilen.
+    """
+    if isinstance(series.dtype, pd.CategoricalDtype):
+        cats = series.cat.categories.astype("string").str.strip()
+        cats = cats.str.upper() if upper else cats.str.lower()
+        arr = np.append(cats.to_numpy(dtype=object), None)  # letzter Slot = NaN-Code -1
+        out = arr[series.cat.codes.to_numpy()]
+        return pd.Series(out, index=series.index, dtype="string")
+    s = series.astype("string").str.strip()
+    return s.str.upper() if upper else s.str.lower()
+
+
 def _empty_mask(series: pd.Series) -> pd.Series:
     """True wo der String-Wert leer / null-ähnlich ist."""
-    cleaned = series.astype("string").str.strip().str.lower()
+    cleaned = _norm(series, upper=False)
     return cleaned.isna() | cleaned.isin(_NULLISH)
+
+
+def _set_where(col: pd.Series | None, mask: pd.Series, values, *, index=None) -> pd.Series:
+    """Neue Spalte: ``values`` wo ``mask`` True, sonst ``col`` - ohne In-Place-Schreiben.
+
+    ``col`` wird als eigene Serie kopiert (eine Spalte, nicht das Frame) und
+    dort maskiert beschrieben; das geteilte Original bleibt unberührt. Ist
+    ``col`` None, entsteht eine neue String-Spalte über ``index``.
+
+    Args:
+        col: Bestehende Spalte oder None.
+        mask: Boolean-Serie, wo geschrieben werden soll.
+        values: Serie (indexgleich) oder Skalar.
+        index: Index für eine neue Spalte (nur wenn ``col`` None).
+
+    Returns:
+        Die neue Spalte.
+    """
+    new = col.copy() if col is not None else pd.Series(pd.NA, index=index, dtype="string")
+    if mask.any():
+        vals = values[mask] if isinstance(values, pd.Series) else values
+        if isinstance(new.dtype, pd.CategoricalDtype):
+            # Kategorie-Spalte (helpers.optimize_dtypes): neue Werte müssen erst
+            # als Kategorien bekannt sein, sonst TypeError beim Setzen.
+            wanted = pd.Series(vals).dropna().unique() if isinstance(vals, pd.Series) else [vals]
+            missing = pd.Index(wanted).difference(new.cat.categories)
+            if len(missing):
+                new = new.cat.add_categories(list(missing))
+            if isinstance(vals, pd.Series):
+                vals = vals.astype(object)
+        new[mask] = vals
+    return new
 
 
 def apply_code_overrides(df: pd.DataFrame) -> pd.DataFrame:
@@ -222,27 +264,35 @@ def apply_code_overrides(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     codes = set(mapping.keys())  # bereits upper/getrimmt
-    pc_upper = df["promoCode"].astype("string").str.strip().str.upper()
+    pc_upper = _norm(df["promoCode"], upper=True)
     sel = pc_upper.isin(codes).fillna(False).astype(bool)
     if not sel.any():
         return df
 
-    out = df.copy()
+    # Flache Kopie: die Spalten-Arrays werden mit ``df`` geteilt, nur die
+    # tatsächlich veränderten Spalten werden als NEUE Arrays gesetzt
+    # (``_set_where``) - kein ``.loc``-Schreiben in geteilte Blöcke. Spart die
+    # komplette Kopie des 730k-Zeilen-Frames (~650 MB Peak) beim Snapshot-Load.
+    out = df.copy(deep=False)
     out["is_reclassified_promo"] = sel
-    target_code = out["promoCode"].astype("string").str.strip()
-    firm_for = pc_upper.map(lambda c: (mapping.get(c) or {}).get("firm"))
-    firm_for = firm_for.astype("string")
+    # Nur die betroffenen Zeilen (``sel``) werden materialisiert - alles
+    # andere bleibt NA. Die Masken unten sind immer mit ``sel`` verundet.
+    target_code = pd.Series(pd.NA, index=out.index, dtype="string")
+    target_code[sel] = out.loc[sel, "promoCode"].astype("string").str.strip()
+    firm_map = {c: (mapping.get(c) or {}).get("firm") for c in codes}
+    firm_for = pd.Series(pd.NA, index=out.index, dtype="string")
+    firm_for[sel] = pc_upper[sel].map(firm_map).astype("string")
     has_firm = firm_for.notna() & (firm_for.str.strip() != "")
 
     if "corporateCode" in out.columns:
         m = sel & _empty_mask(out["corporateCode"])
-        out.loc[m, "corporateCode"] = target_code[m]
+        out["corporateCode"] = _set_where(out["corporateCode"], m, target_code)
 
     if "effective_code" in out.columns:
         m = sel & _empty_mask(out["effective_code"])
-        out.loc[m, "effective_code"] = target_code[m]
+        out["effective_code"] = _set_where(out["effective_code"], m, target_code)
     else:
-        out.loc[sel, "effective_code"] = target_code[sel]
+        out["effective_code"] = _set_where(None, sel, target_code, index=out.index)
 
     if "has_code" in out.columns:
         if out["has_code"].dtype not in (bool, "boolean"):
@@ -254,23 +304,23 @@ def apply_code_overrides(df: pd.DataFrame) -> pd.DataFrame:
             # `= True` auf einer Arrow-String-Spalte würde sonst TypeError
             # werfen.
             out["has_code"] = out["has_code"].astype("boolean")
-        out.loc[sel, "has_code"] = True
+        out["has_code"] = _set_where(out["has_code"], sel, True)
 
     if "firm_by_code" in out.columns:
         m = sel & _empty_mask(out["firm_by_code"])
-        out.loc[m, "firm_by_code"] = target_code[m]
+        out["firm_by_code"] = _set_where(out["firm_by_code"], m, target_code)
     else:
-        out.loc[sel, "firm_by_code"] = target_code[sel]
+        out["firm_by_code"] = _set_where(None, sel, target_code, index=out.index)
 
     firm_mask = sel & has_firm
     if firm_mask.any():
         for col in ("company", "firm_by_effective", "firm_by_effective_fuzzy"):
             if col in out.columns:
                 m = firm_mask & _empty_mask(out[col])
-                out.loc[m, col] = firm_for[m]
+                out[col] = _set_where(out[col], m, firm_for)
         if "has_company" in out.columns:
             if out["has_company"].dtype not in (bool, "boolean"):
                 out["has_company"] = out["has_company"].astype("boolean")
-            out.loc[firm_mask, "has_company"] = True
+            out["has_company"] = _set_where(out["has_company"], firm_mask, True)
 
     return out

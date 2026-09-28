@@ -94,7 +94,7 @@ App kosten **keine** BigQuery-Calls - alles in-memory pandas.
 - **Tabellen-Builder gecacht** - `performance_by_stay` etc. laufen pro
   Filter-Kombination genau einmal.
 
-Falls etwas hakt: Sidebar → „🔄 Cache leeren".
+Falls etwas hakt: Seite „Daten aktualisieren" → Refresh (Caches invalidieren sich über den Snapshot-Zeitstempel von selbst).
 
 ---
 
@@ -191,7 +191,7 @@ Code-Style: ruff (line-length 100), Google-Docstrings.
 **Neuer Standort nicht in Sidebar nach Refresh** → Sidebar → „🔄 Cache
 leeren". Sollte seit dem letzten Refresh-Fix automatisch passieren.
 
-**App ist langsam** → Sidebar → „🔄 Cache leeren". Wenn das nicht hilft,
+**App ist langsam** → Browser-Tab schließen und neu öffnen (Session-Caches). Wenn das nicht hilft,
 liegt's vermutlich an matplotlib-Charts mit sehr viel Daten - Periode
 einschränken.
 

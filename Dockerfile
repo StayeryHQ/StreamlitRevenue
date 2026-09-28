@@ -19,14 +19,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
  && rm -rf /var/lib/apt/lists/*
 
-# Copy only requirements first
-COPY requirements.txt .
+# Abhängigkeiten EXAKT aus uv.lock (P2-1). Vorher: ``pip install -r
+# requirements.txt`` mit ``streamlit>=1.37`` - das Image bekam die zum
+# Build-Zeitpunkt neueste Version jedes Pakets, abhängig davon, ob der
+# GHA-Layer-Cache gerade griff. Die App verlässt sich auf Verhalten ab
+# Streamlit 1.52 (``st.download_button(data=<callable>)``) und auf pandas 2.3;
+# beides ist jetzt über den Lock garantiert und identisch mit ``uv sync`` lokal.
+COPY pyproject.toml uv.lock ./
 
-# Install dependencies
 RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip uv && \
+    uv export --frozen --no-dev --no-hashes --no-emit-project \
+        --format requirements-txt -o /tmp/requirements.lock.txt && \
+    pip install --no-cache-dir -r /tmp/requirements.lock.txt
 
 # Stage 2: Runtime
 FROM python:3.12-slim
@@ -73,6 +79,11 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 EXPOSE 8501
 
-HEALTHCHECK CMD curl --fail http://localhost:8501/_stcore/health
+# Healthcheck mit expliziten Grenzen (P2-6): 60 s Start-Karenz (Import von
+# pandas/matplotlib/plotly + erster Snapshot-Load), 10 s Timeout, 5 Versuche -
+# ein einzelner langsamer Rerun darf den Container nicht als "unhealthy"
+# markieren, ein toter Prozess wird trotzdem innerhalb von ~3 min erkannt.
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=5 \
+    CMD curl --fail http://localhost:8501/_stcore/health || exit 1
 
 ENTRYPOINT ["streamlit", "run", "streamlit_app/Home.py", "--server.port=8501", "--server.address=0.0.0.0"]

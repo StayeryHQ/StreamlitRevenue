@@ -43,11 +43,23 @@ def register_section(
     elif chart_fig is not None:
         item["chart_fig"] = chart_fig
     if table_df is not None:
-        try:
-            item["table_markdown"] = table_df.head(50).to_markdown(index=False)
-        except (ImportError, ValueError):
-            item["table_markdown"] = table_df.head(50).to_string(index=False)
+        # Nur die 50 Zeilen merken; ``to_markdown`` (tabulate) erst beim
+        # Export-Klick in ``render_markdown`` - vorher lief es bei jedem Rerun
+        # für jede registrierte Sektion.
+        item["table_df"] = table_df.head(50).copy()
     bucket.append(item)
+
+
+def _table_markdown(sec: dict) -> str | None:
+    if sec.get("table_markdown"):
+        return sec["table_markdown"]
+    df = sec.get("table_df")
+    if df is None:
+        return None
+    try:
+        return df.to_markdown(index=False)
+    except (ImportError, ValueError):
+        return df.to_string(index=False)
 
 
 def _fig_to_b64(fig, dpi: int = 130) -> str:
@@ -64,11 +76,51 @@ def build_markdown(
     include_notepad: bool = True,
     include_tables: bool = True,
 ) -> str:
+    """Markdown aus dem Export-Bucket der Session bauen (liest ``session_state``).
+
+    Für Download-Buttons NICHT direkt als ``data=`` verwenden: die Funktion
+    braucht den Script-Kontext. Stattdessen ``_snapshot_inputs`` im Seitenlauf
+    aufrufen und ``render_markdown`` als Download-Callable übergeben.
+    """
+    bucket, notes = _snapshot_inputs(page, section_ids, include_notepad)
+    return render_markdown(
+        page_title, highlights, bucket, notes, include_tables=include_tables
+    )
+
+
+def _snapshot_inputs(
+    page: str | None, section_ids: list[str] | None, include_notepad: bool
+) -> tuple[list[dict], str]:
+    """Bucket + Notepad-Text im Seitenlauf einsammeln (Referenzen, keine Kopien)."""
     bucket = st.session_state.get(_bucket_key(page), [])
     if section_ids is not None:
         wanted = set(section_ids)
         bucket = [s for s in bucket if s["id"] in wanted]
+    notes = ""
+    if include_notepad:
+        try:
+            from .notepad import get_notepad
+        except ImportError:
+            from notepad import get_notepad  # type: ignore
+        notes = get_notepad(page)
+    return list(bucket), notes
 
+
+def render_markdown(
+    page_title: str,
+    highlights: list[dict] | None,
+    bucket: list[dict],
+    notes: str,
+    *,
+    include_tables: bool = True,
+) -> str:
+    """Reiner Renderer (kein ``st.*``): läuft im Download-Thread erst beim Klick.
+
+    Vorher wurde der komplette Markdown inkl. Base64 aller Chart-PNGs bei jedem
+    Rerun neu gebaut, sobald „Bericht erzeugen" einmal geklickt war, und die
+    „Anpassen"-Variante blieb als String für die ganze Session im
+    ``session_state``.
+    """
     lines = [f"# {page_title}", ""]
 
     if highlights:
@@ -83,19 +135,13 @@ def build_markdown(
             lines.append(f"- {icon} **{t}** - {m}" if t else f"- {icon} {m}")
         lines.append("")
 
-    if include_notepad:
-        try:
-            from .notepad import get_notepad
-        except ImportError:
-            from notepad import get_notepad  # type: ignore
-        notes = get_notepad(page)
-        if notes.strip():
-            lines.append("## Notes & Beobachtungen")
-            lines.append("")
-            lines.append(notes.strip())
-            lines.append("")
-            lines.append("---")
-            lines.append("")
+    if notes.strip():
+        lines.append("## Notes & Beobachtungen")
+        lines.append("")
+        lines.append(notes.strip())
+        lines.append("")
+        lines.append("---")
+        lines.append("")
 
     for sec in bucket:
         lines.append(f"## {sec['title']}")
@@ -111,9 +157,11 @@ def build_markdown(
             b64 = _fig_to_b64(sec["chart_fig"])
             lines.append(f"![chart](data:image/png;base64,{b64})")
             lines.append("")
-        if include_tables and sec.get("table_markdown"):
-            lines.append(sec["table_markdown"])
-            lines.append("")
+        if include_tables:
+            tbl = _table_markdown(sec)
+            if tbl:
+                lines.append(tbl)
+                lines.append("")
         lines.append("---")
         lines.append("")
 
@@ -147,31 +195,32 @@ def download_button(
     )
 
     col_a, col_b = st.columns([1, 1])
-    flag_quick = f"_md_quick::{page_key}"
-    flag_custom = f"_md_custom_payload::{page_key}"
+    # Alt-Flags aus früheren Versionen (Markdown-Payload im Session-State) räumen.
+    st.session_state.pop(f"_md_quick::{page_key}", None)
+    st.session_state.pop(f"_md_custom_payload::{page_key}", None)
+
+    def _lazy_md(section_ids, include_notepad):
+        """Download-Callable: Inputs jetzt einsammeln, rendern erst beim Klick."""
+        bucket_now, notes_now = _snapshot_inputs(page, section_ids, include_notepad)
+
+        def _render() -> bytes:
+            return render_markdown(
+                page_title, highlights, bucket_now, notes_now, include_tables=include_tables
+            ).encode("utf-8")
+
+        return _render
 
     with col_a:
         st.markdown("**Aktuelle Ansicht**")
         st.caption("Alle geladenen Sektionen + Notepad als ein Markdown.")
-        if st.button("Bericht erzeugen", key=f"_quick_btn_{page_key}"):
-            st.session_state[flag_quick] = True
-        if st.session_state.get(flag_quick):
-            with st.spinner("Erzeuge Markdown + Chart-PNGs …"):
-                md = build_markdown(
-                    page_title,
-                    highlights=highlights,
-                    page=page,
-                    section_ids=None,
-                    include_notepad=True,
-                    include_tables=include_tables,
-                )
-            st.download_button(
-                label="Markdown speichern",
-                data=md.encode("utf-8"),
-                file_name=filename,
-                mime="text/markdown",
-                key=f"_quick_dl_{page_key}",
-            )
+        st.download_button(
+            label="Markdown speichern",
+            data=_lazy_md(None, True),
+            file_name=filename,
+            mime="text/markdown",
+            on_click="ignore",
+            key=f"_quick_dl_{page_key}",
+        )
 
     with col_b:
         st.markdown("**Anpassen …**")
@@ -190,22 +239,11 @@ def download_button(
                 value=True,
                 key=f"_custom_notes_{page_key}",
             )
-            if st.button("Bericht erzeugen", key=f"_custom_btn_{page_key}"):
-                with st.spinner("Erzeuge Markdown + Chart-PNGs …"):
-                    md = build_markdown(
-                        page_title,
-                        highlights=highlights,
-                        page=page,
-                        section_ids=chosen,
-                        include_notepad=include_notes,
-                        include_tables=include_tables,
-                    )
-                st.session_state[flag_custom] = md
-            if st.session_state.get(flag_custom):
-                st.download_button(
-                    label="Markdown speichern",
-                    data=st.session_state[flag_custom].encode("utf-8"),
-                    file_name=filename.replace(".md", "_custom.md"),
-                    mime="text/markdown",
-                    key=f"_custom_dl_{page_key}",
-                )
+            st.download_button(
+                label="Markdown speichern",
+                data=_lazy_md(chosen, include_notes),
+                file_name=filename.replace(".md", "_custom.md"),
+                mime="text/markdown",
+                on_click="ignore",
+                key=f"_custom_dl_{page_key}",
+            )

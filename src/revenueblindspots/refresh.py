@@ -208,7 +208,7 @@ def _engineer_grouped(raw: pd.DataFrame, engineer_fn) -> pd.DataFrame:
         Das zusammengefügte, engineerte Frame (leer wenn ``raw`` leer ist).
     """
     parts: list[pd.DataFrame] = []
-    for pc, group in raw.groupby("property_code"):
+    for pc, group in raw.groupby("property_code", observed=True):
         parts.append(engineer_fn(group, pc))
         del group
     if not parts:

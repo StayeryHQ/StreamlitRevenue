@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import io
 import sys
 from pathlib import Path
 
@@ -23,11 +22,11 @@ from components import (
     preload_all_button,
     render_notepad,
     section,
-    sync_snapshot_override,
 )
 from components.alerts import alert_card
 from components.brand import hero
 from components.export import register_section, reset_export
+from components.xlsx_export import XLSX_MIME, frames_to_xlsx
 from revenueblindspots import helpers as H
 from revenueblindspots import overrides as OV
 
@@ -38,7 +37,6 @@ st.set_page_config(
 )
 inject_brand_css()
 CD.apply_stayery_style_once()
-sync_snapshot_override()
 CD.keep_session_state_alive()  # MUST run before any widget renders this page
 
 PAGE = "code"
@@ -123,7 +121,6 @@ with st.sidebar:
     period_end = pd.Timestamp(pe)
 
     st.divider()
-    CD.cache_clear_button()
     # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
     CD.freshness_badge()
 
@@ -178,7 +175,7 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     nightly = CD.get_timeslices(start=lookback_start, end=lookback_end, properties=props_pick)
     _enriched = H.timeslices_are_enriched(nightly)
     if _enriched:
-        res_all = H.reservations_from_timeslices(nightly)
+        res_all = CD.get_bookings_from(nightly)
     else:
         res_all = CD.get_reservations(start=lookback_start, end=lookback_end, properties=props_pick)
 if res_all.empty:
@@ -454,7 +451,7 @@ if lazy_section(
     realized_for_loc = res[res["is_realized"]]
     if not realized_for_loc.empty:
         loc_tbl = (
-            realized_for_loc.groupby("property_code")
+            realized_for_loc.groupby("property_code", observed=True)
             .agg(
                 Buchungen=("id", "nunique"),
                 Nächte=("nights", "sum"),
@@ -502,7 +499,7 @@ if lazy_section(
     _stor = res.copy()
     _stor["ym"] = _stor["arrival"].dt.to_period("M").astype(str)
     _stor_tbl = (
-        _stor.groupby("ym")
+        _stor.groupby("ym", observed=True)
         .agg(
             Buchungen=("id", "count"),
             Storniert=("is_cancelled", "sum"),
@@ -654,17 +651,22 @@ st.divider()
 st.subheader("Bericht exportieren")
 
 if pipeline_df is not None or reservations_df is not None:
-    bundle_buf = io.BytesIO()
-    with pd.ExcelWriter(bundle_buf, engine="openpyxl") as w:
+
+    def _code_xlsx() -> bytes:
+        """Workbook erst beim Klick bauen (data=<Funktion>, on_click="ignore")."""
+        sheets: dict[str, pd.DataFrame] = {}
         if reservations_df is not None:
-            reservations_df.to_excel(w, sheet_name="reservations", index=False)
+            sheets["reservations"] = reservations_df
         if pipeline_df is not None:
-            pipeline_df.to_excel(w, sheet_name="pipeline", index=False)
+            sheets["pipeline"] = pipeline_df
+        return frames_to_xlsx(sheets)
+
     st.download_button(
         "Alle Daten als Excel",
-        data=bundle_buf.getvalue(),
+        data=_code_xlsx,
         file_name=f"code_{codes[0]}_export.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mime=XLSX_MIME,
+        on_click="ignore",
         key="dl_code_all",
     )
 
@@ -674,4 +676,3 @@ download_button(
     page=PAGE,
 )
 
-CD.collect()

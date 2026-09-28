@@ -136,9 +136,13 @@ def lazy_section(
     _render_badge(basis, cols[0])
     if subtitle:
         cols[0].caption(subtitle)
-    if cols[1].button("Laden", key=f"_btn_{key}", use_container_width=True):
-        st.session_state[key] = True
-        st.rerun()
+    # on_click-Callback statt ``if button: ...; st.rerun()``: Callbacks laufen
+    # VOR dem Skript, das Flag ist im selben Lauf sichtbar - ein Lauf je Klick
+    # statt zwei (der Klick-Rerun plus der explizite).
+    cols[1].button(
+        "Laden", key=f"_btn_{key}", use_container_width=True,
+        on_click=_mark_loaded, args=(key,),
+    )
     st.markdown(_back_to_top_html(), unsafe_allow_html=True)
     st.markdown('<div style="height:0.6rem"></div>', unsafe_allow_html=True)
     return False
@@ -147,13 +151,16 @@ def lazy_section(
 def preload_all_button(
     section_nums: list[int | str], label: str = "🚀 Alle Sektionen laden"
 ) -> None:
-    """Setzt das 'loaded'-Flag für mehrere Sektionen auf einmal."""
-    if st.button(
-        label, use_container_width=True, help="Lädt alle verbleibenden Sektionen auf einmal."
-    ):
-        for n in section_nums:
-            st.session_state[_key(n)] = True
-        st.rerun()
+    """Setzt das 'loaded'-Flag für mehrere Sektionen auf einmal (ein Lauf je Klick)."""
+    st.button(
+        label, use_container_width=True, help="Lädt alle verbleibenden Sektionen auf einmal.",
+        on_click=_mark_loaded, args=tuple(_key(n) for n in section_nums),
+    )
+
+
+def _mark_loaded(*keys: str) -> None:
+    for k in keys:
+        st.session_state[k] = True
 
 
 def _key(num) -> str:

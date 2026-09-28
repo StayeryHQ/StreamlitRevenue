@@ -6,22 +6,16 @@ import sys
 from pathlib import Path
 
 import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-from matplotlib.dates import AutoDateLocator, DateFormatter
 
 _SRC_ROOT = Path(__file__).resolve().parents[2] / "src"
 if str(_SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(_SRC_ROOT))
 
 from revenueblindspots import helpers as H
-from revenueblindspots.theming import (
-    categorical_palette as palette,
-)
-from revenueblindspots.theming import (
-    color,
-)
+from revenueblindspots.theming import categorical_palette as palette
+from revenueblindspots.theming import color, subplots
 
 _DE_MONTH = {
     "01": "Jan",
@@ -44,7 +38,7 @@ _DE_MONTH = {
 # =============================================================================
 def landscape_kpis_chart(kpi_o, kpi_n, monthly_o, monthly_n, year_old, year_new, label):
     pal = palette()
-    fig, axes = plt.subplots(2, 2, figsize=(13, 6.8))
+    fig, axes = subplots(2, 2, figsize=(13, 6.8))
     axes = axes.flatten()
     panels = [
         ("Occupancy", "occupancy_pct", "{:.1f} %"),
@@ -149,7 +143,7 @@ def channel_los_heatmap(nig_a, nig_b, year_old, year_new, label, realized_only: 
     cmap = mcolors.LinearSegmentedColormap.from_list(
         "rdg", [color("red"), color("white"), color("green")]
     )
-    fig, axes = plt.subplots(1, 2, figsize=(15, 4.6), gridspec_kw={"width_ratios": [1, 1.05]})
+    fig, axes = subplots(1, 2, figsize=(15, 4.6), gridspec_kw={"width_ratios": [1, 1.05]})
 
     ax = axes[0]
     im = ax.imshow(rel.fillna(0).values, aspect="auto", cmap=cmap, vmin=-100, vmax=100)
@@ -249,7 +243,7 @@ def channel_purpose_los_heatmap(nig_a, nig_b, year_old, year_new, label, realize
     cmap = mcolors.LinearSegmentedColormap.from_list(
         "rdg", [color("red"), color("white"), color("green")]
     )
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5.4), gridspec_kw={"width_ratios": [1, 0.85]})
+    fig, axes = subplots(1, 2, figsize=(15, 5.4), gridspec_kw={"width_ratios": [1, 0.85]})
 
     ax = axes[0]
     im = ax.imshow(np.nan_to_num(pct), aspect="auto", cmap=cmap, vmin=-100, vmax=100)
@@ -331,12 +325,12 @@ def los_yoy(nig_a, nig_b, year_old, year_new, label, realized_only: bool = True)
 # =============================================================================
 def channel_mix(nig_a, nig_b, full_nightly, year_old, year_new, label, top_n=6, realized_only: bool = True):
     pal = palette()
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5.0), gridspec_kw={"width_ratios": [1.4, 1.6]})
+    fig, axes = subplots(1, 2, figsize=(15, 5.0), gridspec_kw={"width_ratios": [1.4, 1.6]})
 
     # Links: Monatlicher Channel-Anteil (stacked bar, Direct vs OTA)
     share = (
         (full_nightly[full_nightly["is_realized"]] if realized_only else full_nightly)
-        .groupby(["stay_year_month", "channel_group"])["revenue"]
+        .groupby(["stay_year_month", "channel_group"], observed=True)["revenue"]
         .sum()
         .unstack(fill_value=0)
     )
@@ -429,7 +423,7 @@ def weekday_pattern(nig_a, nig_b, weekday_col, year_old, year_new, label, title,
             .fillna(0)
         )
 
-    fig, axes = plt.subplots(1, 2, figsize=(15, 5.0), sharey=True)
+    fig, axes = subplots(1, 2, figsize=(15, 5.0), sharey=True)
     for ax, nig, lbl in [(axes[0], nig_a, year_old), (axes[1], nig_b, year_new)]:
         piv = pivot(nig)
         x = np.arange(7)
@@ -507,7 +501,7 @@ def de_vs_international(nig_a, nig_b, year_old, year_new, label, realized_only: 
     nb = [int(n_b.get(c, 0)) for c in cats]
     x = np.arange(len(cats))
     w = 0.35
-    fig, axes = plt.subplots(1, 3, figsize=(17, 4.4))
+    fig, axes = subplots(1, 3, figsize=(17, 4.4))
 
     ax = axes[0]
     ax.bar(
@@ -599,7 +593,7 @@ def de_vs_international(nig_a, nig_b, year_old, year_new, label, realized_only: 
 # 12 · Top-Herkunftsländer - zwei Panels (OLD / NEW)
 # =============================================================================
 def top_countries(nig_a, nig_b, year_old, year_new, label, top_n=10, realized_only: bool = True):
-    fig, axes = plt.subplots(1, 2, figsize=(15, max(3.5, top_n * 0.35 + 1)))
+    fig, axes = subplots(1, 2, figsize=(15, max(3.5, top_n * 0.35 + 1)))
     for ax, nig, yr in [(axes[0], nig_a, year_old), (axes[1], nig_b, year_new)]:
         counts = (
             (nig[nig["is_realized"]] if realized_only else nig)
@@ -634,7 +628,7 @@ def top_countries(nig_a, nig_b, year_old, year_new, label, top_n=10, realized_on
 # =============================================================================
 def corporate_overview(res_a, res_b, year_old, year_new, label, realized_only: bool = True):
     pal = palette()
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4.6))
+    fig, axes = subplots(1, 2, figsize=(14, 4.6))
 
     def split(df):
         d = df[df["is_realized"]] if realized_only else df
@@ -693,7 +687,7 @@ def corporate_overview(res_a, res_b, year_old, year_new, label, realized_only: b
             mask &= df["is_realized"]
         d = df[mask].copy()
         d["ch"] = H.channel_bucket(d["channel_combo"])
-        return d.groupby("ch")["revenue"].sum()
+        return d.groupby("ch", observed=True)["revenue"].sum()
 
     order = ["Direct_Website", "Direct_Offline", "OTA"]
     a = by_channel(res_a).reindex(order, fill_value=0)
@@ -769,7 +763,7 @@ def _company_code_lookup(*res_dfs) -> dict[str, str]:
     cat = pd.concat(parts, ignore_index=True)
     cat["company_code"] = cat["company_code"].astype(str).str.strip()
     out: dict[str, str] = {}
-    for firm, g in cat.groupby("company"):
+    for firm, g in cat.groupby("company", observed=True):
         codes = g["company_code"].value_counts()
         top = list(codes.index[:2])
         out[firm] = " / ".join(top)
@@ -782,7 +776,7 @@ def top_companies_table(res_a, res_b, year_old, year_new, realized_only: bool = 
         if realized_only:
             mask &= df["is_realized"]
         d = df[mask]
-        return d.groupby("company").agg(
+        return d.groupby("company", observed=True).agg(
             revenue=("revenue", "sum"),
             n_bookings=("id", "nunique"),
             nights=("nights", "sum"),
@@ -827,7 +821,7 @@ def _per_channel_revenue(res_df, realized_only: bool = True):
             "revenue"
         ]
     d["ch"] = H.channel_bucket(d["channel_combo"])
-    return d.groupby(["company", "ch"])["revenue"].sum()
+    return d.groupby(["company", "ch"], observed=True)["revenue"].sum()
 
 
 def build_channel_table(companies, res_a, res_b, realized_only: bool = True) -> pd.DataFrame:
@@ -882,11 +876,11 @@ def directoffline_waterfall(res_a, res_b, year_old, year_new, label, realized_on
         if realized_only:
             mask &= df["is_realized"]
         d = df[mask]
-        return d.groupby("company")["revenue"].sum()
+        return d.groupby("company", observed=True)["revenue"].sum()
 
     comp = pd.DataFrame({"old": by_company(res_a), "new": by_company(res_b)}).fillna(0.0)
     if comp.empty:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = subplots(figsize=(10, 3))
         ax.text(
             0.5, 0.5, "Keine Direct-Offline-Firmenbuchungen im Zeitraum", ha="center", va="center"
         )
@@ -905,7 +899,7 @@ def directoffline_waterfall(res_a, res_b, year_old, year_new, label, realized_on
         ("neu", gained["new"].sum(), "pos"),
         (f"Firmen\n{year_new}", comp["new"].sum(), "base"),
     ]
-    fig, ax = plt.subplots(figsize=(11, 4.8))
+    fig, ax = subplots(figsize=(11, 4.8))
     running = 0.0
     base = max(comp["old"].sum(), comp["new"].sum(), 1)
     for i, (lbl, val, kind) in enumerate(steps):
@@ -941,7 +935,7 @@ def directoffline_segments(res_a, res_b, year_old, year_new, label, realized_onl
     do_a = res_a[mask_a]
     do_b = res_b[mask_b]
     w = 0.35
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4.4))
+    fig, axes = subplots(1, 2, figsize=(14, 4.4))
 
     ax = axes[0]
     order = ["short_<=6", "mid_7-28", "long_29+"]
@@ -987,7 +981,7 @@ def directoffline_segments(res_a, res_b, year_old, year_new, label, realized_onl
         p = np.where(
             df["travelPurpose"].astype(str).str.lower().eq("business"), "Business", "Leisure"
         )
-        return df.assign(_p=p).groupby("_p")["revenue"].sum()
+        return df.assign(_p=p).groupby("_p", observed=True)["revenue"].sum()
 
     pa = purpose_rev(do_a).reindex(["Business", "Leisure"], fill_value=0)
     pb = purpose_rev(do_b).reindex(["Business", "Leisure"], fill_value=0)
@@ -1046,7 +1040,7 @@ def top_codes_in_period(res_period, realized_only: bool = True) -> pd.DataFrame:
     if d.empty:
         return pd.DataFrame()
 
-    g = d.groupby("effective_code")
+    g = d.groupby("effective_code", observed=True)
     out = pd.DataFrame(
         {
             "Code": g.size().index,

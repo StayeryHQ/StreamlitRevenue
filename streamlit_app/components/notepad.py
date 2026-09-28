@@ -62,9 +62,14 @@ def render_notepad(page: str | None = None) -> None:
         on_change=_sync,
     )
     cols = st.sidebar.columns(2)
-    if cols[0].button("Leeren", key=f"_btn_notepad_clear_{page}", use_container_width=True):
+
+    def _clear() -> None:
         st.session_state[store] = ""
-        st.rerun()
+
+    # on_click statt st.rerun(): ein Skriptlauf je Klick.
+    cols[0].button(
+        "Leeren", key=f"_btn_notepad_clear_{page}", use_container_width=True, on_click=_clear
+    )
     cols[1].caption(f"{len(st.session_state[store])} Zeichen")
 
 
@@ -72,15 +77,18 @@ def push_snippet(section_id: str, snippet: str, page: str | None = None) -> None
     """Render a button that appends `snippet` to the page notepad."""
     page = _page(page)
     btn_key = f"_btn_snippet_{page}_{section_id}"
-    if st.button(
-        "📋 In Notepad übernehmen", key=btn_key, help="Fügt die Sektions-Kennzahlen ans Notepad an"
-    ):
+
+    def _append() -> None:
         store = _store_key(page)
         existing = st.session_state.get(store, "") or ""
         block = f"\n\n- {section_id} -\n{snippet.strip()}"
         if block.strip() not in existing:
             st.session_state[store] = (existing + block).lstrip()
-        st.rerun()
+
+    st.button(
+        "📋 In Notepad übernehmen", key=btn_key,
+        help="Fügt die Sektions-Kennzahlen ans Notepad an", on_click=_append,
+    )
 
 
 def get_notepad(page: str | None = None) -> str:

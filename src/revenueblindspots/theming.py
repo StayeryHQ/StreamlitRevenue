@@ -17,6 +17,7 @@ from typing import Any
 
 import matplotlib as mpl
 import yaml
+from matplotlib.figure import Figure
 
 from .helpers import CONFIGS_DIR
 
@@ -162,3 +163,27 @@ def apply_stayery_style() -> None:
             "savefig.bbox": "tight",
         }
     )
+
+
+def subplots(nrows: int = 1, ncols: int = 1, *, figsize=None, sharex=False, sharey=False,
+             gridspec_kw=None, **fig_kw):
+    """``plt.subplots``-Ersatz über die OO-API - KEINE Registrierung bei pyplot.
+
+    pyplots Figure-Registry ist prozessweit. Jede Session lief vorher über
+    ``plt.subplots`` und rief am Seitenende ``plt.close("all")`` - das schloss
+    auch Figuren, die eine ANDERE Session gerade rendert (matplotlib ist über
+    pyplot nicht thread-safe). ``Figure()`` gehört nur dem Aufrufer und wird
+    mit ihm freigegeben; die PNG-Ausgabe ist byte-identisch (verifiziert).
+
+    Args:
+        nrows, ncols: Raster wie bei ``plt.subplots``.
+        figsize: Größe in Zoll.
+        sharex, sharey, gridspec_kw: wie bei ``plt.subplots``.
+        **fig_kw: weitere ``Figure``-Argumente.
+
+    Returns:
+        ``(fig, axes)`` - ``axes`` ist ein einzelnes Axes bei 1×1, sonst ein Array.
+    """
+    fig = Figure(figsize=figsize, **fig_kw)
+    axes = fig.subplots(nrows, ncols, sharex=sharex, sharey=sharey, gridspec_kw=gridspec_kw)
+    return fig, axes

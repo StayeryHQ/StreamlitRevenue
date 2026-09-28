@@ -19,23 +19,26 @@ import streamlit as st
 from revenueblindspots import helpers as H
 from revenueblindspots import overrides as OV
 
+from .cache_keys import SLICE_SIG_ATTR
+
 
 # ============================== Cache key helper ==========================
 def _resolved_snapshot_dir():
-    """Snapshot-Verzeichnis auflösen: Session-Override → env/Repo-Default.
+    """Snapshot-Verzeichnis auflösen: env ``STAYERY_SNAPSHOT_DIR`` → Repo-Default.
 
-    Der Pfad-Override aus der „Daten aktualisieren"-Seite lebt NUR noch im
-    ``st.session_state`` der jeweiligen Session (Review A12.8) - vorher wurde
-    ``os.environ`` mutiert, was prozessweit ALLE gleichzeitigen User traf.
+    Der Pfad ist eine Deployment-Eigenschaft und für ALLE Sessions identisch.
+    Der frühere Per-Session-Override (``snapshot_dir_override``) ist entfernt:
+    er erzeugte je Session einen anderen Cache-Key für dieselben Parquets
+    (``local=data`` vs. ``local=/app/data``), und mit ``max_entries=1`` haben
+    sich die Sessions den geteilten Snapshot gegenseitig aus dem Cache
+    verdrängt (Reload 7-8 s + >1 GB Peak bei jedem Wechsel).
+
+    Lokale Pfade werden absolut aufgelöst, damit die Signatur eindeutig ist.
     """
-    override = st.session_state.get("snapshot_dir_override")
-    if override:
-        s = str(override).strip()
-        if s:
-            if s.startswith(("gs://", "s3://")):
-                return s
-            return Path(s).expanduser()
-    return H.find_snapshot_dir()
+    snap = H.find_snapshot_dir()
+    if isinstance(snap, Path):
+        return snap.expanduser().resolve()
+    return snap
 
 
 def _snapshot_signature() -> str:
@@ -119,21 +122,93 @@ def _filter_frame(
     Identische Semantik wie der Disk-Filter ``helpers._read_parquet_with_filter``
     (Kalendertag-normalisiert, ``property_code`` per ``isin``), aber ohne den
     Snapshot erneut von der Platte zu lesen und ohne das geteilte (gecachte)
-    Frame zu verändern
+    Frame zu verändern.
+
+    ``df[mask]`` materialisiert bereits ein NEUES Frame - das frühere
+    zusätzliche ``.copy()`` hat denselben Slice ein zweites Mal angelegt
+    (gemessen: +421 MB Peak je Rerun bei allen Standorten). Ohne jedes
+    Filterkriterium wird das geteilte Frame selbst zurückgegeben; Seiten
+    schreiben NIE in ``nightly``/``res`` (Konvention - abgeleitete Frames
+    kommen aus ``groupby``/``[mask]`` und sind ohnehin eigene Objekte).
     """
-    mask = pd.Series(True, index=df.index)
+    mask = None
     if (start is not None or end is not None) and date_col in df.columns:
         col = df[date_col]
         if not pd.api.types.is_datetime64_any_dtype(col):
             col = pd.to_datetime(col, errors="coerce")
         day = col.dt.normalize()
         if start is not None:
-            mask &= day >= pd.Timestamp(start).normalize()
+            m = day >= pd.Timestamp(start).normalize()
+            mask = m if mask is None else (mask & m)
         if end is not None:
-            mask &= day <= pd.Timestamp(end).normalize()
+            m = day <= pd.Timestamp(end).normalize()
+            mask = m if mask is None else (mask & m)
     if properties and "property_code" in df.columns:
-        mask &= df["property_code"].isin(list(properties))
-    return df[mask].copy()
+        m = df["property_code"].isin(list(properties))
+        mask = m if mask is None else (mask & m)
+    if mask is None:
+        return df
+    return df[mask]
+
+
+# ============================== Per-Session-Slice-Cache ===================
+# Jeder Rerun einer Seite (jeder Widget-Klick) hat den Slice der Seite neu aus
+# dem geteilten Snapshot geschnitten (~1 s + 170-420 MB je Rerun, bei
+# ``fastReruns`` auch mehrfach parallel). Der Slice hängt nur von Snapshot,
+# Overrides und den Filterwerten ab - er wird deshalb je Session EINMAL pro
+# Filterkombination berechnet und wiederverwendet. Genau ein Eintrag je
+# Tabelle (timeslices/reservations): ein Filterwechsel ersetzt ihn, sodass pro
+# Session nie mehr als ein Slice je Tabelle lebt (wie vorher, nur ohne die
+# Kopie bei jedem Rerun). ``st.cache_data`` wäre hier falsch: es würde den
+# Slice bei jedem Lesen entpickeln (gemessen 0,5 s + zweite Kopie).
+_SLICE_CACHE_KEY = "_snapshot_slice_cache"
+
+
+def _slice_signature(kind: str, start, end, properties) -> str:
+    s = pd.Timestamp(start).normalize().date() if start is not None else "-"
+    e = pd.Timestamp(end).normalize().date() if end is not None else "-"
+    p = "+".join(sorted(properties)) if properties else "*"
+    return f"{kind}|{_snapshot_signature()}|{_override_signature()}|{s}|{e}|{p}"
+
+
+def _session_slice(kind: str, df: pd.DataFrame, date_col: str, start, end, properties):
+    sig = _slice_signature(kind, start, end, properties)
+    bucket = st.session_state.setdefault(_SLICE_CACHE_KEY, {})
+    hit = bucket.get(sig)
+    if hit is not None:
+        return hit
+    out = _filter_frame(df, date_col, start, end, properties)
+    if out is df:
+        out = df.copy(deep=False)  # eigenes attrs-Dict, Spalten bleiben geteilt
+    out.attrs[SLICE_SIG_ATTR] = sig  # -> cache_keys.df_cache_key
+    for k in [k for k in bucket if k.startswith(kind + "|")]:
+        bucket.pop(k, None)
+    bucket[sig] = out
+    return out
+
+
+@st.cache_resource(ttl=3600, show_spinner=False, max_entries=3)
+def _bookings_cached(slice_sig: str, _nig: pd.DataFrame) -> pd.DataFrame:
+    """Buchungs-Frame (eine Zeile je ``id``) aus einem Timeslices-Slice.
+
+    ``reservations_from_timeslices`` lief vorher auf 4 Seiten bei JEDEM Rerun
+    ungecacht (gemessen 1-4,5 s). Der Key ist die Slice-Signatur (Snapshot,
+    Overrides, Fenster, Standorte), also prozessweit geteilt; ``max_entries=3``
+    begrenzt den Speicher auf drei Buchungs-Frames (≤ ~150 MB je Frame).
+    """
+    return H.reservations_from_timeslices(_nig)
+
+
+def get_bookings_from(nightly: pd.DataFrame) -> pd.DataFrame:
+    """Gecachter Ersatz für ``H.reservations_from_timeslices(nightly)``.
+
+    Gibt eine flache Kopie zurück: Seiten dürfen Spalten ersetzen
+    (``res["company"] = ...``), ohne das geteilte Cache-Objekt zu verändern.
+    """
+    sig = nightly.attrs.get(SLICE_SIG_ATTR) or _slice_signature(
+        "timeslices", None, None, tuple(nightly["property_code"].dropna().unique())
+    )
+    return _bookings_cached(sig, nightly).copy(deep=False)
 
 
 # ============================== Convenience wrappers =====================
@@ -163,8 +238,8 @@ def get_reservations(
     df = _reservations_cached(
         _snapshot_signature(), _override_signature(), _resolved_snapshot_dir()
     )
-    return _filter_frame(
-        df, "arrival", start, end, tuple(properties) if properties else None
+    return _session_slice(
+        "reservations", df, "arrival", start, end, tuple(properties) if properties else None
     )
 
 
@@ -176,13 +251,13 @@ def get_timeslices(
     df = _timeslices_cached(
         _snapshot_signature(), _override_signature(), _resolved_snapshot_dir()
     )
-    return _filter_frame(
-        df, "serviceDate", start, end, tuple(properties) if properties else None
+    return _session_slice(
+        "timeslices", df, "serviceDate", start, end, tuple(properties) if properties else None
     )
 
 
 # ============================== Chart-PNG-Cache ===========================
-_CHART_CACHE_MAX = 64
+_CHART_CACHE_MAX = 24  # je Session; PNG ~100-300 KB, Extras (kleine Frames) mit
 _DEFAULT_DPI = 130  # hochstellen wennimmernoch unscharf
 
 def snapshot_tag() -> str:
@@ -203,8 +278,6 @@ def chart_png(cache_key: str, fig_fn, *args, dpi: int = _DEFAULT_DPI, **kwargs):
             return cached, extras_bucket[cache_key]
         return cached
 
-    import matplotlib.pyplot as plt
-
     result = fig_fn(*args, **kwargs)
     if isinstance(result, tuple):
         fig, *extras = result
@@ -214,7 +287,7 @@ def chart_png(cache_key: str, fig_fn, *args, dpi: int = _DEFAULT_DPI, **kwargs):
 
     buf = io.BytesIO()
     fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
+    # OO-Figure (theming.subplots): nicht bei pyplot registriert, kein close nötig.
     png = buf.getvalue()
 
     bucket[cache_key] = png
@@ -230,50 +303,30 @@ def chart_png(cache_key: str, fig_fn, *args, dpi: int = _DEFAULT_DPI, **kwargs):
     return (png, extras) if extras is not None else png
 
 
-def render_chart(
-    cache_key: str,
-    fig_fn,
-    *args,
-    register=None,
-    register_kwargs=None,
-    dpi: int = _DEFAULT_DPI,
-    **kwargs,
-):
-    """Convenience: chart_png + st.image + optional register_section."""
-    result = chart_png(cache_key, fig_fn, *args, dpi=dpi, **kwargs)
-    if isinstance(result, tuple):
-        png, extras = result
-    else:
-        png, extras = result, None
-    st.image(png, use_container_width=False)
-    if register is not None and register_kwargs is not None:
-        register(chart_png=png, **register_kwargs)
-    return extras
-
-
 # ============================== Style + cleanup ===========================
+_STYLE_APPLIED = False
+
+
 def apply_stayery_style_once() -> None:
-    """Apply matplotlib brand style once per session."""
-    if not st.session_state.get("_stayery_style_applied"):
-        from revenueblindspots.theming import apply_stayery_style
+    """matplotlib-Brand-Style EINMAL je Prozess setzen (rcParams sind prozessweit).
 
-        apply_stayery_style()
-        import matplotlib as mpl
+    Vorher pro Session (Session-State-Flag) - das schrieb dieselben globalen
+    rcParams aus jeder Session neu. Ein ``collect()`` mit ``plt.close("all")``
+    am Seitenende gibt es nicht mehr: Figuren kommen aus ``theming.subplots``
+    (OO-API, nicht bei pyplot registriert) und ``runner.postScriptGC`` (Default
+    True) lässt den GC ohnehin nach jedem Lauf laufen.
+    """
+    global _STYLE_APPLIED
+    if _STYLE_APPLIED:
+        return
+    from revenueblindspots.theming import apply_stayery_style
 
-        mpl.rcParams["savefig.dpi"] = _DEFAULT_DPI
-        mpl.rcParams["figure.dpi"] = _DEFAULT_DPI
-        mpl.rcParams["figure.max_open_warning"] = 50
-        st.session_state["_stayery_style_applied"] = True
+    apply_stayery_style()
+    import matplotlib as mpl
 
-
-def collect() -> None:
-    """plt.close('all') + gc - call at end of each page."""
-    import gc
-
-    import matplotlib.pyplot as plt
-
-    plt.close("all")
-    gc.collect()
+    mpl.rcParams["savefig.dpi"] = _DEFAULT_DPI
+    mpl.rcParams["figure.dpi"] = _DEFAULT_DPI
+    _STYLE_APPLIED = True
 
 
 # ============================== Data-table expander =======================
@@ -310,13 +363,16 @@ def data_table_expander(
                 f"Anzeige limitiert auf {max_rows_display} Zeilen "
                 f"({len(df):,} insgesamt) - der CSV-Download enthält alle Daten.".replace(",", ".")
             )
-        csv_bytes = df.to_csv(index=False).encode("utf-8")
+        # CSV erst beim Klick erzeugen (data=<Funktion>, on_click="ignore") -
+        # vorher lief ``to_csv`` der kompletten Tabelle bei jedem Rerun, auch
+        # bei zugeklapptem Expander (17 Aufrufstellen).
         st.download_button(
             "Als CSV herunterladen",
-            data=csv_bytes,
+            data=lambda: df.to_csv(index=False).encode("utf-8"),
             file_name=(filename or "datentabelle") + ".csv",
             mime="text/csv",
-            key=f"dl_csv_{title}_{filename or 'x'}_{len(df)}",
+            on_click="ignore",
+            key=f"dl_csv_{title}_{filename or 'x'}",
         )
 
 
@@ -341,6 +397,8 @@ _PERSIST_KEY_PREFIXES: tuple[str, ...] = (
     "b2b_",
     # Code Deep-Dive Sidebar
     "cd_",
+    # Pickup / Vorlauf-Analyse Sidebar
+    "pu_",
     # Promo-Codes Sidebar
     "promo_",
     # Notepad-Store
@@ -394,11 +452,13 @@ def keep_session_state_alive() -> None:
 
 # ============================== Sidebar tools ============================
 def purge_snapshot_caches() -> None:
-    """Alle Daten-Caches leeren und den Speicher zurückgeben.
+    """Alle Daten-Caches leeren und den Speicher zurückgeben (nur Refresh-Seite).
 
-    Eine Implementierung für den Sidebar-Button UND die Refresh-Seite (F3).
-    ``cache_data.clear()`` allein reicht nicht - die Snapshot-Lader laufen über
-    ``@st.cache_resource`` und werden davon nicht erfasst.
+    Den manuellen Sidebar-Button „Cache leeren" gibt es nicht mehr: alle Caches
+    sind über Snapshot-mtime + Override-Signatur selbst-invalidierend, und der
+    Button hat die GLOBALEN Caches aller Nutzer geleert (jede andere Session
+    musste den Snapshot neu laden). ``cache_data.clear()`` allein reicht nicht -
+    die Snapshot-Lader laufen über ``@st.cache_resource``.
 
     ``H.release_memory()`` am Ende gibt die freigewordenen Seiten so weit wie
     möglich ans Betriebssystem zurück; ohne den Aufruf bleibt der Prozess auch
@@ -407,19 +467,9 @@ def purge_snapshot_caches() -> None:
     st.cache_data.clear()
     st.cache_resource.clear()  # Snapshot-Lader (cache_resource) mitleeren!
     for k in list(st.session_state.keys()):
-        if str(k).startswith(("_stayery_style_applied", "_chart_")):
+        if str(k).startswith(("_chart_", _SLICE_CACHE_KEY)):
             del st.session_state[k]
     H.release_memory()
-
-
-def cache_clear_button() -> None:
-    if st.sidebar.button(
-        "Cache leeren",
-        use_container_width=True,
-        help="Snapshot + Chart-Cache wieder von Disk laden.",
-    ):
-        purge_snapshot_caches()
-        st.rerun()
 
 
 # ============================== Freshness-Badge ===========================

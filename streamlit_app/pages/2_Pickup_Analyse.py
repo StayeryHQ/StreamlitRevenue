@@ -9,7 +9,6 @@ Global Reports ab.
 
 from __future__ import annotations
 
-import io
 import sys
 from pathlib import Path
 
@@ -21,17 +20,17 @@ import pandas as pd
 import streamlit as st
 
 from components import cached_data as CD
-from components import filter_flags, inject_brand_css, sync_snapshot_override
+from components import filter_flags, inject_brand_css
 from components import global_tables as GT
 from components.alerts import alert_card
 from components.brand import hero
 from components.global_tables import CancelMode
+from components.xlsx_export import XLSX_MIME, frames_to_xlsx
 from revenueblindspots import helpers as H
 
 st.set_page_config(page_title="Pickup / Vorlauf-Analyse", page_icon="📈", layout="wide")
 inject_brand_css()
 CD.apply_stayery_style_once()
-sync_snapshot_override()
 CD.keep_session_state_alive()
 
 PAGE = "pickup"
@@ -178,7 +177,6 @@ with st.sidebar:
 
         st.form_submit_button("Analyse aktualisieren", use_container_width=True)
 
-    CD.cache_clear_button()
     st.divider()
     # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
     CD.freshness_badge()
@@ -404,13 +402,21 @@ def _pace_stichtag_table(sig: str, year: int, month_: int, snap: pd.Timestamp,
     return pd.DataFrame(rows)
 
 
+# EIN Daten-Load für die ganze Seite: Untergrenze = Minimum aus Pace-Sicht
+# (1. Januar Vorjahr) und Seiten-Fenstern. Vorher lagen zwei ~420-MB-Slices
+# (Pace + Seite) gleichzeitig im Speicher, bei jedem Rerun neu geschnitten.
+_pull_start = min(
+    start_old, start_new, cre_start_old, cre_start_new,
+    pd.Timestamp(year=_PACE_YEAR - 1, month=1, day=1),
+)
+with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
+    nightly = CD.get_timeslices(start=_pull_start, end=None, properties=props_pick)
+    plan_dict = CD.get_active_plan()  # PLAN aus BigQuery-Snapshot (plan.parquet)
+
 if props_pick:
-    # Eigener Daten-Load (unabhängig vom Seiten-Fenster): aktuelles + Vorjahr.
-    _pace_nig = CD.get_timeslices(
-        start=pd.Timestamp(year=_PACE_YEAR - 1, month=1, day=1),
-        end=None,
-        properties=props_pick,
-    )
+    # Pace-Sicht (aktuelles + Vorjahr) auf demselben Slice; die gecachten
+    # Pace-Builder filtern Jahr/Monat selbst.
+    _pace_nig = nightly
     _pace_sig = f"{CD.snapshot_tag()}::{'+'.join(sorted(props_pick))}::{_PACE_SNAP.date()}"
 
     from components import plotly_theme as PT
@@ -465,12 +471,7 @@ if props_pick:
         except Exception:
             st.dataframe(_daily, hide_index=True, use_container_width=True)
 
-# ============================== Daten laden ================================
-with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
-    _pull_start = min(start_old, start_new, cre_start_old, cre_start_new)
-    nightly = CD.get_timeslices(start=_pull_start, end=None, properties=props_pick)
-    plan_dict = CD.get_active_plan()  # PLAN aus BigQuery-Snapshot (plan.parquet)
-
+# ============================== Daten (oben geladen) =======================
 if nightly is None or nightly.empty:
     alert_card("Keine Timeslices im gewählten Bereich.", kind="info")
     st.stop()
@@ -787,51 +788,36 @@ def _numeric_pickup_frame(
     return out
 
 
+# Die drei Export-Funktionen laufen NUR beim Klick (``data=<Funktion>`` +
+# ``on_click="ignore"``, s. components/xlsx_export.py) - nicht mehr bei jedem
+# Rerun. Sie greifen auf die Modul-Variablen des Seitenlaufs zu (nightly,
+# raw_*, Fenster), in dem der Button gerendert wurde.
 def _tables_xlsx() -> bytes:
     """Aggregierte Pickup-Tabellen als Excel (3 Blätter, rohe Zahlen)."""
-    from openpyxl.styles import Font
-    from openpyxl.utils import get_column_letter
-
-    frames = [
-        ("Standort", _numeric_pickup_frame(raw_loc, "Standort", "ist_new", "ist_old")),
-        ("Buchungskanal", _numeric_pickup_frame(raw_ch, "Channel", "rev_new", "rev_old")),
-        ("Stay-Segment", _numeric_pickup_frame(raw_seg, "Segment", "rev_new", "rev_old")),
-    ]
-    bio = io.BytesIO()
-    with pd.ExcelWriter(bio, engine="openpyxl") as xw:
-        for name, df in frames:
-            out = df if (df is not None and len(df)) else pd.DataFrame({"Hinweis": ["keine Daten"]})
-            out.to_excel(xw, sheet_name=name, index=False)
-        for ws in xw.book.worksheets:
-            ws.freeze_panes = "A2"
-            for i in range(1, ws.max_column + 1):
-                ws.cell(row=1, column=i).font = Font(bold=True)
-                ws.column_dimensions[get_column_letter(i)].width = 20
-    return bio.getvalue()
+    return frames_to_xlsx(
+        [
+            ("Standort", _numeric_pickup_frame(raw_loc, "Standort", "ist_new", "ist_old")),
+            ("Buchungskanal", _numeric_pickup_frame(raw_ch, "Channel", "rev_new", "rev_old")),
+            ("Stay-Segment", _numeric_pickup_frame(raw_seg, "Segment", "rev_new", "rev_old")),
+        ],
+        col_width=20,
+    )
 
 
 def _raw_xlsx() -> bytes:
     """Roh-Timeslices (eine Zeile je Nacht, alle Flags)."""
-    from openpyxl.styles import Font
-    from openpyxl.utils import get_column_letter
-
     frames = GT.stay_created_export_frames(
         nightly, props_pick, start_new, end_new, start_old, end_old,
         cre_start_new, cre_end_new, cre_start_old, cre_end_old,
         asof_new, asof_old, CMODE == CancelMode.ALL_IN,
     )
-    bio = io.BytesIO()
-    with pd.ExcelWriter(bio, engine="openpyxl", datetime_format="YYYY-MM-DD HH:MM") as xw:
-        for name, df in frames.items():
-            out = df if len(df) else pd.DataFrame({"Hinweis": ["keine Daten in diesem Fenster"]})
-            out.to_excel(xw, sheet_name=name, index=False)
-        for ws in xw.book.worksheets:
-            ws.freeze_panes = "A2"
-            ws.auto_filter.ref = ws.dimensions
-            for i in range(1, ws.max_column + 1):
-                ws.cell(row=1, column=i).font = Font(bold=True)
-                ws.column_dimensions[get_column_letter(i)].width = 17
-    return bio.getvalue()
+    return frames_to_xlsx(
+        frames,
+        col_width=17,
+        autofilter=True,
+        datetime_format="YYYY-MM-DD HH:MM",
+        empty_note="keine Daten in diesem Fenster",
+    )
 
 
 def _curve_csv() -> bytes:
@@ -859,24 +845,27 @@ _fname = f"pickup_{start_new:%Y%m%d}_vs_{start_old:%Y%m%d}"
 with d1:
     st.download_button(
         "Pickup-Tabellen (Excel)",
-        data=_tables_xlsx(),
+        data=_tables_xlsx,
         file_name=f"{_fname}_tabellen.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mime=XLSX_MIME,
+        on_click="ignore",
         use_container_width=True,
     )
 with d2:
     st.download_button(
         "Roh-Timeslices (Excel)",
-        data=_raw_xlsx(),
+        data=_raw_xlsx,
         file_name=f"{_fname}_timeslices.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        mime=XLSX_MIME,
+        on_click="ignore",
         use_container_width=True,
     )
 with d3:
     st.download_button(
         "Buchungskurve (CSV)",
-        data=_curve_csv(),
+        data=_curve_csv,
         file_name=f"{_fname}_kurve.csv",
         mime="text/csv",
+        on_click="ignore",
         use_container_width=True,
     )

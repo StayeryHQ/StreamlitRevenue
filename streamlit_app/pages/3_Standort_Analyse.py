@@ -24,7 +24,6 @@ from components import (
     render_notepad,
     render_toc,
     section,
-    sync_snapshot_override,
 )
 from components import cached_data as CD
 from components import chart_data as CDT
@@ -47,7 +46,6 @@ st.set_page_config(
 )
 inject_brand_css()
 CD.apply_stayery_style_once()
-sync_snapshot_override()
 CD.keep_session_state_alive()  # MUST run before any widget renders this page
 
 PAGE = "standort"
@@ -132,7 +130,6 @@ with st.sidebar:
     st.divider()
     st.caption("Sektionen 6-13 laden erst auf Klick.")
     preload_all_button(list(range(6, 14)), label="Alle Sektionen laden")
-    CD.cache_clear_button()
     # Farbige Freshness-Ampel statt Text-Caption: gruen <5h, gelb 5-15h, rot >15h.
     CD.freshness_badge()
 
@@ -176,7 +173,7 @@ with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
     # `created` gebucketet ("nach Erstellungsdatum").
     _enriched = H.timeslices_are_enriched(nightly)
     if _enriched:
-        res = H.reservations_from_timeslices(nightly)
+        res = CD.get_bookings_from(nightly)
     else:
         res = CD.get_reservations(properties=[property_code])
 
@@ -955,4 +952,3 @@ download_button(
     page=PAGE,
 )
 
-CD.collect()

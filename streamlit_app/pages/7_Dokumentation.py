@@ -483,7 +483,7 @@ Snapshot-Ordner → `data/` → `configs/`.
 enthalten Snapshot-Stand, Standorte, Perioden **und den Storno/No-Show-Toggle** – damit
 beim Umschalten nichts „hängen bleibt". Der Override-Store invalidiert den Cache über
 seine Signatur (Dateizeit + Größe). Lazy-Sections (Standort 6–17, Global 4–7) rendern
-erst auf Klick; Sidebar-Buttons „Alle laden" / „Cache leeren".
+erst auf Klick; Sidebar-Button „Alle laden". Caches invalidieren sich selbst (Snapshot-Zeitstempel + Override-Signatur).
 
 **Snapshot aktualisieren:** über die Seite *Daten aktualisieren* (oder
 `scripts/refresh_snapshot.py`). Erst danach sind neue BigQuery-Daten im Dashboard.

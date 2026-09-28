@@ -8,13 +8,12 @@
 
 from __future__ import annotations
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.dates import AutoDateLocator, DateFormatter
 
 from revenueblindspots import helpers as H
-from revenueblindspots.theming import categorical_palette as _pal
+from revenueblindspots.theming import categorical_palette as _pal, subplots
 from revenueblindspots.theming import color
 
 
@@ -31,7 +30,7 @@ def revenue_timeline(
     pal = _pal()
     d = res_df[res_df["is_realized"]].copy()
     if d.empty:
-        fig, ax = plt.subplots(figsize=(11, 3))
+        fig, ax = subplots(figsize=(11, 3))
         ax.text(
             0.5,
             0.5,
@@ -42,13 +41,13 @@ def revenue_timeline(
         ax.set_axis_off()
         return fig, None, None
     d["ym"] = d["arrival"].dt.to_period("M").dt.to_timestamp()
-    monthly = d.groupby("ym")["revenue"].sum().sort_index()
+    monthly = d.groupby("ym", observed=True)["revenue"].sum().sort_index()
     full_idx = pd.date_range(monthly.index.min(), monthly.index.max(), freq="MS")
     monthly = monthly.reindex(full_idx, fill_value=0.0)
     rolling = monthly.rolling(3, min_periods=1).mean()
     cum = monthly.cumsum()
 
-    fig, ax = plt.subplots(figsize=(13, 4.6))
+    fig, ax = subplots(figsize=(13, 4.6))
     ax.bar(
         monthly.index,
         monthly.values,
@@ -117,7 +116,7 @@ def channel_evolution(
     pal = _pal()
     d = res_df[res_df["is_realized"]].copy()
     if d.empty:
-        fig, ax = plt.subplots(figsize=(11, 3))
+        fig, ax = subplots(figsize=(11, 3))
         ax.text(
             0.5,
             0.5,
@@ -129,7 +128,7 @@ def channel_evolution(
         return fig, None, None
     d["ym"] = d["arrival"].dt.to_period("M").dt.to_timestamp()
     d["ch"] = H.channel_bucket(d["channel_combo"])
-    monthly_ch = d.groupby(["ym", "ch"])["revenue"].sum().unstack(fill_value=0.0).sort_index()
+    monthly_ch = d.groupby(["ym", "ch"], observed=True)["revenue"].sum().unstack(fill_value=0.0).sort_index()
     full_idx = pd.date_range(monthly_ch.index.min(), monthly_ch.index.max(), freq="MS")
     monthly_ch = monthly_ch.reindex(full_idx, fill_value=0.0)
     order = ["Direct_Offline", "Direct_Website", "OTA"]
@@ -139,7 +138,7 @@ def channel_evolution(
         sub = d[(d["arrival"] >= s) & (d["arrival"] <= e)]
         if sub.empty:
             return pd.Series([0.0] * 3, index=order), 0
-        agg = sub.groupby("ch")["revenue"].sum().reindex(order, fill_value=0.0)
+        agg = sub.groupby("ch", observed=True)["revenue"].sum().reindex(order, fill_value=0.0)
         return agg, len(sub)
 
     cur, cur_n = shares(period_start, period_end)
@@ -147,11 +146,11 @@ def channel_evolution(
     has_comparison = (cur_n > 0) and (prev_n > 0)
 
     if has_comparison:
-        fig, axes = plt.subplots(1, 2, figsize=(14, 4.6), gridspec_kw={"width_ratios": [2, 1]})
+        fig, axes = subplots(1, 2, figsize=(14, 4.6), gridspec_kw={"width_ratios": [2, 1]})
         ax_left = axes[0]
         ax_right = axes[1]
     else:
-        fig, ax_left = plt.subplots(figsize=(13, 4.6))
+        fig, ax_left = subplots(figsize=(13, 4.6))
         ax_right = None
 
     ax_left.stackplot(
@@ -226,11 +225,11 @@ def stay_patterns(res_df: pd.DataFrame, firm_label: str):
     pal = _pal()
     d = res_df[res_df["is_realized"]].copy()
     if d.empty:
-        fig, ax = plt.subplots(figsize=(11, 3))
+        fig, ax = subplots(figsize=(11, 3))
         ax.text(0.5, 0.5, "Keine realisierten Buchungen.", ha="center", va="center")
         ax.set_axis_off()
         return fig
-    fig, axes = plt.subplots(2, 3, figsize=(16, 8.5))
+    fig, axes = subplots(2, 3, figsize=(16, 8.5))
 
     def bar(ax, series, title, xrot=0):
         if series.empty:
@@ -275,7 +274,7 @@ def stay_patterns(res_df: pd.DataFrame, firm_label: str):
         "LOS-Bucket (Anzahl Buchungen)",
     )
 
-    by_loc = d.groupby("property_code")["revenue"].sum().sort_values(ascending=False)
+    by_loc = d.groupby("property_code", observed=True)["revenue"].sum().sort_values(ascending=False)
     bar(axes[0, 1], by_loc, "Revenue pro Standort (€)", xrot=30)
 
     weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
@@ -296,7 +295,9 @@ def stay_patterns(res_df: pd.DataFrame, firm_label: str):
     bar(axes[0, 2], wd, "Anreise-Wochentag (Anzahl)")
 
     rc = (
-        d["room_category"].value_counts().head(8)
+        # astype(object): auf Kategorie-Spalten zählt value_counts auch
+        # Kategorien mit 0 Vorkommen - die sollen hier nicht als Balken erscheinen.
+        d["room_category"].astype(object).value_counts().head(8)
         if "room_category" in d.columns
         else pd.Series([], dtype=float)
     )
@@ -332,11 +333,11 @@ def stay_patterns(res_df: pd.DataFrame, firm_label: str):
 def storno_view(res_df: pd.DataFrame, firm_label: str, alert_cancel_rate_pct: float = 25.0):
     pal = _pal()
     if res_df.empty:
-        fig, ax = plt.subplots(figsize=(11, 3))
+        fig, ax = subplots(figsize=(11, 3))
         ax.text(0.5, 0.5, "Keine Buchungen.", ha="center", va="center")
         ax.set_axis_off()
         return fig
-    fig, axes = plt.subplots(1, 2, figsize=(14, 4.4))
+    fig, axes = subplots(1, 2, figsize=(14, 4.4))
 
     cancelled = res_df[res_df["is_cancelled"] & res_df["cancel_lead_time_days"].notna()].copy()
     if cancelled.empty:
@@ -369,7 +370,7 @@ def storno_view(res_df: pd.DataFrame, firm_label: str, alert_cancel_rate_pct: fl
 
     d = res_df.copy()
     d["ym"] = d["arrival"].dt.to_period("M").dt.to_timestamp()
-    monthly = d.groupby("ym").agg(n=("id", "count"), c=("is_cancelled", "sum"))
+    monthly = d.groupby("ym", observed=True).agg(n=("id", "count"), c=("is_cancelled", "sum"))
     if monthly.empty:
         axes[1].text(
             0.5,

@@ -52,6 +52,7 @@ from revenueblindspots import helpers as H
 _REFRESH_SCRIPT = _REPO_ROOT / "scripts" / "refresh_snapshot.py"
 _PROGRESS_MARKER = "@@P@@"
 _RESULT_MARKER = "@@RESULT@@"
+_LOCK_NAME = ".refresh.lock"
 
 # ============================== Page setup =================================
 st.set_page_config(
@@ -114,6 +115,21 @@ def _run_refresh_subprocess(extra_args: list[str], push) -> dict:
     cmd = [sys.executable, "-u", str(_REFRESH_SCRIPT), "--json-progress", *extra_args]
     env = dict(_os.environ, PYTHONUNBUFFERED="1")
 
+    # Genau EIN Refresh-Prozess je Server: Lock-Datei atomar anlegen (O_EXCL).
+    # Vorher konnten zwei Klicks (oder zwei Nutzer) zwei BigQuery-Pulls mit je
+    # ~1,5 GB Peak im selben 2,5-GB-Container starten.
+    lock = _lock_path()
+    holder = _lock_holder()
+    if holder:
+        raise RuntimeError(
+            f"Es läuft bereits ein Refresh (PID {holder.get('pid')}, gestartet "
+            f"{holder.get('started', '?')[:19]}). Bitte warten, bis er fertig ist."
+        )
+    try:
+        fd = _os.open(str(lock), _os.O_CREAT | _os.O_EXCL | _os.O_WRONLY)
+    except FileExistsError as e:
+        raise RuntimeError("Es läuft bereits ein Refresh (Lock vorhanden).") from e
+
     proc = subprocess.Popen(
         cmd,
         cwd=str(_REPO_ROOT),
@@ -124,7 +140,10 @@ def _run_refresh_subprocess(extra_args: list[str], push) -> dict:
         errors="replace",
         bufsize=1,
         env=env,
+        start_new_session=True,     # eigene Prozessgruppe: sauber killbar
     )
+    with _os.fdopen(fd, "w") as fh:
+        json.dump({"pid": proc.pid, "started": pd.Timestamp.now(tz="Europe/Berlin").isoformat()}, fh)
 
     result: dict | None = None
     tail: list[str] = []
@@ -145,10 +164,21 @@ def _run_refresh_subprocess(extra_args: list[str], push) -> dict:
             elif line.strip():
                 tail.append(line)
                 del tail[:-80]   # nur die letzten 80 Zeilen aufheben
+    except BaseException:
+        # Auch Streamlits StopException/RerunException (BaseException): wenn
+        # die Session den Lauf abbricht (Seitenwechsel, Rerun), darf der
+        # Subprozess NICHT weiterlaufen und RAM belegen - vorher lief er als
+        # Waise weiter und der alte Script-Thread hing in ``proc.wait()``.
+        _terminate(proc)
+        raise
     finally:
         if proc.stdout is not None:
             proc.stdout.close()
         returncode = proc.wait()
+        try:
+            lock.unlink()
+        except OSError:
+            pass
 
     if returncode != 0 or result is None:
         detail = "\n".join(tail[-40:]) or "(keine Ausgabe)"
@@ -158,9 +188,46 @@ def _run_refresh_subprocess(extra_args: list[str], push) -> dict:
     return result
 
 
+def _terminate(proc: subprocess.Popen) -> None:
+    """Subprozess beenden: SIGTERM, nach 10 s SIGKILL."""
+    if proc.poll() is not None:
+        return
+    try:
+        proc.terminate()
+        proc.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+    except OSError:
+        pass
+
+
+def _lock_path() -> Path:
+    return Path(_configured_dir()) / _LOCK_NAME
+
+
+def _lock_holder() -> dict | None:
+    """Inhalt der Lock-Datei, wenn der Prozess noch lebt; sonst None (Lock wird entfernt)."""
+    lock = _lock_path()
+    if not lock.is_file():
+        return None
+    try:
+        info = json.loads(lock.read_text(encoding="utf-8") or "{}")
+        pid = int(info.get("pid", 0))
+        if pid > 0:
+            _os.kill(pid, 0)   # wirft ProcessLookupError, wenn der Prozess weg ist
+            return info
+    except (ValueError, ProcessLookupError, PermissionError, OSError):
+        pass
+    try:
+        lock.unlink()  # verwaist (z.B. nach OOM-Kill des Containers)
+    except OSError:
+        pass
+    return None
+
+
 # ============================== Aktueller Stand ===========================
 st.subheader("Aktueller Stand")
-meta = H.load_snapshot_metadata(st.session_state.get("snapshot_dir_override") or None)
+meta = CD.get_metadata()
 if meta:
     refreshed_at = str(meta.get("refreshed_at", "?"))[:19].replace("T", " ")
     n_res = meta.get("reservations", {}).get("rows", 0)
@@ -226,47 +293,46 @@ st.caption(
     f"bis **offen** (alle zukünftigen Anreisen/Nächte ohne future-cap)"
 )
 
-# Snapshot-Pfad - in Expander damit die Default-Sicht schlank bleibt.
-with st.expander("Erweitert: Snapshot-Pfad", expanded=False):
-    _default_loc = (
-        st.session_state.get("snapshot_dir_override")
-        or _os.environ.get("STAYERY_SNAPSHOT_DIR")
-        or "data"
-    )
-    snapshot_location = st.text_input(
-        "Wohin schreiben",
-        value=_default_loc,
-        help="Default = `data/` im Repo. Akzeptiert `gs://...`-URIs für GCS.",
-        key="snapshot_location_input",
-    )
-    # Override lebt NUR im Session-State (Review A12.8) - keine os.environ-
-    # Mutation mehr, die alle gleichzeitigen User des Servers treffen würde.
-    if snapshot_location.strip():
-        st.session_state["snapshot_dir_override"] = snapshot_location.strip()
-    else:
-        st.session_state.pop("snapshot_dir_override", None)
-
 
 def _configured_dir() -> str:
-    return (
-        st.session_state.get("snapshot_dir_override")
-        or _os.environ.get("STAYERY_SNAPSHOT_DIR")
-        or "data"
-    )
+    """Snapshot-Ziel des Refreshs: ``STAYERY_SNAPSHOT_DIR`` oder ``<repo>/data``.
+
+    Der Pfad ist eine Deployment-Eigenschaft (im Docker das Volume
+    ``/app/data``) und wird bewusst nicht mehr pro Session überschrieben - der
+    frühere Text-Input hat jeder Session einen eigenen Cache-Key untergeschoben
+    und damit den geteilten Snapshot-Cache aller Nutzer ausgehebelt.
+    """
+    env = (_os.environ.get("STAYERY_SNAPSHOT_DIR") or "").strip()
+    if env:
+        return env
+    return str(_REPO_ROOT / "data")
+
+
+st.caption(f"Snapshot-Verzeichnis: `{_configured_dir()}` (Deployment-Einstellung `STAYERY_SNAPSHOT_DIR`).")
 
 
 # ============================== Refresh-Buttons ===========================
+_holder = _lock_holder()
+if _holder:
+    alert_card(
+        f"Ein Refresh läuft bereits (PID {_holder.get('pid')}, gestartet "
+        f"{str(_holder.get('started', '?'))[:19].replace('T', ' ')}). Die Buttons sind "
+        "so lange gesperrt; die Seite nach ein paar Minuten neu laden.",
+        kind="info",
+    )
 col_full, col_plan = st.columns([1, 1])
 with col_full:
     run = st.button(
         "Voll-Refresh starten",
         type="primary",
         help="Pullt Reservations + Timeslices + Plan, engineert, schreibt die Parquets.",
+        disabled=bool(_holder),
     )
 with col_plan:
     run_plan_only = st.button(
         "Nur Planzahlen aktualisieren",
         help="Pullt nur `ref_tables.plan` und schreibt plan.parquet.",
+        disabled=bool(_holder),
     )
 
 if run or run_plan_only:
@@ -280,12 +346,12 @@ if run or run_plan_only:
         if pct is not None:
             progress_bar.progress(pct, text=msg)
 
-    # F3: Caches VOR dem Refresh leeren, nicht danach. Vorher lag der komplette
-    # alte Snapshot (gemessen ~1,2 GB über alle cache_resource-Einträge) während
-    # des gesamten Refreshs daneben im Speicher und hat den Peak mit nach oben
-    # geschoben. Der Subprozess braucht die Caches des Webservers ohnehin nicht.
-    push("Leere Caches vor dem Refresh …", 0.01)
-    CD.purge_snapshot_caches()
+    # KEIN Cache-Purge vor dem Refresh mehr: der geteilte Snapshot ist seit
+    # den Dtype-Optimierungen ~250 MB (statt ~1,2 GB), und ein Purge hätte alle
+    # anderen Sessions genau während des Refresh-Peaks zum Neuladen gezwungen.
+    # Geleert wird einmal NACH erfolgreichem Schreiben (neue Snapshot-Signatur
+    # verdrängt den alten Eintrag ohnehin; der Purge gibt den Speicher sofort frei).
+    push("Starte Refresh-Prozess …", 0.01)
 
     try:
         if run:
@@ -327,9 +393,8 @@ if run or run_plan_only:
 
     except Exception as e:
         progress_bar.empty()
-        # Der Subprozess ist beendet, sein Speicher ist zurück - aber der Server
-        # hat evtl. schon wieder Caches aufgebaut. Aufräumen und weiter.
-        CD.purge_snapshot_caches()
+        # Fehlgeschlagen: der Snapshot ist unverändert (atomares Schreiben),
+        # die Caches bleiben gültig - kein Purge nötig.
         st.error(f"**{type(e).__name__}**: {e}")
         with st.expander("Stacktrace"):
             import traceback
@@ -358,7 +423,7 @@ else:
 
     pivot = (
         plan_df.assign(Monat=_months.astype(str))
-        .pivot_table(index="property_code", columns="Monat", values="revenue", aggfunc="sum")
+        .pivot_table(index="property_code", columns="Monat", values="revenue", aggfunc="sum", observed=True)
         .fillna(0)
     )
     pivot["Total (€)"] = pivot.sum(axis=1)

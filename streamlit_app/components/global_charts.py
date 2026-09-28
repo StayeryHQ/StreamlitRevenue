@@ -8,14 +8,13 @@ Storno/No-Show Konvention:
 from __future__ import annotations
 
 import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
 from revenueblindspots import helpers as H
-from revenueblindspots.theming import categorical_palette as _pal
+from revenueblindspots.theming import categorical_palette as _pal, subplots
 from revenueblindspots.theming import color
 
 
@@ -37,13 +36,13 @@ def visual_scorecard(
     """
     score = raw_stay[raw_stay["Standort"] != "Total"].copy()
     if score.empty:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = subplots(figsize=(10, 3))
         ax.text(0.5, 0.5, "Keine Standortdaten für Scorecard", ha="center", va="center")
         ax.set_axis_off()
         return fig
     score = score.sort_values("d_plan_pct", ascending=True, na_position="first")
 
-    fig, ax = plt.subplots(figsize=(11, max(3.2, 0.42 * len(score) + 1.4)))
+    fig, ax = subplots(figsize=(11, max(3.2, 0.42 * len(score) + 1.4)))
     y = np.arange(len(score))
     GREY = "#666666"  # Brand-Neutral Grey
     bar_colors = [
@@ -116,7 +115,7 @@ def channel_mix_donuts(raw_channel: pd.DataFrame, year_old: int, year_new: int):
     """Anteil je Channel OLD vs NEW."""
     df = raw_channel[raw_channel["Channel"] != "Total"].copy()
     if df.empty:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = subplots(figsize=(10, 3))
         ax.text(0.5, 0.5, "Keine Channel-Daten", ha="center", va="center")
         ax.set_axis_off()
         return fig
@@ -143,7 +142,7 @@ def channel_mix_donuts(raw_channel: pd.DataFrame, year_old: int, year_new: int):
         top = pd.concat([top, other], ignore_index=True)
 
     pal = _pal() + ["#666666", "#CCCCCC"]  # Overflow: Neutral Grey + Tint
-    fig, axes = plt.subplots(1, 2, figsize=(13, 5.0))
+    fig, axes = subplots(1, 2, figsize=(13, 5.0))
     for ax, vals, lbl in [
         (axes[0], top["rev_old"].values, year_old),
         (axes[1], top["rev_new"].values, year_new),
@@ -185,14 +184,14 @@ def channel_mix_bars(raw_channel: pd.DataFrame, year_old: int, year_new: int, to
     """Top-N Channel horizontal, OLD vs NEW, mit YoY-Δ als Label."""
     df = raw_channel[raw_channel["Channel"] != "Total"].copy()
     if df.empty:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = subplots(figsize=(10, 3))
         ax.text(0.5, 0.5, "Keine Channel-Daten", ha="center", va="center")
         ax.set_axis_off()
         return fig
     df = df.sort_values("rev_new", ascending=False).head(top_n)
     df = df.iloc[::-1]  # damit Top oben rauskommt
     pal = _pal()
-    fig, ax = plt.subplots(figsize=(13, max(4, 0.5 * len(df) + 1.5)))
+    fig, ax = subplots(figsize=(13, max(4, 0.5 * len(df) + 1.5)))
     y = np.arange(len(df))
     w = 0.38
     ax.barh(
@@ -255,7 +254,7 @@ def location_revenue_heatmap(
     if realized_only:
         d = d[d["is_realized"]]
     if d.empty:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = subplots(figsize=(10, 3))
         ax.text(0.5, 0.5, "Keine Daten", ha="center", va="center")
         ax.set_axis_off()
         return fig
@@ -265,7 +264,7 @@ def location_revenue_heatmap(
     piv = piv.reindex(sorted(piv.columns), axis=1)
     piv = piv.sort_index()
 
-    fig, ax = plt.subplots(
+    fig, ax = subplots(
         figsize=(max(10, 1 + 1.0 * piv.shape[1]), max(3.5, 0.45 * piv.shape[0] + 1.5))
     )
     cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -309,7 +308,7 @@ def channel_x_location_heatmap(
     if realized_only:
         d = d[d["is_realized"]]
     if d.empty:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = subplots(figsize=(10, 3))
         ax.text(0.5, 0.5, "Keine Daten", ha="center", va="center")
         ax.set_axis_off()
         return fig
@@ -328,7 +327,7 @@ def channel_x_location_heatmap(
     # Standort-Reihenfolge: alphabetisch nach Hotel-Code (= y-Label im Chart).
     piv_pct = piv_pct.sort_index()
 
-    fig, ax = plt.subplots(
+    fig, ax = subplots(
         figsize=(max(10, 1.0 + 1.0 * piv_pct.shape[1]), max(3.5, 0.45 * piv_pct.shape[0] + 1.5))
     )
     cmap = mcolors.LinearSegmentedColormap.from_list(
@@ -405,7 +404,7 @@ def channel_los_heatmap_granular(
     totals = (a.sum(axis=1) + b.sum(axis=1)).sort_values(ascending=False)
     rows = totals.head(top_n_channels).index.tolist()
     if not rows:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = subplots(figsize=(10, 3))
         ax.text(0.5, 0.5, "Keine Channel-Daten", ha="center", va="center")
         ax.set_axis_off()
         return fig
@@ -417,7 +416,7 @@ def channel_los_heatmap_granular(
         "rdg", [color("red"), color("white"), color("green")]
     )
 
-    fig, axes = plt.subplots(
+    fig, axes = subplots(
         1,
         2,
         figsize=(15, max(3.6, 0.42 * len(rows) + 1.6)),
@@ -498,73 +497,18 @@ def channel_los_heatmap_granular(
 
 
 # =============================================================================
-# Pace-to-Plan Chart
-# =============================================================================
-def pace_to_plan_chart(pace_df: pd.DataFrame, year_new: int, period_tag: str):
-    """Horizontaler Bar: IST je Standort vs PLAN-Tick"""
-    df = pace_df[pace_df["Standort"] != "Gesamt"].copy()
-    if df.empty:
-        fig, ax = plt.subplots(figsize=(10, 3))
-        ax.text(0.5, 0.5, "Keine Pace-Daten", ha="center", va="center")
-        ax.set_axis_off()
-        return fig
-    # Sortierung nach Fortschritt-% (IST/PLAN). Standorte ohne PLAN landen unten.
-    df["_pct"] = (df["IST (€)"] / df["PLAN (€)"].replace(0, np.nan) * 100).fillna(-1)
-    df = df.sort_values("_pct", ascending=True)
-
-    pal = _pal()
-    fig, ax = plt.subplots(figsize=(11, max(3.2, 0.42 * len(df) + 1.4)))
-    y = np.arange(len(df))
-    ax.barh(
-        y, df["IST (€)"], color=pal[0], edgecolor=color("black"), linewidth=0.4, label="IST bisher"
-    )
-    for i in range(len(df)):
-        plan = df["PLAN (€)"].iloc[i]
-        ist = df["IST (€)"].iloc[i]
-        if plan > 0:
-            ax.plot(
-                [plan, plan],
-                [i - 0.38, i + 0.38],
-                color=color("black"),
-                linewidth=2.2,
-                solid_capstyle="butt",
-            )
-            pct = ist / plan * 100
-            ax.text(
-                max(ist, plan) * 1.01,
-                i,
-                f"{pct:.0f} % vom PLAN",
-                va="center",
-                fontsize=9,
-                weight="bold",
-                color=color("green") if pct >= 100 else color("red"),
-            )
-    ax.set_yticks(y)
-    ax.set_yticklabels(df["Standort"])
-    ax.set_xlabel("Revenue (€, netto)")
-    ax.set_title(f"IST vs PLAN · {period_tag}", fontsize=12, weight="bold")
-    handles = [
-        Patch(facecolor=pal[0], label="IST bisher"),
-        Line2D([0], [0], color=color("black"), linewidth=2.2, label="PLAN"),
-    ]
-    ax.legend(handles=handles, frameon=False, fontsize=9, loc="lower right")
-    fig.tight_layout()
-    return fig
-
-
-# =============================================================================
 # Top-Movers
 # =============================================================================
 def top_movers(raw_stay: pd.DataFrame, year_old: int, year_new: int):
     """Diverging Bars: best/worst YoY-Veränderungen."""
     df = raw_stay[raw_stay["Standort"] != "Total"].copy()
     if df.empty:
-        fig, ax = plt.subplots(figsize=(10, 3))
+        fig, ax = subplots(figsize=(10, 3))
         ax.text(0.5, 0.5, "Keine Daten", ha="center", va="center")
         ax.set_axis_off()
         return fig
     df = df.sort_values("d_ly_eur", ascending=True)
-    fig, ax = plt.subplots(figsize=(11, max(3.2, 0.42 * len(df) + 1.2)))
+    fig, ax = subplots(figsize=(11, max(3.2, 0.42 * len(df) + 1.2)))
     y = np.arange(len(df))
     colors = [color("green") if v >= 0 else color("red") for v in df["d_ly_eur"]]
     ax.barh(y, df["d_ly_eur"], color=colors, edgecolor=color("black"), linewidth=0.4)
@@ -587,277 +531,3 @@ def top_movers(raw_stay: pd.DataFrame, year_old: int, year_new: int):
     return fig
 
 
-# =============================================================================
-# Stay × Creation - Revenue je Erstellungs-Tag (As-of, YoY)
-# =============================================================================
-def stay_created_daily_chart(
-    line_df: pd.DataFrame,
-    year_old: int,
-    year_new: int,
-    period_label: str = "",
-):
-    """Liniengrafik: an jedem Erstellungs-Tag erzeugtes Revenue, NEW vs OLD.
-
-    Erwartet ``line_df`` aus ``global_tables.daily_created_line_data`` mit den
-    Spalten ``offset``, ``date_new``, ``rev_new``, ``rev_old``. X-Achse =
-    Kalendertag des Creation-Fensters (NEW-Datierung, OLD liegt per
-    Jahres-Offset deckungsgleich darüber). Nur Buchungen, deren Aufenthalt im
-    Stay-Fenster liegt; Storno-/No-Show-Logik steckt bereits im Scope.
-    """
-    if line_df is None or line_df.empty:
-        fig, ax = plt.subplots(figsize=(11, 3.4))
-        ax.text(0.5, 0.5, "Keine Buchungen im gewählten Fenster", ha="center", va="center")
-        ax.set_axis_off()
-        return fig
-
-    x = line_df["offset"].to_numpy()
-    rev_new = line_df["rev_new"].to_numpy()
-    rev_old = line_df["rev_old"].to_numpy()
-    day_labels = [pd.Timestamp(d).strftime("%d.%m.") for d in line_df["date_new"]]
-
-    pal = _pal()
-    fig, ax = plt.subplots(figsize=(13, 4.6))
-    ax.plot(
-        x, rev_old, marker="o", markersize=3.5, linewidth=1.6,
-        color="#666666", label=str(year_old),
-    )
-    ax.plot(
-        x, rev_new, marker="o", markersize=3.5, linewidth=2.0,
-        color=pal[0], label=str(year_new),
-    )
-    ax.fill_between(x, rev_new, rev_old, where=(rev_new >= rev_old),
-                    color=pal[0], alpha=0.10, interpolate=True)
-
-    # X-Ticks ausdünnen, damit lange Fenster lesbar bleiben.
-    n = len(x)
-    step = max(1, n // 12)
-    tick_pos = list(range(0, n, step))
-    ax.set_xticks([x[i] for i in tick_pos])
-    ax.set_xticklabels([day_labels[i] for i in tick_pos], rotation=45, ha="right", fontsize=9)
-    ax.set_xlabel("Erstellungs-Tag (Buchungsdatum)")
-    ax.set_ylabel("Revenue (€, netto)")
-    ax.set_title(
-        f"Revenue je Erstellungs-Tag (Aufenthalt im Stay-Fenster) · {year_new} vs {year_old}"
-        + (f" · {period_label}" if period_label else ""),
-        fontsize=12,
-        weight="bold",
-    )
-    # Summen in die Legende (= Total der Tabellen, As-of).
-    handles = [
-        Line2D([0], [0], color=pal[0], linewidth=2.0, marker="o", markersize=4,
-               label=f"{year_new} · Summe {H.fmt_eur(float(rev_new.sum()))}"),
-        Line2D([0], [0], color="#666666", linewidth=1.6, marker="o", markersize=4,
-               label=f"{year_old} · Summe {H.fmt_eur(float(rev_old.sum()))}"),
-    ]
-    ax.legend(handles=handles, frameon=False, fontsize=9, loc="upper left")
-    fig.tight_layout()
-    return fig
-
-
-def purpose_composition_area_chart(
-    area_df: pd.DataFrame,
-    year_old: int,
-    year_new: int,
-    period_label: str = "",
-):
-    """Gestapelte Flächen: Business vs Privat je Erstellungs-Tag, OLD vs NEW.
-
-    Zwei Panels nebeneinander (links OLD, rechts NEW) mit **gemeinsamer
-    Y-Achse**, damit die absoluten Revenue-Niveaus direkt vergleichbar sind.
-    In jedem Panel ist das Revenue je Erstellungs-Tag in Business (unten) und
-    Privat (oben) gestapelt - die Flächenhöhe zeigt die absolute Entwicklung,
-    der Titel je Panel nennt die Summe und den Business/Privat-Anteil (in %).
-
-    Erwartet ``area_df`` aus ``global_tables.purpose_daily_area_data`` mit den
-    Spalten ``offset``, ``date_new``, ``biz_new``, ``priv_new``, ``biz_old``,
-    ``priv_old``. X-Achse = Kalendertag des Creation-Fensters (NEW-Datierung,
-    OLD liegt per Jahres-Offset deckungsgleich darüber).
-    """
-    if area_df is None or area_df.empty:
-        fig, ax = plt.subplots(figsize=(11, 3.4))
-        ax.text(0.5, 0.5, "Keine Buchungen im gewählten Fenster", ha="center", va="center")
-        ax.set_axis_off()
-        return fig
-
-    x = area_df["offset"].to_numpy()
-    day_labels = [pd.Timestamp(d).strftime("%d.%m.") for d in area_df["date_new"]]
-
-    c_biz = color("blue")
-    c_priv = color("orange")
-
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.6), sharey=True)
-    panels = [
-        (axes[0], area_df["biz_old"].to_numpy(), area_df["priv_old"].to_numpy(), year_old),
-        (axes[1], area_df["biz_new"].to_numpy(), area_df["priv_new"].to_numpy(), year_new),
-    ]
-    for ax, biz, priv, yr in panels:
-        ax.stackplot(
-            x, biz, priv,
-            colors=[c_biz, c_priv],
-            labels=["Business", "Privat"],
-            edgecolor="white", linewidth=0.3, alpha=0.92,
-        )
-        tot = float(biz.sum() + priv.sum())
-        biz_sum, priv_sum = float(biz.sum()), float(priv.sum())
-        sh_biz = (biz_sum / tot * 100) if tot > 0 else 0.0
-        sh_priv = (priv_sum / tot * 100) if tot > 0 else 0.0
-        ax.set_title(
-            f"{yr} · Summe {H.fmt_eur(tot)}\n"
-            f"Business {sh_biz:.0f}% ({H.fmt_eur(biz_sum)}) · "
-            f"Privat {sh_priv:.0f}% ({H.fmt_eur(priv_sum)})",
-            fontsize=10.5, weight="bold",
-        )
-        n = len(x)
-        step = max(1, n // 10)
-        tick_pos = list(range(0, n, step))
-        ax.set_xticks([x[i] for i in tick_pos])
-        ax.set_xticklabels(
-            [day_labels[i] for i in tick_pos], rotation=45, ha="right", fontsize=8
-        )
-        ax.set_xlabel("Erstellungs-Tag (Buchungsdatum)")
-    axes[0].set_ylabel("Revenue (€, netto)")
-
-    handles = [
-        Patch(facecolor=c_biz, label="Business"),
-        Patch(facecolor=c_priv, label="Privat (inkl. unbekannter Reisezweck)"),
-    ]
-    fig.legend(
-        handles=handles, loc="upper center", bbox_to_anchor=(0.5, 0.02),
-        frameon=False, ncol=2, fontsize=9,
-    )
-    fig.suptitle(
-        f"Composition Business vs Privat je Erstellungs-Tag · {year_new} vs {year_old}"
-        + (f" · {period_label}" if period_label else ""),
-        fontsize=12, weight="bold", y=1.02,
-    )
-    fig.tight_layout(rect=[0, 0.04, 1, 0.99])
-    return fig
-
-
-def purpose_booking_count_chart(
-    count_df: pd.DataFrame,
-    year_old: int,
-    year_new: int,
-    period_label: str = "",
-):
-    """Gruppierte Balken: Anzahl Buchungen je Reisezweck, OLD vs NEW.
-
-    Anders als 8.E (Revenue) zählt diese Grafik **Buchungen** (eindeutige
-    Reservierungen). X-Achse = Reisezweck (Business / Privat), je Gruppe zwei
-    Balken (OLD vs NEW) - damit beide Jahre direkt vergleichbar sind. Über
-    jedem Balken: absolute Anzahl + Anteil (%) am jeweiligen Jahr.
-
-    Erwartet ``count_df`` aus ``global_tables.purpose_booking_counts`` mit den
-    Spalten ``Reisezweck``, ``n_new``, ``n_old``, ``share_new``, ``share_old``.
-    """
-    if count_df is None or count_df.empty:
-        fig, ax = plt.subplots(figsize=(11, 3.4))
-        ax.text(0.5, 0.5, "Keine Buchungen im gewählten Fenster", ha="center", va="center")
-        ax.set_axis_off()
-        return fig
-
-    purposes = count_df["Reisezweck"].tolist()
-    n_old = count_df["n_old"].to_numpy()
-    n_new = count_df["n_new"].to_numpy()
-    sh_old = count_df["share_old"].to_numpy()
-    sh_new = count_df["share_new"].to_numpy()
-
-    x = np.arange(len(purposes))
-    w = 0.38
-    c_old, c_new = "#666666", _pal()[0]
-
-    fig, ax = plt.subplots(figsize=(9, 4.6))
-    bars_old = ax.bar(x - w / 2, n_old, w, color=c_old, label=str(year_old))
-    bars_new = ax.bar(x + w / 2, n_new, w, color=c_new, label=str(year_new))
-
-    def _annotate(bars, counts, shares):
-        for rect, cnt, sh in zip(bars, counts, shares, strict=False):
-            ax.annotate(
-                f"{int(cnt):,}".replace(",", ".") + f"\n{sh:.0f}%",
-                xy=(rect.get_x() + rect.get_width() / 2, rect.get_height()),
-                xytext=(0, 3), textcoords="offset points",
-                ha="center", va="bottom", fontsize=9,
-            )
-
-    _annotate(bars_old, n_old, sh_old)
-    _annotate(bars_new, n_new, sh_new)
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(purposes)
-    ax.set_ylabel("Anzahl Buchungen")
-    ax.set_ylim(0, max(float(n_old.max(initial=0)), float(n_new.max(initial=0))) * 1.18 + 1)
-    tot_old, tot_new = int(n_old.sum()), int(n_new.sum())
-    handles = [
-        Patch(facecolor=c_new, label=f"{year_new} · Summe {tot_new:,}".replace(",", ".")),
-        Patch(facecolor=c_old, label=f"{year_old} · Summe {tot_old:,}".replace(",", ".")),
-    ]
-    ax.legend(handles=handles, frameon=False, fontsize=9, loc="upper left")
-    ax.set_title(
-        f"Anzahl Buchungen je Reisezweck · {year_new} vs {year_old}"
-        + (f" · {period_label}" if period_label else ""),
-        fontsize=12, weight="bold",
-    )
-    fig.tight_layout()
-    return fig
-
-
-# =============================================================================
-# Pace-to-Plan helper
-# =============================================================================
-def build_pace_table(
-    raw_stay: pd.DataFrame,
-    start_new: pd.Timestamp,
-    end_new: pd.Timestamp,
-    today: pd.Timestamp | None = None,
-) -> pd.DataFrame:
-    """Sammelt IST vs PLAN + Zeit-Fortschritt je Standort + Gesamt-Zeile.
-    """
-    today = pd.Timestamp(today) if today is not None else pd.Timestamp.today().normalize()
-
-    # Periodweite Werte (gleich für alle Hotels, daher außerhalb der Schleife).
-    period_pace = H.pace_to_plan(start_new, end_new, today=today)
-    period_status = {
-        "completed": "abgeschlossen",
-        "in_progress": "laufend",
-        "future": "zukünftig",
-    }.get(period_pace["status"], period_pace["status"])
-    period_progress = period_pace["elapsed_pct"]
-
-    rows = []
-    for _, r in raw_stay[raw_stay["Standort"] != "Total"].iterrows():
-        ist = r["ist_new"]
-        plan = r["plan_new"]
-        if ist == 0 and plan == 0:
-            continue
-        rows.append(
-            {
-                "Standort": r["Standort"],
-                "IST (€)": ist,
-                "PLAN (€)": plan,
-                "IST / PLAN (%)": (ist / plan * 100) if plan > 0 else float("nan"),
-                "Fortschritt Zeit (%)": period_progress,
-                "Status": period_status,
-            }
-        )
-    df = pd.DataFrame(rows)
-    if df.empty:
-        return df
-
-    # Gesamt-Zeile: IST + PLAN summieren, Fortschritt + Status sind periodweit
-    # gleich (kommen aus period_pace oben), IST/PLAN-% aus der Total-Summe.
-    total_ist = df["IST (€)"].sum()
-    total_plan = df["PLAN (€)"].sum()
-    total_row = pd.DataFrame(
-        [
-            {
-                "Standort": "Gesamt",
-                "IST (€)": total_ist,
-                "PLAN (€)": total_plan,
-                "IST / PLAN (%)": (total_ist / total_plan * 100) if total_plan > 0 else float("nan"),
-                "Fortschritt Zeit (%)": period_progress,
-                "Status": period_status,
-            }
-        ]
-    )
-    df = pd.concat([df, total_row], ignore_index=True)
-    return df

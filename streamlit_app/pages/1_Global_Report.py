@@ -22,7 +22,6 @@ from components import (
     render_notepad,
     render_toc,
     section,
-    sync_snapshot_override,
 )
 from components import global_charts as GC
 from components import global_tables as GT
@@ -45,7 +44,6 @@ st.set_page_config(
 )
 inject_brand_css()
 CD.apply_stayery_style_once()
-sync_snapshot_override()
 CD.keep_session_state_alive()  # MUST run before any widget renders this page
 
 PAGE = "global"
@@ -213,7 +211,6 @@ with st.sidebar:
         [5, "6.A", "6.B", "6.C", "6.D"],
         label="Alle Sektionen laden",
     )
-    CD.cache_clear_button()
 
     if not props_pick:
         st.warning("Bitte mindestens einen Standort wählen.")
@@ -250,13 +247,14 @@ def _ck(section_id: str) -> str:
 
 
 # ============================== Data load ==================================
-with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
-    pull_start, pull_end = H.union_period((start_old, end_old), (start_new, end_new))
-    pace_pull_start = pd.Timestamp(f"{YEAR_OLD}-01-01")
-    pace_pull_end = pd.Timestamp(f"{YEAR_NEW}-12-31")
-    pull_start = min(pull_start, pace_pull_start)
-    pull_end = max(pull_end, pace_pull_end)
-    nightly = CD.get_timeslices(start=pull_start, end=None, properties=props_pick)
+pull_start, pull_end = H.union_period((start_old, end_old), (start_new, end_new))
+pace_pull_start = pd.Timestamp(f"{YEAR_OLD}-01-01")
+pace_pull_end = pd.Timestamp(f"{YEAR_NEW}-12-31")
+pull_start = min(pull_start, pace_pull_start)
+pull_end = max(pull_end, pace_pull_end)
+# Der Slice wird ERST nach dem Späte-Öffner-Ausschluss geladen (s.u.), mit der
+# endgültigen Standort-Liste - vorher wurde der volle Slice geladen und dann
+# per ``nightly[~isin(...)]`` ein zweites Mal kopiert (~+190 MB je Rerun).
 
 reset_export(PAGE)
 
@@ -293,8 +291,10 @@ if _late_openers:
                 'einbeziehen" in der Sidebar aktivieren.'
             )
             st.stop()
-        nightly = nightly[~nightly["property_code"].isin(_late_openers)]
         props_tag = "+".join(sorted(props_pick)) if len(props_pick) < 11 else "all"
+
+with st.spinner("Lade Daten aus dem Parquet-Snapshot …"):
+    nightly = CD.get_timeslices(start=pull_start, end=None, properties=props_pick)
 
 # Warnung: NEW-Periode in der Zukunft.
 if start_new > SNAP_DATE:
@@ -379,7 +379,7 @@ disp_created, raw_created = GT.performance_by_created(
     green_pct=green_threshold,
     red_pct=red_threshold,
 )
-disp_chan_created, raw_chan_created = GT.channel_volume_by_created(
+disp_chan_created, _raw_chan_created = GT.channel_volume_by_created(
     nightly,
     start_new,
     end_new,
@@ -775,4 +775,3 @@ download_button(
     page=PAGE,
 )
 
-CD.collect()

@@ -25,6 +25,7 @@ dependencies = [
     "db-dtypes>=1.3",                   # DATE/TIME support for to_dataframe()
     "gcsfs>=2024.6",                    # snapshot IO when STAYERY_SNAPSHOT_DIR=gs://…
     "plotly>=5.24",                     # interaktive Charts (Pickup §5b, schrittweise Migration)
+    "xlsxwriter>=3.2",                  # Excel-Downloads (streaming, ~1/3 RAM von openpyxl)
 ]
 
 [project.optional-dependencies]

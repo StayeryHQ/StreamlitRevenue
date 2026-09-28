@@ -153,22 +153,6 @@ def is_open_in_period(
     return (end - overlap_start).days + 1 >= min_overlap_days
 
 
-def filter_open_properties(
-    properties: list[str],
-    start: pd.Timestamp,
-    end: pd.Timestamp,
-    *,
-    min_overlap_days: int = 1,
-) -> list[str]:
-    """Reduktion einer Property-Liste auf jene, die im Zeitraum offen waren.
-
-    Reihenfolge der Eingabe wird beibehalten. Wird in Sidebars / Daten-Pulls
-    genutzt, damit nicht-offene Standorte gar nicht erst geladen werden.
-    """
-    return [p for p in properties
-            if is_open_in_period(p, start, end, min_overlap_days=min_overlap_days)]
-
-
 # =============================================================================
 # Planzahlen - BigQuery `ref_tables.plan` plan.parquet neben dem Snapshot
 # =============================================================================
@@ -399,7 +383,7 @@ def plan_to_dict(plan_df: pd.DataFrame) -> dict[str, dict[str, float]]:
     if df.empty:
         return {}
     ym = df["month"].dt.strftime("%Y-%m")
-    grouped = df.assign(_ym=ym).groupby(["property_code", "_ym"])["revenue"].sum()
+    grouped = df.assign(_ym=ym).groupby(["property_code", "_ym"], observed=True)["revenue"].sum()
     out: dict[str, dict[str, float]] = {}
     for (pc, month_key), value in grouped.items():
         out.setdefault(str(pc), {})[str(month_key)] = float(value)
@@ -557,6 +541,120 @@ def _optimize_string_memory(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+_CATEGORY_MAX_UNIQUE = 500
+_CATEGORY_MIN_ROWS = 10_000
+
+
+def _read_snapshot_frame(path) -> pd.DataFrame:
+    """Parquet lesen, ohne den Umweg über Python-Objekt-Strings.
+
+    ``pd.read_parquet`` materialisiert jede String-Spalte als Python-Objekte
+    (gemessen 1,5 GB Peak für 32 MB Parquet) und die Konvertierung danach
+    kostet Sekunden. Hier wird die Arrow-Tabelle direkt gelesen: String-Spalten
+    mit wenigen Ausprägungen werden dictionary-kodiert (→ pandas ``category``),
+    alle anderen bleiben Arrow-Strings (``string[pyarrow]``). Snapshots, die
+    bereits mit category/boolean geschrieben wurden, kommen so ohnehin an.
+    Remote-Pfade (``gs://``) gehen weiter über pandas/fsspec.
+
+    Args:
+        path: Lokaler Pfad oder Remote-URI.
+
+    Returns:
+        DataFrame mit speichersparenden Dtypes (``optimize_dtypes`` danach ist
+        idempotent und erledigt nur noch die Bool-Flags).
+    """
+    if _is_remote(path):
+        return pd.read_parquet(str(path))
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    tbl = pq.read_table(str(path))
+    n = tbl.num_rows
+    cols, encoded = [], []
+    for field in tbl.schema:
+        col = tbl[field.name]
+        if (pa.types.is_string(field.type) or pa.types.is_large_string(field.type)) and n >= _CATEGORY_MIN_ROWS:
+            if len(pc.unique(col)) <= _CATEGORY_MAX_UNIQUE:
+                col = col.dictionary_encode()
+                encoded.append(field.name)
+        cols.append(col)
+    tbl = pa.table(cols, names=tbl.column_names, metadata=tbl.schema.metadata)
+
+    def _mapper(t):
+        if pa.types.is_string(t) or pa.types.is_large_string(t):
+            return pd.StringDtype("pyarrow")
+        return None
+
+    df = tbl.to_pandas(types_mapper=_mapper)
+    # ``dictionary_encode`` ordnet Kategorien nach erstem Auftreten; ``groupby``/
+    # ``unstack`` sortieren nach Kategorie-Reihenfolge - deshalb hier sortieren
+    # (= dieselbe Reihenfolge wie bei String-Spalten). Kategorien, die schon im
+    # Parquet stehen (fachlich geordnete Buckets), bleiben unverändert.
+    for name in encoded:
+        s = df[name]
+        if isinstance(s.dtype, pd.CategoricalDtype) and len(s.cat.categories):
+            df[name] = s.cat.reorder_categories(sorted(s.cat.categories))
+    return df
+
+
+def optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
+    """Speicher-Dtypes für den Snapshot (in-place, idempotent).
+
+    Drei Regeln, gemessen am Timeslices-Snapshot (730k Zeilen, 62 Spalten):
+
+    1. object-Spalten mit nur True/False/None → ``boolean`` (5 Flag-Spalten
+       lagen als Python-Objekte vor: je ~25 MB).
+    2. String-Spalten mit ≤ ``_CATEGORY_MAX_UNIQUE`` Ausprägungen → ``category``
+       (Standort, Status, Channel, Rate-Plan, Zimmerkategorie, Firmencode, …).
+    3. Übrige String-Spalten (IDs, Firmennamen) → ``string[pyarrow]``.
+
+    Ergebnis: 668 MB → ~250 MB im Speicher; ``read_parquet`` stellt die Dtypes
+    aus dem Parquet-Metadaten wieder her, sodass der Loader nach dem nächsten
+    Refresh ohne Konvertierung auskommt (0,7 s statt 5 s).
+
+    WICHTIG für Konsumenten: ``groupby``/``pivot_table`` auf Kategorie-Spalten
+    IMMER mit ``observed=True`` (sonst werden leere Kategorien materialisiert),
+    und Zuweisungen neuer Werte in Kategorie-Spalten über ``overrides._set_where``
+    (ergänzt fehlende Kategorien). Beides ist im Code durchgezogen.
+
+    Args:
+        df: Frame, wird in-place verändert und zurückgegeben.
+
+    Returns:
+        Derselbe Frame.
+    """
+    n = len(df)
+    for col in df.columns:
+        s = df[col]
+        dt = s.dtype
+        if isinstance(dt, pd.CategoricalDtype) or dt == bool or str(dt) == "boolean":
+            # Bestehende Kategorien (z.B. los_bucket, group_size_bucket aus dem
+            # Engineering) behalten ihre fachliche Reihenfolge.
+            continue
+        if dt == object:
+            non_null = s.dropna()
+            if len(non_null):
+                kind = pd.api.types.infer_dtype(non_null, skipna=True)
+                if kind == "boolean":
+                    df[col] = s.astype("boolean")
+                    continue
+                if kind != "string":
+                    continue
+        elif not (str(dt) == "string" or str(dt).startswith("string[")):
+            continue
+        try:
+            if n >= _CATEGORY_MIN_ROWS and s.nunique(dropna=True) <= _CATEGORY_MAX_UNIQUE:
+                # Kategorien als normale Python-Strings (robust für parquet-Roundtrip,
+                # ``.str``-Accessor, Vergleiche, ``add_categories``).
+                df[col] = s.astype(object).astype("category")
+            elif str(dt) != "string[pyarrow]":
+                df[col] = s.astype("string[pyarrow]")
+        except (TypeError, ValueError, ImportError):  # pragma: no cover - defensiv
+            continue
+    return df
+
+
 def _read_parquet_with_filter(
     path,
     date_col: str,
@@ -572,7 +670,7 @@ def _read_parquet_with_filter(
     The date filter is normalised to the calendar day on both ends - same
     semantics as ``filter_period()``.
     """
-    df = _optimize_string_memory(pd.read_parquet(str(path)))
+    df = optimize_dtypes(_read_snapshot_frame(path))
     if start is not None or end is not None:
         # Ensure date_col is datetime; engineered snapshots already are.
         if not pd.api.types.is_datetime64_any_dtype(df[date_col]):
@@ -585,7 +683,10 @@ def _read_parquet_with_filter(
             df = df[day <= pd.Timestamp(end).normalize()]
     if properties:
         df = df[df["property_code"].isin(properties)]
-    return df.copy()
+    # Kein ``.copy()`` mehr: ``df`` ist entweder das frisch gelesene Frame oder
+    # ein bereits per Boolean-Index materialisiertes neues Frame. Die frühere
+    # Kopie hat den kompletten Snapshot beim Laden ein zweites Mal angelegt.
+    return df
 
 
 def load_reservations(
@@ -669,6 +770,11 @@ def save_snapshot(
     res_path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["reservations"])
     nig_path = _join_snapshot(snapshot_dir, SNAPSHOT_FILES["timeslices"])
 
+    # Speicher-Dtypes (category/boolean/arrow-string) direkt in den Snapshot
+    # schreiben - pandas stellt sie beim Lesen aus den Parquet-Metadaten wieder
+    # her, der Web-Prozess spart die Konvertierung beim Laden.
+    optimize_dtypes(res)
+    optimize_dtypes(nig)
     # Atomar schreiben (F8): tmp + os.replace lokal, direkt bei gs://.
     # Vorher konnte ein OOM-Kill mitten im to_parquet den Snapshot zerstören.
     _write_parquet_atomic(res, res_path)
@@ -825,7 +931,6 @@ CANCEL_TIMING_LABELS = [
 
 GROUP_BINS = [0, 1, 2, 4, 1e9]
 GROUP_LABELS = ["single", "2_rooms", "3-4_rooms", "5+_rooms"]
-
 
 
 def classify_channel(channel_code: Any, source: Any) -> str:
@@ -1082,7 +1187,7 @@ def engineer_timeslices(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
     df["room_category"] = normalize_room_category(df["unitGroup_name"], property_code)
 
     # Group size = distinct reservations sharing a bookingId.
-    size = df.groupby("bookingId")["id"].transform("nunique")
+    size = df.groupby("bookingId", observed=True)["id"].transform("nunique")
     df["booking_size"] = size
     df["group_size_bucket"] = pd.cut(size, bins=GROUP_BINS, labels=GROUP_LABELS)
 
@@ -1137,7 +1242,7 @@ def engineer_reservations(df: pd.DataFrame, property_code: str) -> pd.DataFrame:
         np.nan,
     )
 
-    size = df.groupby("bookingId")["id"].transform("count")
+    size = df.groupby("bookingId", observed=True)["id"].transform("count")
     df["booking_size"] = size
     df["group_size_bucket"] = pd.cut(size, bins=GROUP_BINS, labels=GROUP_LABELS)
 
@@ -1385,7 +1490,7 @@ def monthly_landscape(
     """Per-month KPI DataFrame for trend lines."""
     nig = nightly[nightly["is_realized"]] if realized_only else nightly
     rows = []
-    for ym, g in nig.groupby("stay_year_month"):
+    for ym, g in nig.groupby("stay_year_month", observed=True):
         days = pd.Period(ym, freq="M").days_in_month
         revenue = float(g["revenue"].sum())
         rn = int(len(g))
@@ -1414,48 +1519,6 @@ def monthly_landscape(
             ]
         )
     return out.sort_values("stay_year_month").reset_index(drop=True)
-
-
-def pace_to_plan(
-    start: pd.Timestamp,
-    end: pd.Timestamp,
-    today: pd.Timestamp | None = None,
-) -> dict[str, float | str]:
-    """Zeit-Fortschritt der Periode
-
-    Returns:
-        ``days_elapsed``, ``days_total``, ``elapsed_pct``,
-        ``status`` ('completed', 'in_progress', 'future').
-
-    Reine Ist-Sicht: wie weit ist die Periode zeitlich durch (Stichtag ``today``,
-    in den Reports der Snapshot-Stand). Damit ordnet man IST/PLAN ein - bei 30 %
-    verstrichener Zeit sind ~30 % vom PLAN = on-pace. Es wird NICHT auf das
-    Periodenende hochgerechnet/extrapoliert.
-    """
-    today = pd.Timestamp(today) if today is not None else pd.Timestamp.today().normalize()
-    days_total = period_days(start, end)
-    if today < start:
-        return {
-            "days_elapsed": 0,
-            "days_total": days_total,
-            "elapsed_pct": 0.0,
-            "status": "future"
-        }
-    if today >= end:
-        return {
-            "days_elapsed": days_total,
-            "days_total": days_total,
-            "elapsed_pct": 100.0,
-            "status": "completed"
-        }
-    days_elapsed = (today - start).days + 1
-    elapsed_pct = days_elapsed / days_total * 100
-    return {
-        "days_elapsed": days_elapsed,
-        "days_total": days_total,
-        "elapsed_pct": elapsed_pct,
-        "status": "in_progress"
-    }
 
 
 def union_period(
@@ -1548,13 +1611,13 @@ def pace_by_month(
     def _otb(asof: pd.Timestamp, year_mask: pd.Series) -> pd.Series:
         """Nacht-Netto on-the-books am Stichtag, gruppiert nach Stay-Monat."""
         m = year_mask & asof_on_the_books_mask(df, asof, include_cancellations=False)
-        return rev[m].groupby(month[m]).sum()
+        return rev[m].groupby(month[m], observed=True).sum()
 
     # finale Realität fürs alte Jahr: realized-only (bzw. nicht-storniert wenn
     # is_realized fehlt). realized_only=False -> alle nicht-stornierten Nächte.
     eom_base = realized if realized_only else ~cancelled
     eom_mask = is_old_year & eom_base
-    eom_old = rev[eom_mask].groupby(month[eom_mask]).sum()
+    eom_old = rev[eom_mask].groupby(month[eom_mask], observed=True).sum()
 
     asof_old = _otb(snap_old, is_old_year)
     asof_new = _otb(snap, is_new_year)
@@ -1566,19 +1629,6 @@ def pace_by_month(
         "ist_asof_new": [float(asof_new.get(m, 0.0)) for m in range(1, 13)],
     })
     return out
-
-
-# =============================================================================
-# Firm-resolution definitions - multiple ways to identify the booking firm.
-# =============================================================================
-# Each definition produces a string identifier per reservation. NaN = no firm
-# under that definition. The B2B deep-dive runs the same analysis once per
-# active definition and surfaces them side-by-side so the user can compare.
-FIRM_DEFINITIONS: tuple[str, ...] = (
-    "firm_by_code",            # apaleo company_code only - strict contract view
-    "firm_by_effective",       # priority walk: company_name → booker → guest → code
-    "firm_by_effective_fuzzy", # effective + fuzzy-clustered name variants merged
-)
 
 
 def add_firm_definitions(
@@ -1732,7 +1782,7 @@ def reservations_from_timeslices(nightly: pd.DataFrame) -> pd.DataFrame:
     """
     if nightly is None or nightly.empty or "id" not in nightly.columns:
         return nightly.iloc[0:0].copy() if nightly is not None else pd.DataFrame()
-    g = nightly.groupby("id", sort=False)
+    g = nightly.groupby("id", sort=False, observed=True)
     out = g.first()
     out["revenue"] = g["revenue"].sum()
 
@@ -1954,14 +2004,12 @@ def yoy_two_panel(nig_old, nig_new, dim, super_title, year_old, year_new):
     Grouped by ``dim``. Returns a matplotlib Figure. Shared by several
     Standort-Analyse sections so the YoY layout stays consistent.
     """
-    import matplotlib.pyplot as plt
-
-    from .theming import categorical_palette, color
+    from .theming import categorical_palette, color, subplots
 
     pal = categorical_palette()
     yoy = yoy_by(nig_old, nig_new, dim).reset_index()
     yoy[dim] = yoy[dim].astype(str)
-    fig, axes = plt.subplots(1, 2, figsize=(13, 4.4))
+    fig, axes = subplots(1, 2, figsize=(13, 4.4))
 
     ax = axes[0]
     y = np.arange(len(yoy))
@@ -2012,39 +2060,6 @@ def yoy_two_panel(nig_old, nig_new, dim, super_title, year_old, year_new):
     return fig
 
 
-# =============================================================================
-# Period helpers - fully dynamic analysis window
-# =============================================================================
-_MONTHS_DE_SHORT = {
-    1: "Jan",
-    2: "Feb",
-    3: "Mär",
-    4: "Apr",
-    5: "Mai",
-    6: "Jun",
-    7: "Jul",
-    8: "Aug",
-    9: "Sep",
-    10: "Okt",
-    11: "Nov",
-    12: "Dez",
-}
-_MONTHS_DE_LONG = {
-    1: "Januar",
-    2: "Februar",
-    3: "März",
-    4: "April",
-    5: "Mai",
-    6: "Juni",
-    7: "Juli",
-    8: "August",
-    9: "September",
-    10: "Oktober",
-    11: "November",
-    12: "Dezember",
-}
-
-
 def filter_period(
     df: pd.DataFrame, start: pd.Timestamp, end: pd.Timestamp, date_col: str
 ) -> pd.DataFrame:
@@ -2086,37 +2101,6 @@ def mirror_years(ts: pd.Timestamp, years: int) -> pd.Timestamp:
     except ValueError:
         # 29 Feb -> 28 Feb in a non-leap target year.
         return ts.replace(year=target_year, day=28)
-
-
-# Deutsche Monats-Kurzlabels (Index 0 = Januar) - genutzt von den
-# Monat+Tag-Filtern im Global Report (jahr-unabhängige Erstellungs-Fenster).
-MONTH_ABBR_DE: tuple[str, ...] = (
-    "Jan", "Feb", "Mär", "Apr", "Mai", "Jun",
-    "Jul", "Aug", "Sep", "Okt", "Nov", "Dez",
-)
-
-
-def clamp_day(year: int, month: int, day: int) -> pd.Timestamp:
-    """Build a midnight ``Timestamp`` for (year, month, day), clamping the day.
-
-    A day beyond the month's length is clamped to the last valid day (e.g. day
-    31 in a 30-day month becomes 30, 29/30/31 Feb become 28/29). Lets the
-    month+day creation-date filters accept any day 1-31 without raising for
-    short months.
-
-    Args:
-        year: Calendar year the month/day is anchored to.
-        month: Month 1-12.
-        day: Desired day 1-31 (clamped to the month length).
-
-    Returns:
-        Midnight-normalised ``pd.Timestamp``.
-    """
-    first = pd.Timestamp(year=int(year), month=int(month), day=1)
-    last_day = (first + pd.offsets.MonthEnd(0)).day
-    return pd.Timestamp(
-        year=int(year), month=int(month), day=min(int(day), int(last_day))
-    ).normalize()
 
 
 def asof_on_the_books_mask(

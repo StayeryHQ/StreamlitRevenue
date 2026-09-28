@@ -14,11 +14,13 @@ import streamlit as st
 
 from revenueblindspots import helpers as H
 
+from .cache_keys import DF_HASH_FUNCS
+
 
 # =========================================================================
 # Standort-Analyse
 # =========================================================================
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def channel_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                        year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 3 - Channel × LOS-Bucket Pivot (Revenue + YoY-%).
@@ -57,7 +59,7 @@ def channel_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def channel_purpose_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                                 year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 4 - Channel × Reisezweck (Business / Leisure) × LOS-Bucket"""
@@ -98,7 +100,7 @@ def channel_purpose_los_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def los_yoy_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                     year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 5 - LOS-Bucket × Revenue YoY."""
@@ -125,7 +127,7 @@ def los_yoy_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def channel_mix_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                        year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 6 - Channel × Total-Revenue YoY (realized)."""
@@ -156,7 +158,7 @@ def channel_mix_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     return pd.DataFrame(rows).sort_values(f"Revenue {year_new} (€)", ascending=False)
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def weekday_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                     weekday_col: str, year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektionen 8 / 9 - Revenue je Wochentag (Stay oder Anreise)."""
@@ -182,7 +184,7 @@ def weekday_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def group_size_table(res_old: pd.DataFrame, res_new: pd.DataFrame,
                       year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 10 - Revenue nach Gruppen-Größe."""
@@ -206,7 +208,7 @@ def group_size_table(res_old: pd.DataFrame, res_new: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def de_international_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                             year_old: int, year_new: int, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 11 - DE vs International vs Unbekannt (Revenue + Nights + ADR).
@@ -252,7 +254,7 @@ def de_international_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
     return pd.DataFrame(rows)
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def top_countries_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
                           year_old: int, year_new: int, top_n: int = 12, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 12 - Top-Herkunftsländer Revenue YoY."""
@@ -283,7 +285,7 @@ def top_countries_table(nig_old: pd.DataFrame, nig_new: pd.DataFrame,
 # =========================================================================
 # Global Report
 # =========================================================================
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def location_revenue_table(nightly: pd.DataFrame, start_ts: pd.Timestamp,
                              end_ts: pd.Timestamp, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 7.A - Revenue je Standort × Monat (long-format)."""
@@ -301,7 +303,7 @@ def location_revenue_table(nightly: pd.DataFrame, start_ts: pd.Timestamp,
     return out
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def channel_x_location_table(nightly: pd.DataFrame, start_ts: pd.Timestamp,
                                end_ts: pd.Timestamp, realized_only: bool = True) -> pd.DataFrame:
     """Sektion 7.B - Channel-Mix je Standort (% Anteile)."""
@@ -323,7 +325,7 @@ def channel_x_location_table(nightly: pd.DataFrame, start_ts: pd.Timestamp,
     return piv_pct.reset_index().rename(columns={"property_code": "Standort"})
 
 
-@st.cache_data(ttl=3600, show_spinner=False, max_entries=8)
+@st.cache_data(ttl=3600, show_spinner=False, max_entries=8, hash_funcs=DF_HASH_FUNCS)
 def channel_los_granular_table(nightly: pd.DataFrame,
                                  start_old: pd.Timestamp, end_old: pd.Timestamp,
                                  start_new: pd.Timestamp, end_new: pd.Timestamp,

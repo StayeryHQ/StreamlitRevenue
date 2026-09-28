@@ -11,9 +11,7 @@ sys.path.insert(0, str(_REPO_ROOT / "src"))
 import streamlit as st
 
 sys.path.insert(0, str(_REPO_ROOT / "streamlit_app"))
-from components.brand import hero, inject_brand_css, sync_snapshot_override
-
-sync_snapshot_override()
+from components.brand import hero, inject_brand_css
 
 st.set_page_config(
     page_title="Stayery Revenue Analytics",
